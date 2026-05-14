@@ -1,0 +1,28 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: make ci-deps
+
+      - name: Run bats test suite
+        run: bats tests/
+
+      - name: Run shellcheck
+        run: shellcheck scripts/paw scripts/*.sh scripts/lib/*.sh scripts/lib/backends/*.sh
+
+      - name: Lint sample fixture
+        run: scripts/lint-task.sh tests/fixtures/sample-task-valid

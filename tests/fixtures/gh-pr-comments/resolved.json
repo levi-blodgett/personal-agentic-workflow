@@ -1,0 +1,32 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "nodes": [
+            {
+              "isResolved": true,
+              "path": "src/bar.ts",
+              "line": 10,
+              "originalLine": null,
+              "comments": {
+                "nodes": [
+                  { "author": { "login": "reviewer2" }, "body": "Already resolved." }
+                ]
+              }
+            }
+          ],
+          "pageInfo": { "hasNextPage": false, "endCursor": null }
+        },
+        "reviews": {
+          "nodes": [],
+          "pageInfo": { "hasNextPage": false, "endCursor": null }
+        },
+        "comments": {
+          "nodes": [],
+          "pageInfo": { "hasNextPage": false, "endCursor": null }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "nodes": [],
+          "pageInfo": { "hasNextPage": false, "endCursor": null }
+        },
+        "reviews": {
+          "nodes": [
+            {
+              "author": { "login": "reviewer2" },
+              "body": "Please fix the auth handling.",
+              "state": "REQUEST_CHANGES"
+            }
+          ],
+          "pageInfo": { "hasNextPage": false, "endCursor": null }
+        },
+        "comments": {
+          "nodes": [],
+          "pageInfo": { "hasNextPage": false, "endCursor": null }
+        }
+      }
+    }
+  }
+}

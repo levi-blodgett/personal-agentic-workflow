@@ -1,0 +1,32 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "nodes": [
+            {
+              "isResolved": false,
+              "path": "src/page1.ts",
+              "line": 1,
+              "originalLine": null,
+              "comments": {
+                "nodes": [
+                  { "author": { "login": "reviewer1" }, "body": "Page 1 comment." }
+                ]
+              }
+            }
+          ],
+          "pageInfo": { "hasNextPage": true, "endCursor": "cursor_abc" }
+        },
+        "reviews": {
+          "nodes": [],
+          "pageInfo": { "hasNextPage": false, "endCursor": null }
+        },
+        "comments": {
+          "nodes": [],
+          "pageInfo": { "hasNextPage": false, "endCursor": null }
+        }
+      }
+    }
+  }
+}

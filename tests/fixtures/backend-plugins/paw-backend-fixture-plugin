@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+subcommand="${1:-}"
+if [[ -z "$subcommand" ]]; then
+  echo "error: backend plugin subcommand required" >&2
+  exit 2
+fi
+shift
+
+record_args() {
+  local out_path="$1"
+  shift
+  printf '%s\n' "$@" > "${BATS_TEST_TMPDIR}/fixture-plugin.args"
+
+  local total=$# i=0 prompt=""
+  for arg in "$@"; do
+    (( i++ )) || true
+    if [[ "$i" -eq "$total" ]]; then
+      prompt="$arg"
+    fi
+  done
+  printf '%s' "$prompt" > "${BATS_TEST_TMPDIR}/fixture-plugin.prompt"
+
+  cat > "$out_path" <<'JSON'
+{"result":"fixture-plugin-ok","usage":{"input_tokens":7,"output_tokens":3,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}
+JSON
+}
+
+case "$subcommand" in
+  run-capture)
+    out_path="${1:?missing out path}"
+    shift
+    record_args "$out_path" "$@"
+    ;;
+  run-stream)
+    out_path="${1:?missing out path}"
+    shift
+    record_args "$out_path" "$@"
+    echo "[fixture-plugin stream output]"
+    ;;
+  parse-tokens|parse-stream-tokens)
+    json_file="${1:-}"
+    field="${2:-total}"
+    if [[ ! -f "$json_file" ]]; then
+      echo "unknown"
+      exit 0
+    fi
+    jq -r --arg field "$field" '
+      if $field == "input"            then (.usage.input_tokens // 0)
+      elif $field == "output"         then (.usage.output_tokens // 0)
+      elif $field == "cache_read"     then (.usage.cache_read_input_tokens // 0)
+      elif $field == "cache_creation" then (.usage.cache_creation_input_tokens // 0)
+      else ( (.usage.input_tokens                // 0)
+           + (.usage.output_tokens               // 0)
+           + (.usage.cache_creation_input_tokens // 0)
+           + (.usage.cache_read_input_tokens     // 0)
+           )
+      end | tostring
+    ' "$json_file" 2>/dev/null || echo "unknown"
+    ;;
+  display-model)
+    printf '%s\n' "${PAW_FIXTURE_PLUGIN_MODEL:-fixture-plugin-model}"
+    ;;
+  usage-banner)
+    if [[ -n "${PAW_FIXTURE_PLUGIN_BANNER:-}" ]]; then
+      printf '%s\n' "$PAW_FIXTURE_PLUGIN_BANNER"
+    fi
+    ;;
+  *)
+    echo "error: unknown backend plugin subcommand '$subcommand'" >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,43 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "nodes": [
+            {
+              "isResolved": false,
+              "path": "src/mixed.ts",
+              "line": 7,
+              "originalLine": null,
+              "comments": {
+                "nodes": [
+                  { "author": { "login": "reviewer1" }, "body": "Inline comment." }
+                ]
+              }
+            }
+          ],
+          "pageInfo": { "hasNextPage": false, "endCursor": null }
+        },
+        "reviews": {
+          "nodes": [
+            {
+              "author": { "login": "reviewer2" },
+              "body": "Overall concerns.",
+              "state": "REQUEST_CHANGES"
+            }
+          ],
+          "pageInfo": { "hasNextPage": false, "endCursor": null }
+        },
+        "comments": {
+          "nodes": [
+            {
+              "author": { "login": "commenter3" },
+              "body": "Top-level note."
+            }
+          ],
+          "pageInfo": { "hasNextPage": false, "endCursor": null }
+        }
+      }
+    }
+  }
+}
