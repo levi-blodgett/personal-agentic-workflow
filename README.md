@@ -4,7 +4,7 @@
 [![Shell](https://img.shields.io/badge/shell-bash-4EAA25?logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](https://github.com/levi-blodgett/personal-agentic-workflow)
 
-> ## "You can outsource your thinking, but you can't outsource your understanding."
+> ## "You can outsource your thinking, but you can't outsource your understanding." - Andrej Karpathy
 
 PAW is a plan-first, file-backed framework for AI-assisted development. The human owns scope review and commits; the agent implements inside an approved task package and leaves a local audit trail behind.
 
