@@ -6,7 +6,7 @@ How PAW works end-to-end: task-package shape, day-to-day flow, review expectatio
 
 Shared workflow instructions live in this repo, at:
 ```text
-$HOME/git/personal-agentic-workflow/prompts/prompt_instructions.md
+<resolved PAW checkout>/prompts/prompt_instructions.md
 ```
 
 This is the master workflow contract used across repos.
@@ -22,9 +22,9 @@ $HOME/git/<repo-name>/.agent/<task-name>/
 Repo-local `.agent/` directories should be excluded locally via `.git/info/exclude`, not committed `.gitignore`. To set this up in a target repo, run either:
 
 ```bash
-$HOME/git/personal-agentic-workflow/scripts/paw setup            # in the target repo
+paw setup                                                        # in the target repo, after install
 # or
-$HOME/git/personal-agentic-workflow/scripts/setup-repo.sh        # equivalent direct call
+<resolved PAW checkout>/scripts/setup-repo.sh                    # equivalent direct call
 ```
 
 ## Overall Workflow

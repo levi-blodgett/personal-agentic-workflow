@@ -11,14 +11,14 @@ run_doc_match() {
 }
 
 @test "completion docs: README references the zsh completion workflow" {
-  run_doc_match "paw completion zsh|compdef _paw paw|autoload -U compinit|source <\\(paw completion zsh\\)" \
+  run_doc_match "paw completion zsh|autoload -U compinit|source <\\(paw completion zsh\\)|current shell|future shells" \
     "$REPO_ROOT/README.md"
 
   [ "$status" -eq 0 ]
 }
 
 @test "completion docs: operator docs cover the zsh-only v1 scope" {
-  run_doc_match "paw completion zsh|zsh-only|top-level subcommands only|subcommand completion only|source <\\(paw completion zsh\\)" \
+  run_doc_match "paw completion zsh|zsh-only|top-level subcommands only|current shell immediately|future shells|already-open shell does not change|source <\\(paw completion zsh\\)" \
     "$REPO_ROOT/scripts/README.md" \
     "$REPO_ROOT/examples/docs/cli-reference.md"
 

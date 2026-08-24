@@ -4,7 +4,7 @@ Complete reference for the `paw` CLI subcommands, environment overrides, Makefil
 
 ## `paw` CLI
 
-`scripts/paw` wraps the prompts below so day-to-day invocation stays short. Put `scripts/` on your `PATH` (or run `make install` to symlink `scripts/paw` into `~/bin`) to use it from any repo. The install target adds only the `paw` launcher; built-in helper modules still resolve from this checkout, and any external `paw-backend-<name>` plugin must already be on your `PATH`.
+`scripts/paw` wraps the prompts below so day-to-day invocation stays short. Put `scripts/` on your `PATH` (or run `make install` to symlink `scripts/paw` into `~/bin`) to use it from any repo. The install target adds only the `paw` launcher; by default that launcher resolves built-in helper modules from the checkout it points at, and any external `paw-backend-<name>` plugin must already be on your `PATH`.
 
 ```text
 paw plan <task-name> "<prompt>" [--dry-run]
@@ -145,6 +145,8 @@ paw completion zsh >> ~/.zshrc
 ```
 
 `source <(paw completion zsh)` makes completion available in the current shell immediately. Appending the same output to `~/.zshrc` keeps it enabled for future shells.
+
+If you only append to `~/.zshrc`, your already-open shell does not change; run `source <(paw completion zsh)` there too if you want completion before opening a new terminal.
 
 The generated script completes top-level subcommands only in v1. For example, typing `paw gh-` and pressing Tab can expand to `gh-actions-review`. Bash and argument-level completion remain out of scope for this first slice.
 
@@ -402,6 +404,8 @@ The repo ships a top-level `Makefile` that consolidates the central operator com
 make check   # run all validation locally
 make install # put paw on your PATH via ~/bin
 ```
+
+`make install` only creates the launcher symlink. By default, the installed launcher derives `PAW_HOME` from its resolved path back to the checkout it points at, so built-ins keep working even when the repo lives somewhere other than `$HOME/git/personal-agentic-workflow`. Set `PAW_HOME` explicitly only when you want the launcher to use a different checkout.
 
 ## Model And Backend Behavior
 

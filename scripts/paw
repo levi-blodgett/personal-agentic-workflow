@@ -6,7 +6,8 @@
 # dispatch, and completion generation stay aligned.
 #
 # Environment overrides:
-#   PAW_HOME            path to this repo (default: $HOME/git/personal-agentic-workflow)
+#   PAW_HOME            path to this repo (default: resolved from the launcher
+#                       location; override when you want a different checkout)
 #   PAW_MODEL           model override for all model-resolved subcommands
 #                       (`paw plan`, `paw architecture`, `paw teach`,
 #                       `paw prototype`,
@@ -37,7 +38,6 @@
 #                       token count exceeds this value before each backend call
 set -euo pipefail
 
-PAW_HOME="${PAW_HOME:-$HOME/git/personal-agentic-workflow}"
 PAW_MODEL="${PAW_MODEL:-}"
 PAW_MAX_TURNS="${PAW_MAX_TURNS:-100}"
 PAW_STREAM="${PAW_STREAM:-0}"
@@ -61,6 +61,8 @@ resolve_script_dir() {
 }
 
 SCRIPT_DIR="$(resolve_script_dir)"
+DEFAULT_PAW_HOME="$(cd -P "$SCRIPT_DIR/.." && pwd)"
+PAW_HOME="${PAW_HOME:-$DEFAULT_PAW_HOME}"
 LIB_DIR="$SCRIPT_DIR/lib"
 
 if [[ -n "${PAW_INSTRUCTIONS:-}" ]]; then
@@ -220,7 +222,9 @@ EOF
   cat <<'EOF'
 
 Environment overrides:
-  PAW_HOME            path to this repo (default: $HOME/git/personal-agentic-workflow)
+  PAW_HOME            path to this repo (default: derived from the installed
+                      launcher path; override when you want a different
+                      checkout)
   PAW_MODEL           model override for all model-resolved subcommands
                       (`paw plan`, `paw architecture`, `paw teach`,
                       `paw prototype`,

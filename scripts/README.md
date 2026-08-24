@@ -25,7 +25,7 @@ All env vars are documented in the `paw` header comment and in `paw help`. Short
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PAW_HOME` | `$HOME/git/personal-agentic-workflow` | Path to this repo |
+| `PAW_HOME` | derived from the resolved `paw` launcher path | Path to the PAW checkout whose built-ins/templates/docs should be used |
 | `PAW_INSTRUCTIONS` | `$PAW_HOME/prompts/prompt_instructions.md` | Override path to the workflow instructions file |
 | `PAW_MODEL` | backend-specific | Model override for all model-resolved AI subcommands (`paw plan`, `paw architecture`, `paw teach`, `paw prototype`, `paw edit`, `paw implement`, `paw diagnose`, `paw tighten`, `paw to-issues`, `paw issue-review`, and `paw pr-address-comments`) |
 | `PAW_MAX_TURNS` | `100` | `--max-turns` value passed to the backend |

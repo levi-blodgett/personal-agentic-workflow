@@ -86,7 +86,7 @@ FIXTURES_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/fixtures" && pwd)"
 
   make -C "$REPO_ROOT" install "PREFIX=$prefix"
 
-  run env PAW_HOME="$REPO_ROOT" "$prefix/paw" help
+  run "$prefix/paw" help
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"paw — personal-agentic-workflow CLI wrapper."* ]]
@@ -104,7 +104,6 @@ FIXTURES_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/fixtures" && pwd)"
   make -C "$REPO_ROOT" install "PREFIX=$prefix"
 
   run env PATH="$shim_dir:$PATH" \
-    PAW_HOME="$REPO_ROOT" \
     PAW_BACKEND=fixture-plugin \
     PAW_FIXTURE_PLUGIN_MODEL=fixture-installed-model \
     "$prefix/paw" model -v
