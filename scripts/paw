@@ -43,7 +43,24 @@ PAW_MAX_TURNS="${PAW_MAX_TURNS:-100}"
 PAW_STREAM="${PAW_STREAM:-0}"
 PAW_BACKEND="${PAW_BACKEND:-codex}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+resolve_script_dir() {
+  local source_path="${BASH_SOURCE[0]}"
+  local source_dir target
+
+  while [[ -L "$source_path" ]]; do
+    source_dir="$(cd -P "$(dirname "$source_path")" && pwd)"
+    target="$(readlink "$source_path")"
+    if [[ "$target" == /* ]]; then
+      source_path="$target"
+    else
+      source_path="$source_dir/$target"
+    fi
+  done
+
+  cd -P "$(dirname "$source_path")" && pwd
+}
+
+SCRIPT_DIR="$(resolve_script_dir)"
 LIB_DIR="$SCRIPT_DIR/lib"
 
 if [[ -n "${PAW_INSTRUCTIONS:-}" ]]; then

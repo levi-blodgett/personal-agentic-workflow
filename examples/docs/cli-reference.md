@@ -4,7 +4,7 @@ Complete reference for the `paw` CLI subcommands, environment overrides, Makefil
 
 ## `paw` CLI
 
-`scripts/paw` wraps the prompts below so day-to-day invocation stays short. Put `scripts/` on your `PATH` (or run `make install` to symlink `scripts/paw` into `~/bin`) to use it from any repo.
+`scripts/paw` wraps the prompts below so day-to-day invocation stays short. Put `scripts/` on your `PATH` (or run `make install` to symlink `scripts/paw` into `~/bin`) to use it from any repo. The install target adds only the `paw` launcher; built-in helper modules still resolve from this checkout, and any external `paw-backend-<name>` plugin must already be on your `PATH`.
 
 ```text
 paw plan <task-name> "<prompt>" [--dry-run]
@@ -389,8 +389,8 @@ The repo ships a top-level `Makefile` that consolidates the central operator com
 | Target | Purpose |
 |--------|---------|
 | `help` | List all targets (default) |
-| `install` | Symlink `scripts/paw` into `$(PREFIX)/bin` (default: `~/bin`) |
-| `uninstall` | Remove the symlink |
+| `install` | Symlink `scripts/paw` into `$(PREFIX)` (default: `~/bin`); external `paw-backend-<name>` plugins stay separately installed on `PATH` |
+| `uninstall` | Remove the `$(PREFIX)/paw` symlink |
 | `test` | Run the full bats test suite |
 | `lint` | Lint all `.agent/` task packages in this repo |
 | `shellcheck` | Run shellcheck over all shell scripts |

@@ -5,6 +5,7 @@
 source "$(dirname "$BATS_TEST_FILENAME")/helpers/hermetic.bash"
 
 REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+FIXTURES_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/fixtures" && pwd)"
 
 @test "make help: exits 0" {
   run make -C "$REPO_ROOT" help
@@ -79,11 +80,58 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
   [ -L "$prefix/paw" ]
 }
 
+@test "make install: installed paw help succeeds" {
+  local prefix="$BATS_TEST_TMPDIR/prefix-help"
+  mkdir -p "$prefix"
+
+  make -C "$REPO_ROOT" install "PREFIX=$prefix"
+
+  run env PAW_HOME="$REPO_ROOT" "$prefix/paw" help
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"paw — personal-agentic-workflow CLI wrapper."* ]]
+}
+
+@test "make install: installed paw still resolves external backend plugins on PATH" {
+  local prefix="$BATS_TEST_TMPDIR/prefix-plugin"
+  local shim_dir="$BATS_TEST_TMPDIR/shim"
+  mkdir -p "$prefix" "$shim_dir"
+
+  cp "$FIXTURES_DIR/backend-plugins/paw-backend-fixture-plugin" \
+     "$shim_dir/paw-backend-fixture-plugin"
+  chmod +x "$shim_dir/paw-backend-fixture-plugin"
+
+  make -C "$REPO_ROOT" install "PREFIX=$prefix"
+
+  run env PATH="$shim_dir:$PATH" \
+    PAW_HOME="$REPO_ROOT" \
+    PAW_BACKEND=fixture-plugin \
+    PAW_FIXTURE_PLUGIN_MODEL=fixture-installed-model \
+    "$prefix/paw" model -v
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"backend:   fixture-plugin"* ]]
+  [[ "$output" == *"fixture-installed-model"* ]]
+}
+
 @test "make uninstall: removes the symlink" {
   local prefix="$BATS_TEST_TMPDIR/prefix-uninst"
   mkdir -p "$prefix"
 
   make -C "$REPO_ROOT" install "PREFIX=$prefix"
+  run make -C "$REPO_ROOT" uninstall "PREFIX=$prefix"
+
+  [ "$status" -eq 0 ]
+  [ ! -e "$prefix/paw" ]
+}
+
+@test "make uninstall: is idempotent when paw is already absent" {
+  local prefix="$BATS_TEST_TMPDIR/prefix-uninst-idem"
+  mkdir -p "$prefix"
+
+  make -C "$REPO_ROOT" install "PREFIX=$prefix"
+  make -C "$REPO_ROOT" uninstall "PREFIX=$prefix"
+
   run make -C "$REPO_ROOT" uninstall "PREFIX=$prefix"
 
   [ "$status" -eq 0 ]

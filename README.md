@@ -23,7 +23,7 @@ flowchart LR
 ## Quick Start
 
 ```bash
-# Install paw on your PATH
+# Install paw on your PATH (symlinks scripts/paw into ~/bin by default)
 make install
 
 # Optional: enable zsh subcommand completion for paw
@@ -56,7 +56,7 @@ paw gh-actions-review
 paw gh-actions-review --create-issue
 ```
 
-`paw` defaults to the `codex` backend today. Switch backends with `PAW_BACKEND=<name>` when you need a shipped built-in (`claude` or the test-only `stub`) or an installed external plugin exposed as `paw-backend-<name>` on your `PATH`.
+`paw` defaults to the `codex` backend today. `make install` only installs the `paw` launcher symlink; shipped built-ins still load from this checkout, and external backends remain separate executables on your `PATH` exposed as `paw-backend-<name>`. Switch backends with `PAW_BACKEND=<name>` when you need one of those built-ins (`claude` or the test-only `stub`) or an installed external plugin.
 
 `paw completion zsh` prints a small `compdef` script for native `zsh` completion. Load it with `source <(paw completion zsh)` in the current shell, and append it to `~/.zshrc` for future shells. v1 is `zsh`-only and completes top-level subcommands only.
 

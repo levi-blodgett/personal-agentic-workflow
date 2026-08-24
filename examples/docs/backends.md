@@ -46,6 +46,9 @@ The `codex`, `claude`, and `stub` backends ship in this repo today. `codex` is t
 Install an executable named `paw-backend-<name>` on `PATH` when a backend
 should live outside this repo. That keeps private integrations out of the
 public PAW tree while preserving the same `PAW_BACKEND=<name>` operator surface.
+This remains true after `make install`: the installed `paw` launcher symlink
+still discovers external backend plugins from `PATH` rather than copying them
+into `$(PREFIX)`.
 
 Plugin subcommands:
 
