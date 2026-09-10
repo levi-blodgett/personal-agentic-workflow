@@ -43,6 +43,7 @@ SHIM
   # Point PAW_HOME at this repo so prompts/prompt_instructions.md is found.
   export PAW_HOME="$(cd "$SCRIPTS_DIR/.." && pwd)"
   export PAW_BACKEND=claude
+  export PAW_TASK_HOME="$BATS_TEST_TMPDIR/paw-state/tasks"
 
   # Run from inside the temp repo so .agent/ relative paths resolve.
   cd "$REPO"
@@ -68,6 +69,11 @@ make_task() {
   mkdir -p "$REPO/.agent/$name"
   cp "$(dirname "$BATS_TEST_FILENAME")/fixtures/sample-task-valid/plan.md" \
      "$REPO/.agent/$name/plan.md"
+  local matches=("$PAW_TASK_HOME"/*/"$name")
+  if [[ -d "${matches[0]}" ]]; then
+    cp "$(dirname "$BATS_TEST_FILENAME")/fixtures/sample-task-valid/plan.md" \
+       "${matches[0]}/plan.md"
+  fi
 }
 
 physical_path() {
@@ -100,6 +106,8 @@ assignment_file() {
   [[ "$output" == *"paw diagnose"* ]]
   [[ "$output" == *"paw tighten"* ]]
   [[ "$output" == *"paw to-issues"* ]]
+  [[ "$output" == *"paw task-migrate"* ]]
+  [[ "$output" == *"paw gui"* ]]
   [[ "$output" == *"paw pr-submit"* ]]
   [[ "$output" == *"paw pr-review"* ]]
   [[ "$output" == *"paw pr-address-comments"* ]]
@@ -122,6 +130,8 @@ assignment_file() {
   [[ "$output" == *"'diagnose:run the feedback-loop-first debugging workflow for an approved task'"* ]]
   [[ "$output" == *"'tighten:sharpen an existing task plan one question at a time'"* ]]
   [[ "$output" == *"'to-issues:draft tracer-bullet issue slices or publish reviewed drafts'"* ]]
+  [[ "$output" == *"'task-migrate:copy legacy .agent tasks into the central task store'"* ]]
+  [[ "$output" == *"'gui:start the local PAW task dashboard'"* ]]
   [[ "$output" == *"'pr-address-comments:create a plan for addressing PR review comments'"* ]]
   [[ "$output" == *"'implement:resume or complete an approved task'"* ]]
 }
@@ -241,8 +251,14 @@ assignment_file() {
   cd "$assigned_worktree"
   run "$PAW" plan worktree-task "record worktree assignment"
   [ "$status" -eq 0 ]
+  mkdir -p "$assigned_worktree/.agent/worktree-task"
   cp "$(dirname "$BATS_TEST_FILENAME")/fixtures/sample-task-valid/plan.md" \
      "$assigned_worktree/.agent/worktree-task/plan.md"
+  local matches=("$PAW_TASK_HOME"/*/worktree-task)
+  if [[ -d "${matches[0]}" ]]; then
+    cp "$(dirname "$BATS_TEST_FILENAME")/fixtures/sample-task-valid/plan.md" \
+       "${matches[0]}/plan.md"
+  fi
 
   cd "$REPO"
   run "$PAW" implement worktree-task
@@ -365,9 +381,27 @@ assignment_file() {
   PAW_GH_COMMENTS_CMD=echo run "$PAW" pr-address-comments 42
 
   [ "$status" -eq 0 ]
-  [ -d "$REPO/.agent/42-review" ]
-  [ -f "$REPO/.agent/42-review/comments.md" ]
+  local matches=("$PAW_TASK_HOME"/*/42-review/comments.md)
+  [ -f "${matches[0]}" ]
   args_contain "PAW:PLAN"
+}
+
+@test "paw task-migrate: migrates legacy task package to central store" {
+  make_task migrate-me
+
+  run "$PAW" task-migrate "$REPO"
+
+  [ "$status" -eq 0 ]
+  local matches=("$PAW_TASK_HOME"/*/migrate-me/plan.md)
+  [ -f "${matches[0]}" ]
+  [[ "$output" == *"migrated:"* ]]
+}
+
+@test "paw gui: rejects non-local hosts" {
+  run "$PAW" gui --host 0.0.0.0
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"local-only"* ]]
 }
 
 @test "paw implement: exits 2 when no task name given" {

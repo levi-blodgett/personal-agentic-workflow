@@ -12,6 +12,11 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/task_store.sh
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/task_store.sh"
+
 usage() {
   cat <<EOF
 Usage:
@@ -239,21 +244,20 @@ main() {
 
   if [[ "$1" == "--repo" ]]; then
     local repo_path="${2:-$PWD}"
-    local agent_dir="$repo_path/.agent"
-    if [[ ! -d "$agent_dir" ]]; then
-      echo "no .agent/ directory found in $repo_path"
+    if [[ ! -d "$repo_path" ]]; then
+      echo "error: '$repo_path' is not a directory" >&2
+      exit 2
+    fi
+    local task_rows task_name _task_source task_dir
+    task_rows="$(paw_task_list "$repo_path")"
+    if [[ -z "$task_rows" ]]; then
+      echo "no task directories found for $(paw_repo_physical_path "$repo_path")"
       exit 0
     fi
-    shopt -s nullglob
-    local tasks=("$agent_dir"/*/)
-    shopt -u nullglob
-    if [[ ${#tasks[@]} -eq 0 ]]; then
-      echo "no task directories under $agent_dir/" >&2
-      exit 0
-    fi
-    for task_dir in "${tasks[@]}"; do
+    while IFS=$'\t' read -r task_name _task_source task_dir; do
+      [[ -n "$task_dir" ]] || continue
       lint_one "${task_dir%/}" || total_issues=$((total_issues + $?))
-    done
+    done <<< "$task_rows"
   else
     lint_one "${1%/}" || total_issues=$((total_issues + $?))
   fi

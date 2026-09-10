@@ -8,7 +8,8 @@
 
 PAW is a plan-first, file-backed framework for AI-assisted development. The human owns scope review and commits; the agent implements inside an approved task package and leaves a local audit trail behind.
 
-This repo ships a GitHub PR template, so tasks planned here seed `.agent/<task>/pr.md` automatically.
+New task packages are stored in a local central task store by default:
+`${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}`. Existing repo-local `.agent/<task>/` packages remain supported and can be copied into the central store with `paw task-migrate`.
 
 ```mermaid
 flowchart LR
@@ -48,6 +49,12 @@ paw plan <task-name> "<prompt>"
 # Implement / resume an approved task
 paw implement <task-name>
 
+# Optional local dashboard
+paw gui
+
+# Optional legacy task migration
+paw task-migrate
+
 # Optional PR helpers after implementation
 paw pr-submit <task-name>
 paw pr-review <pr-number>
@@ -67,6 +74,8 @@ paw gh-actions-review --create-issue
 `paw` defaults to the `codex` backend today. Shipped built-ins load from the checkout the launcher resolves through `PAW_HOME`, and external backends remain separate executables on your `PATH` exposed as `paw-backend-<name>`. Switch backends with `PAW_BACKEND=<name>` when you need one of those built-ins (`claude` or the test-only `stub`) or an installed external plugin.
 
 `paw completion zsh` prints a small `compdef` script for native `zsh` completion. Load it with `source <(paw completion zsh)` in the current shell, and append it to `~/.zshrc` for future shells. v1 is `zsh`-only and completes top-level subcommands only.
+
+`paw gui` starts a read-only local dashboard on `127.0.0.1` by default. It lists central and legacy tasks, shows the Markdown task docs, reports ready/blocked/running state from local files, and never replaces `contract.md`, `plan.md`, or `pr.md` as the source of truth.
 
 ## Documentation
 

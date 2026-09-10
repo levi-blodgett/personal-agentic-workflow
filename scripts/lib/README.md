@@ -7,7 +7,9 @@ Shared bash helpers sourced by `scripts/paw`. Each file exports one or more func
 | File | Exports | Purpose |
 |------|---------|---------|
 | [`crash_log.sh`](crash_log.sh) | crash classification and append helpers | Records backend failures to `.agent/<task>/crash.log` with structured metadata and a stderr tail. |
+| [`task_store.sh`](task_store.sh) | task path, metadata, listing, and migration helpers | Resolves central task-store packages first, falls back to legacy `.agent/<task>/`, writes `metadata.gitconfig`, and copies legacy packages for `paw task-migrate`. |
 | [`prompt_optimizer.sh`](prompt_optimizer.sh) | `prompt_optimize` | Optional `paw plan` pre-pass that rewrites the user prompt when `PAW_PROMPT_OPTIMIZE=1`; otherwise it passes the prompt through unchanged. |
+| [`gui_server.py`](gui_server.py) | local HTTP server | Python standard-library server used by `paw gui` to render read-only task lists and Markdown detail pages from local files. |
 | [`claude_invoke.sh`](claude_invoke.sh) | (thin shim) | Backwards-compatibility shim that sources `backends/claude.sh`. Callers that imported `claude_invoke.sh` directly continue to work. |
 
 ## `backends/` — pluggable AI backends

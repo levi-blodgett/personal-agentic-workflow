@@ -11,7 +11,17 @@ Shared workflow instructions live in this repo, at:
 
 This is the master workflow contract used across repos.
 
-Repo-local task docs live inside each target repo:
+New task docs live in PAW's central local task store by default:
+```text
+${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}/<repo-slug>/<task-name>/
+  contract.md
+  plan.md
+  pr.md   # seeded when the repo has a PR template
+  metadata.gitconfig
+  runs/*.gitconfig
+```
+
+Legacy repo-local task docs remain supported:
 ```text
 $HOME/git/<repo-name>/.agent/<task-name>/
   contract.md
@@ -25,6 +35,12 @@ Repo-local `.agent/` directories should be excluded locally via `.git/info/exclu
 paw setup                                                        # in the target repo, after install
 # or
 <resolved PAW checkout>/scripts/setup-repo.sh                    # equivalent direct call
+```
+
+To copy existing legacy `.agent/<task>/` packages into the central store, run:
+
+```bash
+paw task-migrate
 ```
 
 ## Overall Workflow
@@ -49,6 +65,7 @@ flowchart TD
 3. Ensure repo-local `.agent/` is excluded — run `paw setup` once per repo.
 4. Run `paw`:
    - **Plan new work** — `paw plan <task-name> "<prompt>"`; planning orients from repo landmark files directly and, when run inside a Git worktree, records the task's current branch/worktree assignment in local Git metadata shared by sibling worktrees
+   - **Open the local dashboard** — `paw gui`; starts a read-only localhost task tracker for central and legacy tasks
    - **Iterate on plan** — `paw edit <task-name>` (plan-only, after `paw plan`); resumes the saved assignment when that is safe and is the required reconciliation step after the user fills in follow-up answers
    - **Implement approved task** — `paw implement <task-name>` (optionally with extra prompt text); resumes the saved assignment when that is safe, but refuses to run while `plan.md` still contains `USER ANSWER (UNRESOLVED):` or `USER ANSWER (PROVIDED):` placeholders
    - **Draft tracer-bullet issues from approved work** — `paw to-issues <task-name>`; reuses the saved assignment, writes a reviewable numbered breakdown to `.agent/<task>/issues/index.md`, and keeps one issue draft per slice under `.agent/<task>/issues/*.md`
@@ -64,6 +81,8 @@ flowchart TD
 
 - `contract.md` captures the request, constraints, repo context, and assumptions.
 - `plan.md` is the single working surface for planning and implementation progress.
+- `metadata.gitconfig` captures local provenance for central-store packages: task name, repo root, Git common dir, worktree path, branch/head state, and created or migrated timestamps.
+- `runs/*.gitconfig` captures observational run metadata for AI-backed commands: subcommand, backend, model, start/end times, status, and exit status.
 - Non-trivial work should use as many implementation phases or vertical slices as needed; do not compress substantial scope into a single checkbox.
 - Follow-up questions that need user input should be written as:
   `- <question>`
@@ -79,6 +98,12 @@ flowchart TD
 - `paw` never creates branches or worktrees. It only records the branch/worktree you were already using when the task was planned.
 - If the saved task lives in another registered worktree of the same repo, `paw` re-execs from that worktree path after confirming your current worktree is clean apart from local `.agent/` docs.
 - If switching would require clobbering dirty state, auto-detaching HEAD, inventing a branch, or hopping into another repo, `paw` stops and tells you what to fix manually.
+
+### Local GUI
+
+`paw gui [--host 127.0.0.1] [--port 0|<port>] [--repo <path>]` starts a browser dashboard and prints its URL. It binds only to `127.0.0.1` or `localhost`; non-local hosts are rejected.
+
+The first GUI release is observational. It lists tasks, shows source paths and Markdown detail pages, detects follow-up placeholder blockers, reports checklist and validation state, and reads run metadata. Use CLI flows such as `paw edit`, `paw implement`, `paw crash-log`, and `paw pr-submit` to change task state.
 
 ### A `paw implement` run in detail
 
@@ -110,13 +135,13 @@ sequenceDiagram
 ## Weaknesses
 
 - **Prompt overhead** — loading `prompts/prompt_instructions.md` + task docs on every run is heavier than simpler prompt approaches. Prompt caching reduces the marginal overhead but the fixed input surface remains. The working surface is capped at ≤ 350 lines and a bats regression test (`templates.bats`) enforces this automatically so silent growth is caught. Use `paw model` and [`docs/backends.md`](backends.md) to verify the current backend-specific model behavior.
-- **Concurrency** — running multiple agents on the same repo concurrently is unsupported. Use [git worktrees](https://git-scm.com/docs/git-worktree) (`git worktree add ../repo-feature feature-branch`) to run one agent per worktree and merge back; `.agent/` dirs inside each worktree stay local-only. Multi-repo parallel agents work natively (watch rate limits).
+- **Concurrency** — run one task per branch/worktree stream. The central task store and `runs/*.gitconfig` metadata make those streams visible in `paw list` and `paw gui`, but PAW still does not include a scheduler or a multi-agent graph runtime. Use [git worktrees](https://git-scm.com/docs/git-worktree) (`git worktree add ../repo-feature feature-branch`) to run one agent per worktree and merge back. Multi-repo parallel agents work natively (watch rate limits).
 - **Backend coverage is still narrow** — the pluggable architecture is in place, but only three backends ship in-repo (`codex`, `claude`, `stub`) and broader third-party coverage (`ollama`, `openai`, `gemini`, …) is still deferred.
 - **Cross-repo coordination** — each task lives inside one repo; multi-repo refactors require manual hand-off between task packages. Deferred.
 
 ## Troubleshooting Crashes
 
-When `paw` or the active backend CLI fails, a crash record is automatically written to `.agent/<task>/crash.log`. Read it with:
+When `paw` or the active backend CLI fails, a crash record is automatically written to the resolved task package as `crash.log`. Read it with:
 
 ```bash
 paw crash-log <task-name>

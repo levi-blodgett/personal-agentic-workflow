@@ -9,7 +9,7 @@ Complete reference for the `paw` CLI subcommands, environment overrides, Makefil
 ```text
 paw plan <task-name> "<prompt>" [--dry-run]
                                        launch a plan-only run; seeds template files into
-                                       .agent/<task>/, records the current
+                                       the central task store by default, records the current
                                        branch/worktree assignment when inside a
                                        git repo, and investigates repo landmark
                                        files directly; --dry-run prints the prompt
@@ -36,9 +36,8 @@ paw prototype <task-name> [--question "<question>"] [--logic|--ui] [extras...]
                                        run a bounded throwaway prototype
                                        workflow for one concrete question;
                                        first-time runs require `--question`,
-                                       seed `.agent/<task>/contract.md`,
-                                       `.agent/<task>/plan.md`, and
-                                       `.agent/<task>/prototype.md`, and keep
+                                       seed `contract.md`, `plan.md`, and
+                                       `prototype.md` in the resolved task package, and keep
                                        the durable verdict record in
                                        `prototype.md` current before prototype
                                        code is deleted or absorbed into later
@@ -76,6 +75,16 @@ paw edit <task-name> [extras...]       iterate on .agent/<task>/ plan docs
 paw completion zsh                     print the zsh completion script for paw;
                                        v1 is zsh-only and completes top-level
                                        subcommands only
+paw task-migrate [repo-path]           copy legacy `.agent/<task>/` packages for
+                                       the repo into the central task store and
+                                       write local provenance metadata beside
+                                       the copied Markdown files
+paw gui [--host 127.0.0.1] [--port 0|<port>] [--repo <path>]
+                                       start a read-only local dashboard over
+                                       the central task store plus legacy
+                                       `.agent/<task>/` packages; binds to
+                                       127.0.0.1 by default, prints the URL,
+                                       and refuses non-local hosts
 paw to-issues <task-name>              draft tracer-bullet issue slices under
                                        .agent/<task>/issues/ for an approved
                                        task package; writes an index.md review
@@ -117,12 +126,12 @@ paw compact <task-name>                archive completed Implementation Phases i
 paw crash-log <task-name>              print crash log for a task
                                        (.agent/<task>/crash.log); prints
                                        "no crashes recorded" when absent; exit 0
-paw list [repo-path]                   list .agent/<task>/ tasks and current status
+paw list [repo-path]                   list central and legacy task packages plus current status
 paw lint [task-dir|--repo p]           verify task package(s) against the contract
 paw model [-v|--verbose]               print resolved model for each subcommand;
                                        with -v/--verbose also prints PAW_BACKEND,
                                        PAW_STREAM, and PAW_MAX_TURNS
-paw setup [repo-path]                  add .agent/ to .git/info/exclude
+paw setup [repo-path]                  add .agent/ to .git/info/exclude for legacy/local compatibility
 paw help                               show this message
 ```
 
@@ -133,6 +142,25 @@ Launching: paw <sub> (PAW_BACKEND=<backend> model=<model> stream=<0|1>) for .age
 ```
 
 Environment overrides: see the canonical reference table in [`scripts/README.md`](../../scripts/README.md). The most operationally important ones are `PAW_BACKEND`, `PAW_MODEL`, `PAW_STREAM`, `PAW_PROMPT_OPTIMIZE`, and `PAW_PROMPT_WARN_TOKENS`.
+
+### Task Store And GUI
+
+PAW stores new task packages under `${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}` by default. The store is grouped per repo using a stable local repo slug, and each task package keeps Markdown docs plus `metadata.gitconfig` with repo path, Git common dir, worktree, branch/head state, and created or migrated timestamps.
+
+Legacy `.agent/<task>/` packages remain readable. `paw list`, `paw lint --repo`, `paw edit`, `paw implement`, PR/issue helpers, `paw compact`, and `paw crash-log` resolve central tasks first and fall back to legacy packages. If you already have repo-local task packages, run:
+
+```bash
+paw task-migrate
+```
+
+`paw gui` serves the local dashboard:
+
+```bash
+paw gui                       # auto-select a localhost port
+paw gui --port 8765 --repo ..  # explicit repo and port
+```
+
+The GUI is read-only in this release. It shows task lists, Markdown detail pages, checklist counts, follow-up placeholder blocks, validation state, and per-task run status recorded under `runs/*.gitconfig`. It does not edit task docs, publish PRs/issues, launch shell commands, bind externally, or make a database authoritative.
 
 ### `paw completion zsh`
 

@@ -12,10 +12,10 @@ help:
 	  '  install    — symlink scripts/paw into PREFIX/bin (default: ~/bin)' \
 	  '  uninstall  — remove the symlink from PREFIX/bin' \
 	  '  test       — run the full bats test suite' \
-	  '  lint       — lint all .agent/ task packages in this repo' \
+	  '  lint       — lint all central/legacy task packages in this repo' \
 	  '  shellcheck — run shellcheck over all shell scripts' \
 	  '  check      — test + lint + shellcheck (canonical local validation)' \
-	  '  list       — list .agent/ task packages' \
+	  '  list       — list central/legacy task packages' \
 	  '  ci-deps    — install CI dependencies (bats, jq, shellcheck)'
 
 install:

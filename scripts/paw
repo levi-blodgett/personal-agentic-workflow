@@ -36,6 +36,8 @@
 #                       token threshold for the prompt-size warning (default:
 #                       150000); paw warns to stderr when the estimated prompt
 #                       token count exceeds this value before each backend call
+#   PAW_TASK_HOME       central task-store root (default:
+#                       ${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks)
 set -euo pipefail
 
 PAW_MODEL="${PAW_MODEL:-}"
@@ -74,6 +76,9 @@ fi
 # shellcheck source=lib/crash_log.sh
 # shellcheck disable=SC1091
 source "$LIB_DIR/crash_log.sh"
+# shellcheck source=lib/task_store.sh
+# shellcheck disable=SC1091
+source "$LIB_DIR/task_store.sh"
 
 _backend_kind=""
 _backend_plugin_cmd=""
@@ -159,6 +164,8 @@ diagnosecmd_diagnose<task-name> [extras...]run the feedback-loop-first debugg
 tightencmd_tighten<task-name> [extras...]sharpen an existing task plan one question at a time
 editcmd_edit<task-name> [extras...]refine .agent task docs without code changes
 to-issuescmd_to_issues<task-name> [--publish]draft tracer-bullet issue slices or publish reviewed drafts
+task-migratecmd_task_migrate[repo-path]copy legacy .agent tasks into the central task store
+guicmd_gui[--host 127.0.0.1] [--port 0|<port>] [--repo <path>]start the local PAW task dashboard
 completioncmd_completionzshprint the zsh completion script for paw
 pr-submitcmd_pr_submit<task-name>create a draft PR from .agent/<task>/pr.md
 issue-submitcmd_issue_submit<task-name>create a GitHub issue from .agent/<task>/issue.md
@@ -253,6 +260,8 @@ Environment overrides:
                       token threshold for the prompt-size warning (default:
                       150000); paw warns to stderr when the estimated prompt
                       token count exceeds this value before each backend call
+  PAW_TASK_HOME       central task-store root (default:
+                      ${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks)
 EOF
 }
 
@@ -380,6 +389,8 @@ run_claude() {
 
   # State for crash recording and always-on colored exit line (Phase 10).
   local _crash_cause="" _api_code="" _color_exit_code=""
+  local _run_file=""
+  _run_file="$(_run_metadata_begin "$task_dir" "${notes%% *}" "$(_backend_model "$model" || echo "$model")" "$notes")"
 
   # Prompt-size pre-call telemetry. The first remaining arg ($1 after shift 3)
   # is always the prompt text; divide its byte count by 4 to estimate tokens.
@@ -440,6 +451,7 @@ run_claude() {
 
   # Always-on colored exit/API-code status line.
   crash_color_status "${_color_exit_code:-$exit_code}" "$_api_code" "$_crash_cause"
+  _run_metadata_end "$_run_file" "${_color_exit_code:-$exit_code}"
 
   return "$exit_code"
 }
@@ -516,6 +528,35 @@ _prompt_append_human_extras() {
     printf '%s\n\nHuman extras:\n%s\n' "$prompt" "$extras"
   else
     printf '%s\n' "$prompt"
+  fi
+}
+
+_run_metadata_begin() {
+  local task_dir="$1" sub="$2" model="$3" notes="$4"
+  local runs_dir run_file now
+  runs_dir="$task_dir/runs"
+  mkdir -p "$runs_dir"
+  now="$(date -u '+%Y%m%dT%H%M%SZ')"
+  run_file="$runs_dir/$now-$$.gitconfig"
+  : > "$run_file"
+  git config --file "$run_file" paw.status running
+  git config --file "$run_file" paw.subcommand "$sub"
+  git config --file "$run_file" paw.model "$model"
+  git config --file "$run_file" paw.backend "$PAW_BACKEND"
+  git config --file "$run_file" paw.notes "$notes"
+  git config --file "$run_file" paw.start-time "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf '%s\n' "$run_file"
+}
+
+_run_metadata_end() {
+  local run_file="$1" exit_code="$2"
+  [[ -n "$run_file" && -f "$run_file" ]] || return 0
+  git config --file "$run_file" paw.end-time "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  git config --file "$run_file" paw.exit-status "$exit_code"
+  if [[ "$exit_code" -eq 0 ]]; then
+    git config --file "$run_file" paw.status complete
+  else
+    git config --file "$run_file" paw.status failed
   fi
 }
 
@@ -762,17 +803,17 @@ _validate_task_name() {
 }
 
 _plan_seeded_list_for_task() {
-  local task_name="$1" include_pr="$2"
-  printf '%s\n' "- .agent/$task_name/contract.md"
-  printf '%s\n' "- .agent/$task_name/plan.md"
+  local task_name="$1" include_pr="$2" display_root
+  display_root="${3:-.agent/$task_name}"
+  printf '%s\n' "- $display_root/contract.md"
+  printf '%s\n' "- $display_root/plan.md"
   if [[ "$include_pr" == "1" ]]; then
-    printf '%s\n' "- .agent/$task_name/pr.md"
+    printf '%s\n' "- $display_root/pr.md"
   fi
 }
 
 _seed_plan_task_package() {
-  local task_name="$1" include_pr="$2"
-  local task_dir="$PWD/.agent/$task_name"
+  local task_name="$1" include_pr="$2" task_dir="$3"
   _seed_task_templates "$task_dir" contract plan
   if [[ "$include_pr" == "1" ]]; then
     _seed_task_templates "$task_dir" pr
@@ -780,8 +821,11 @@ _seed_plan_task_package() {
 }
 
 _record_plan_task_assignment() {
-  local task_name="$1"
+  local task_name="$1" task_dir="${2:-}"
   _task_assignment_record "$task_name"
+  if [[ -n "$task_dir" && "$task_dir" == "$(paw_task_home)"/* ]]; then
+    paw_task_write_metadata "$task_dir" "$PWD" "$task_name" created ""
+  fi
 }
 
 _task_name_seen_in_text() {
@@ -803,6 +847,29 @@ _seed_task_templates() {
       cp "$templates_dir/$tmpl.md" "$target"
     fi
   done
+}
+
+_task_display_path() {
+  local task_dir="$1"
+  case "$task_dir" in
+    "$PWD"/*) printf '%s\n' "${task_dir#"$PWD"/}" ;;
+    *) printf '%s\n' "$task_dir" ;;
+  esac
+}
+
+_task_dir_for_plan() {
+  local task_name="$1" legacy
+  legacy="$(paw_task_legacy_dir "$PWD" "$task_name")"
+  if [[ -d "$legacy" ]]; then
+    printf '%s\n' "$legacy"
+  else
+    paw_task_create_dir "$PWD" "$task_name"
+  fi
+}
+
+_task_dir_for_existing() {
+  local task_name="$1"
+  paw_task_resolve "$PWD" "$task_name"
 }
 
 _run_model_subcommand() {
@@ -1029,9 +1096,7 @@ _task_assignment_resume_or_handoff() {
 
 _require_task_dir() {
   local task_name="$1"
-  local task_dir="$PWD/.agent/$task_name"
-  if [[ ! -d "$task_dir" ]]; then
-    echo "error: task directory not found: $task_dir" >&2
+  if ! _task_dir_for_existing "$task_name" >/dev/null; then
     echo "       Run 'paw plan $task_name \"<prompt>\"' first." >&2
     exit 2
   fi
@@ -1094,10 +1159,10 @@ _task_pr_number_from_file() {
 
 _task_find_by_pr_number() {
   local pr_number="$1"
-  local matches=() dir task_name tracked tracked_file
-  for dir in "$PWD"/.agent/*; do
-    [[ -d "$dir" ]] || continue
-    task_name="${dir##*/}"
+  local matches=() dir task_name tracked tracked_file _task_source task_rows
+  task_rows="$(paw_task_list "$PWD")"
+  while IFS=$'\t' read -r task_name _task_source dir; do
+    [[ -n "$dir" ]] || continue
     tracked=""
     for tracked_file in "$dir/plan.md" "$dir/pr.md" "$dir/review.md"; do
       tracked=$(_task_pr_number_from_file "$tracked_file" 2>/dev/null || true)
@@ -1105,7 +1170,7 @@ _task_find_by_pr_number() {
       tracked=""
     done
     [[ "$tracked" == "$pr_number" ]] && matches+=("$task_name")
-  done
+  done <<< "$task_rows"
 
   if [[ "${#matches[@]}" -eq 1 ]]; then
     printf '%s\n' "${matches[0]}"
@@ -1618,13 +1683,15 @@ cmd_plan() {
     include_pr=1
   fi
 
-  local task_dir="$PWD/.agent/$task_name"
-  _seed_plan_task_package "$task_name" "$include_pr"
+  local task_dir display_task_dir
+  task_dir="$(_task_dir_for_plan "$task_name")"
+  display_task_dir="$(_task_display_path "$task_dir")"
+  _seed_plan_task_package "$task_name" "$include_pr" "$task_dir"
 
   # Build seeded-files list for the prompt.
   local seeded_list
   local pr_note=""
-  seeded_list="$(_plan_seeded_list_for_task "$task_name" "$include_pr")"
+  seeded_list="$(_plan_seeded_list_for_task "$task_name" "$include_pr" "$display_task_dir")"
   if [[ "$include_pr" != "1" ]]; then
     pr_note="
 pr.md is not used for this task (no PR template in repo)."
@@ -1632,12 +1699,13 @@ pr.md is not used for this task (no PR template in repo)."
 
   local prompt=""
   prompt=$(cat <<EOF
-Follow $INSTRUCTIONS, with <!-- PAW:PLAN --> as the primary section for this run, and create a new plan-only task package in .agent/$task_name/.
+Follow $INSTRUCTIONS, with <!-- PAW:PLAN --> as the primary section for this run, and create a new plan-only task package in $display_task_dir/.
 
-The template files have already been seeded under .agent/$task_name/. Fill them in:
+The template files have already been seeded under $display_task_dir/. Fill them in:
 $seeded_list
 $pr_note
-You may add .agent/ to .git/info/exclude if needed so local AI working docs remain untracked. Do not create commits.
+Central task-store root: $(paw_task_home)
+Legacy .agent/<task>/ packages remain supported for compatibility. You may add .agent/ to .git/info/exclude if needed so local AI working docs remain untracked. Do not create commits.
 No .agent/context.md input is used during planning. Investigate repo landmark files directly to orient (Makefile, README.md, package.json, pyproject.toml, go.mod, Cargo.toml, .github/workflows/, docs/).
 
 Task description:
@@ -1650,7 +1718,7 @@ EOF
     return 0
   fi
 
-  _record_plan_task_assignment "$task_name"
+  _record_plan_task_assignment "$task_name" "$task_dir"
 
   # Opt-in haiku pre-optimizer: tightens the prompt before the main plan run.
   prompt=$(prompt_optimize "$task_dir" "$prompt")
@@ -1839,27 +1907,31 @@ cmd_prototype() {
 
   _task_assignment_resume_or_handoff prototype "$task_name" "${original_args[@]}"
 
-  local task_dir="$PWD/.agent/$task_name"
+  local task_dir
+  task_dir="$(_task_dir_for_existing "$task_name" 2>/dev/null || true)"
   if [[ ! -d "$task_dir" ]]; then
     if [[ -z "$question" ]]; then
       echo "error: first-time prototype runs require --question \"<question>\"." >&2
       _prototype_usage
       exit 2
     fi
+    task_dir="$(paw_task_create_dir "$PWD" "$task_name")"
     _seed_task_templates "$task_dir" contract plan
     _task_assignment_record "$task_name"
+    paw_task_write_metadata "$task_dir" "$PWD" "$task_name" created ""
   fi
 
   _prototype_doc_seed "$task_dir"
 
-  local extras prompt seeded_list
+  local extras prompt seeded_list display_task_dir
   extras=$(_join_prompt_extras "${extras_args[@]}")
-  seeded_list="- .agent/$task_name/contract.md
-- .agent/$task_name/plan.md
-- .agent/$task_name/prototype.md"
+  display_task_dir="$(_task_display_path "$task_dir")"
+  seeded_list="- $display_task_dir/contract.md
+- $display_task_dir/plan.md
+- $display_task_dir/prototype.md"
 
   prompt=$(cat <<EOF
-Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and create or continue the bounded prototype task package in .agent/$task_name/. Do not create commits.
+Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and create or continue the bounded prototype task package in $display_task_dir/. Do not create commits.
 
 This is a throwaway prototype workflow for one concrete question, not normal production implementation work.
 Prototype question: ${question:-<resume from existing task docs>}
@@ -1869,7 +1941,7 @@ The task package files for this workflow are:
 $seeded_list
 pr.md is not used for this task unless a later non-prototype follow-up explicitly needs it.
 
-Use the normal implementation rules only where they help with safe autonomous execution. Preserve the prototype-specific workflow and keep the durable verdict capture in .agent/$task_name/prototype.md current during the run.$(_prototype_prompt_task_doc_requirements "$mode")
+Use the normal implementation rules only where they help with safe autonomous execution. Preserve the prototype-specific workflow and keep the durable verdict capture in $display_task_dir/prototype.md current during the run.$(_prototype_prompt_task_doc_requirements "$mode")
 EOF
 )
 
@@ -1889,11 +1961,12 @@ cmd_implement() {
   shift
   _task_assignment_resume_or_handoff implement "$task_name" "$@"
   _require_task_dir "$task_name"
-  local task_dir="$PWD/.agent/$task_name"
+  local task_dir
+  task_dir="$(_task_dir_for_existing "$task_name")"
   _require_reconciled_user_answers_for_implement "$task_dir" "$task_name"
   local extras prompt
   extras=$(_join_prompt_extras "$@")
-  prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue/complete the already in progress task in .agent/$task_name/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")"
+  prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue/complete the already in progress task in $(_task_display_path "$task_dir")/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")"
   prompt=$(_prompt_append_human_extras "$prompt" "$extras")
   _run_model_subcommand implement "$task_dir" "implement" "$prompt"
 }
@@ -1910,11 +1983,12 @@ cmd_diagnose() {
   shift
   _task_assignment_resume_or_handoff diagnose "$task_name" "$@"
   _require_task_dir "$task_name"
-  local task_dir="$PWD/.agent/$task_name"
+  local task_dir
+  task_dir="$(_task_dir_for_existing "$task_name")"
   _require_reconciled_user_answers_for_implement "$task_dir" "$task_name"
   local extras prompt
   extras=$(_join_prompt_extras "$@")
-  prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue/complete the already in progress debugging task in .agent/$task_name/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")$(_diagnose_prompt_task_doc_requirements)"
+  prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue/complete the already in progress debugging task in $(_task_display_path "$task_dir")/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")$(_diagnose_prompt_task_doc_requirements)"
   prompt=$(_prompt_append_human_extras "$prompt" "$extras")
   _run_model_subcommand diagnose "$task_dir" "diagnose" "$prompt"
 }
@@ -1930,11 +2004,12 @@ cmd_tighten() {
   shift
   _task_assignment_resume_or_handoff tighten "$task_name" "$@"
   _require_task_dir "$task_name"
-  local task_dir="$PWD/.agent/$task_name"
+  local task_dir
+  task_dir="$(_task_dir_for_existing "$task_name")"
   _tighten_doc_seed "$task_dir"
   local extras prompt
   extras=$(_join_prompt_extras "$@")
-  prompt="Follow $INSTRUCTIONS, with <!-- PAW:EDIT --> as the primary section for this run, and continue the interactive plan-tightening workflow for the existing task package in .agent/$task_name/. Keep changes task-doc-centered and do not create commits.$(_prompt_pr_md_usage_note "$task_dir")$(_tighten_prompt_task_doc_requirements)"
+  prompt="Follow $INSTRUCTIONS, with <!-- PAW:EDIT --> as the primary section for this run, and continue the interactive plan-tightening workflow for the existing task package in $(_task_display_path "$task_dir")/. Keep changes task-doc-centered and do not create commits.$(_prompt_pr_md_usage_note "$task_dir")$(_tighten_prompt_task_doc_requirements)"
   prompt=$(_prompt_append_human_extras "$prompt" "$extras")
   _run_model_subcommand tighten "$task_dir" "tighten" "$prompt"
 }
@@ -1948,13 +2023,14 @@ cmd_edit() {
     exit 2
   fi
   shift
-  local task_dir="$PWD/.agent/$task_name"
+  local task_dir
+  task_dir="$(_task_dir_for_existing "$task_name")"
   _task_assignment_resume_or_handoff edit "$task_name" "$@"
   _require_task_dir "$task_name"
-  task_dir="$PWD/.agent/$task_name"
+  task_dir="$(_task_dir_for_existing "$task_name")"
   local extras prompt
   extras=$(_join_prompt_extras "$@")
-  prompt="Follow $INSTRUCTIONS, with <!-- PAW:EDIT --> as the primary section for this run, and refine the existing plan package in .agent/$task_name/. Keep changes confined to .agent/$task_name/. Do not create commits."
+  prompt="Follow $INSTRUCTIONS, with <!-- PAW:EDIT --> as the primary section for this run, and refine the existing plan package in $(_task_display_path "$task_dir")/. Keep changes confined to that task package. Do not create commits."
   prompt=$(_prompt_append_human_extras "$prompt" "$extras")
   _run_model_subcommand edit "$task_dir" "edit" "$prompt"
 }
@@ -1985,7 +2061,8 @@ cmd_to_issues() {
     _task_assignment_resume_or_handoff to-issues "$task_name"
   fi
   _require_task_dir "$task_name"
-  local task_dir="$PWD/.agent/$task_name"
+  local task_dir
+  task_dir="$(_task_dir_for_existing "$task_name")"
   _to_issues_seed_docs "$task_dir"
 
   if [[ "$publish" -eq 1 ]]; then
@@ -2000,15 +2077,15 @@ cmd_to_issues() {
     extras=""
   fi
   prompt=$(cat <<'EOF'
-Follow __INSTRUCTIONS__, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue the approved task in .agent/__TASK__/ by drafting tracer-bullet issue slices under .agent/__TASK__/issues/. Do not create commits.__PR_NOTE__
+Follow __INSTRUCTIONS__, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue the approved task in __TASK_DIR__/ by drafting tracer-bullet issue slices under __TASK_DIR__/issues/. Do not create commits.__PR_NOTE__
 
 This is a `paw to-issues` run. Convert the approved work into reviewable GitHub issue drafts before any publication step.
 
 Required draft workflow:
-- Read the approved task docs in .agent/__TASK__/ first and preserve the plan scope boundaries.
+- Read the approved task docs in __TASK_DIR__/ first and preserve the plan scope boundaries.
 - Keep the upstream tracer-bullet behavior: prefer thin vertical slices, mark each slice as HITL or AFK, review dependencies explicitly, and quiz the user on granularity, dependencies, merges/splits, and HITL/AFK labels before publication.
-- Write or refresh .agent/__TASK__/issues/index.md with the numbered proposed breakdown plus the review quiz and any parent-task context needed for publication.
-- Write one draft file per slice under .agent/__TASK__/issues/*.md using this exact metadata section:
+- Write or refresh __TASK_DIR__/issues/index.md with the numbered proposed breakdown plus the review quiz and any parent-task context needed for publication.
+- Write one draft file per slice under __TASK_DIR__/issues/*.md using this exact metadata section:
   ## Draft Metadata
   - Slug: <unique-kebab-case>
   - Type: HITL|AFK
@@ -2026,6 +2103,7 @@ EOF
 )
   prompt=${prompt//__INSTRUCTIONS__/$INSTRUCTIONS}
   prompt=${prompt//__TASK__/$task_name}
+  prompt=${prompt//__TASK_DIR__/$(_task_display_path "$task_dir")}
   prompt=${prompt//__PR_NOTE__/$(_prompt_pr_md_usage_note "$task_dir")}
 
   prompt=$(_prompt_append_human_extras "$prompt" "$extras")
@@ -2048,7 +2126,8 @@ cmd_pr_submit() {
   _task_assignment_resume_or_handoff pr-submit "$task_name"
   _require_task_dir "$task_name"
 
-  local task_dir="$PWD/.agent/$task_name"
+  local task_dir
+  task_dir="$(_task_dir_for_existing "$task_name")"
   local pr_file="$task_dir/pr.md"
   if [[ ! -f "$pr_file" ]]; then
     echo "error: $pr_file is required for 'paw pr-submit'." >&2
@@ -2084,7 +2163,8 @@ cmd_issue_submit() {
   _task_assignment_resume_or_handoff issue-submit "$task_name"
   _require_task_dir "$task_name"
 
-  local task_dir="$PWD/.agent/$task_name"
+  local task_dir
+  task_dir="$(_task_dir_for_existing "$task_name")"
   local issue_file="$task_dir/issue.md"
   if [[ ! -f "$issue_file" ]]; then
     echo "error: $issue_file is required for 'paw issue-submit'." >&2
@@ -2113,7 +2193,8 @@ cmd_pr_review() {
   local task_name=""
   task_name=$(_task_find_by_pr_number "$pr_number") || exit 1
   _task_assignment_resume_or_handoff pr-review "$task_name"
-  local task_dir="$PWD/.agent/$task_name"
+  local task_dir
+  task_dir="$(_task_dir_for_existing "$task_name")"
   local review_file="$task_dir/review.md"
 
   if [[ ! -f "$review_file" ]]; then
@@ -2156,8 +2237,12 @@ cmd_pr_address_comments() {
     exit 2
   fi
   local task_name="${pr_number}-review"
-  local task_dir="$PWD/.agent/$task_name"
+  local task_dir
+  task_dir="$(_task_dir_for_existing "$task_name" 2>/dev/null || paw_task_create_dir "$PWD" "$task_name")"
   _seed_task_templates "$task_dir" contract plan
+  if [[ "$task_dir" == "$(paw_task_home)"/* ]]; then
+    paw_task_write_metadata "$task_dir" "$PWD" "$task_name" created ""
+  fi
 
   # Fetch PR comments; write to comments.md (or placeholder when empty/unavailable).
   local comments_file="$task_dir/comments.md"
@@ -2170,37 +2255,38 @@ cmd_pr_address_comments() {
   fi
 
   # Discover prior tasks (filter out this review task).
-  local prior_tasks="" _d _dname
-  for _d in "$PWD/.agent"/*/; do
-    [[ -d "$_d" ]] || continue
-    _dname="${_d%/}"; _dname="${_dname##*/}"
+  local prior_tasks="" _d _dname _source _rows
+  _rows="$(paw_task_list "$PWD")"
+  while IFS=$'\t' read -r _dname _source _d; do
+    [[ -n "$_dname" ]] || continue
     [[ "$_dname" == "$task_name" ]] && continue
     prior_tasks+="$_dname "
-  done
+  done <<< "$_rows"
   prior_tasks="${prior_tasks% }"
 
   local branch
   branch=$(git -C "$PWD" branch --show-current 2>/dev/null || echo "unknown")
 
-  local seeded_list
-seeded_list="- .agent/$task_name/contract.md
-- .agent/$task_name/plan.md"
+  local seeded_list display_task_dir
+  display_task_dir="$(_task_display_path "$task_dir")"
+seeded_list="- $display_task_dir/contract.md
+- $display_task_dir/plan.md"
 
   local prior_block=""
   if [[ -n "$prior_tasks" ]]; then
     prior_block="
-Prior tasks found in .agent/: $prior_tasks"
+Prior tasks found: $prior_tasks"
   fi
 
   local prompt
   prompt=$(cat <<EOF
-Follow $INSTRUCTIONS, with <!-- PAW:PLAN --> as the primary section for this run, and create a new plan-only task package in .agent/$task_name/.
+Follow $INSTRUCTIONS, with <!-- PAW:PLAN --> as the primary section for this run, and create a new plan-only task package in $display_task_dir/.
 
 This is a PR review planning pass for branch '$branch'. PR number: $pr_number.
 $prior_block
-Read .agent/$task_name/comments.md — it contains the fetched PR review feedback (INLINE / REVIEW SUMMARY / PR COMMENT). For each comment item, plan to either address, defer (with reason), or decline (with reason).
+Read $display_task_dir/comments.md — it contains the fetched PR review feedback (INLINE / REVIEW SUMMARY / PR COMMENT). For each comment item, plan to either address, defer (with reason), or decline (with reason).
 
-The template files have already been seeded under .agent/$task_name/. Fill them in:
+The template files have already been seeded under $display_task_dir/. Fill them in:
 $seeded_list
 pr.md is not used for this task (no PR template in repo). Do not create commits.
 EOF
@@ -2223,8 +2309,12 @@ cmd_issue_review() {
   fi
 
   local task_name="${issue_number}-issue-review"
-  local task_dir="$PWD/.agent/$task_name"
+  local task_dir
+  task_dir="$(_task_dir_for_existing "$task_name" 2>/dev/null || paw_task_create_dir "$PWD" "$task_name")"
   _seed_task_templates "$task_dir" contract plan
+  if [[ "$task_dir" == "$(paw_task_home)"/* ]]; then
+    paw_task_write_metadata "$task_dir" "$PWD" "$task_name" created ""
+  fi
 
   local issue_file="$task_dir/issue.md"
   local fetched_issue
@@ -2241,19 +2331,20 @@ EOF
   _issue_review_doc_write "$issue_file" "$task_name" "$issue_number" "$fetched_issue"
   _task_assignment_record "$task_name"
 
-  local seeded_list
-seeded_list="- .agent/$task_name/contract.md
-- .agent/$task_name/plan.md
-- .agent/$task_name/issue.md"
+  local seeded_list display_task_dir
+  display_task_dir="$(_task_display_path "$task_dir")"
+seeded_list="- $display_task_dir/contract.md
+- $display_task_dir/plan.md
+- $display_task_dir/issue.md"
 
   local prompt
   prompt=$(cat <<EOF
-Follow $INSTRUCTIONS, with <!-- PAW:PLAN --> as the primary section for this run, and create or refine the plan-only task package in .agent/$task_name/.
+Follow $INSTRUCTIONS, with <!-- PAW:PLAN --> as the primary section for this run, and create or refine the plan-only task package in $display_task_dir/.
 
 This is an issue-review planning pass. Issue number: $issue_number.
-Read .agent/$task_name/issue.md — it contains the fetched GitHub issue title, metadata, and body. Plan from the issue body only; do not treat issue comments as in scope unless the task package explicitly expands scope later.
+Read $display_task_dir/issue.md — it contains the fetched GitHub issue title, metadata, and body. Plan from the issue body only; do not treat issue comments as in scope unless the task package explicitly expands scope later.
 
-The template files have already been seeded under .agent/$task_name/. Fill them in:
+The template files have already been seeded under $display_task_dir/. Fill them in:
 $seeded_list
 pr.md is not used for this task (no PR template in repo). Do not create commits.
 EOF
@@ -2265,6 +2356,77 @@ EOF
 cmd_gh_actions_review() {
   local helper="${PAW_GH_ACTIONS_REVIEW_CMD:-$SCRIPT_DIR/gh-actions-review.sh}"
   "$helper" "$@"
+}
+
+cmd_task_migrate() {
+  local repo_path="${1:-$PWD}"
+  if [[ -n "${2:-}" ]]; then
+    echo "error: paw task-migrate accepts at most one repo path" >&2
+    exit 2
+  fi
+  if [[ ! -d "$repo_path" ]]; then
+    echo "error: '$repo_path' is not a directory" >&2
+    exit 1
+  fi
+  paw_task_migrate_repo "$repo_path"
+}
+
+cmd_gui() {
+  local host="127.0.0.1" port="0" repo_path="$PWD"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --host)
+        shift
+        [[ $# -gt 0 ]] || { echo "error: --host requires a value" >&2; exit 2; }
+        host="$1"
+        ;;
+      --host=*) host="${1#--host=}" ;;
+      --port)
+        shift
+        [[ $# -gt 0 ]] || { echo "error: --port requires a value" >&2; exit 2; }
+        port="$1"
+        ;;
+      --port=*) port="${1#--port=}" ;;
+      --repo)
+        shift
+        [[ $# -gt 0 ]] || { echo "error: --repo requires a value" >&2; exit 2; }
+        repo_path="$1"
+        ;;
+      --repo=*) repo_path="${1#--repo=}" ;;
+      -h|--help)
+        echo "usage: paw gui [--host 127.0.0.1] [--port 0|<port>] [--repo <path>]"
+        return 0
+        ;;
+      *)
+        echo "error: unknown paw gui argument: $1" >&2
+        exit 2
+        ;;
+    esac
+    shift
+  done
+
+  if [[ "$host" != "127.0.0.1" && "$host" != "localhost" ]]; then
+    echo "error: paw gui is local-only; use --host 127.0.0.1 or --host localhost" >&2
+    exit 2
+  fi
+  if [[ ! "$port" =~ ^[0-9]+$ ]]; then
+    echo "error: --port expects 0 or a numeric port; got '$port'" >&2
+    exit 2
+  fi
+  if [[ ! -d "$repo_path" ]]; then
+    echo "error: '$repo_path' is not a directory" >&2
+    exit 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "error: paw gui requires python3 on PATH" >&2
+    exit 1
+  fi
+
+  python3 "$LIB_DIR/gui_server.py" \
+    --host "$host" \
+    --port "$port" \
+    --repo "$repo_path" \
+    --task-home "$(paw_task_home)"
 }
 
 cmd_review() {
@@ -2282,9 +2444,8 @@ cmd_compact() {
     echo "usage: paw compact <task-name>" >&2
     exit 2
   fi
-  local task_dir="$PWD/.agent/$task_name"
-  if [[ ! -d "$task_dir" ]]; then
-    echo "error: task directory not found: $task_dir" >&2
+  local task_dir
+  if ! task_dir="$(_task_dir_for_existing "$task_name")"; then
     exit 2
   fi
 
@@ -2351,9 +2512,8 @@ cmd_crash_log() {
     echo "usage: paw crash-log <task-name>" >&2
     exit 2
   fi
-  local task_dir="$PWD/.agent/$task_name"
-  if [[ ! -d "$task_dir" ]]; then
-    echo "error: task directory not found: $task_dir" >&2
+  local task_dir
+  if ! task_dir="$(_task_dir_for_existing "$task_name")"; then
     exit 2
   fi
   crash_log_show "$task_dir"

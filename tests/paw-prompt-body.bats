@@ -27,6 +27,7 @@ setup() {
   export PAW_HOME="$(cd "$SCRIPTS_DIR/.." && pwd)"
   export PAW_BACKEND=stub
   export PAW_MAX_TURNS=100
+  export PAW_TASK_HOME="$BATS_TEST_TMPDIR/paw-state/tasks"
 
   # Ensure claude binary is NOT on PATH — stub backend must not need it.
   EMPTY_BIN="$BATS_TEST_TMPDIR/empty-bin"
@@ -166,8 +167,9 @@ MD
 @test "paw prototype: seeds prototype.md for the durable verdict record" {
   run "$PAW" prototype proto-task --question "Does this flow hold up?"
   [ "$status" -eq 0 ]
-  [ -f "$REPO/.agent/proto-task/prototype.md" ]
-  grep -q "## Verdict Capture" "$REPO/.agent/proto-task/prototype.md"
+  local matches=("$PAW_TASK_HOME"/*/proto-task/prototype.md)
+  [ -f "${matches[0]}" ]
+  grep -q "## Verdict Capture" "${matches[0]}"
 }
 
 @test "paw prototype: prompt contains task name and prototype question" {
@@ -582,7 +584,7 @@ MD
 @test "paw pr-address-comments: prompt references comments.md path" {
   PAW_GH_COMMENTS_CMD=echo run "$PAW" pr-address-comments 42
   [ "$status" -eq 0 ]
-  prompt_contains ".agent/42-review/comments.md"
+  prompt_contains "42-review/comments.md"
 }
 
 @test "paw pr-address-comments: prompt contains current branch" {
@@ -620,7 +622,7 @@ MD
 @test "paw issue-review: prompt references issue.md path" {
   PAW_GH_ISSUE_VIEW_CMD=echo run "$PAW" issue-review 42
   [ "$status" -eq 0 ]
-  prompt_contains ".agent/42-issue-review/issue.md"
+  prompt_contains "42-issue-review/issue.md"
 }
 
 # ── paw plan ──────────────────────────────────────────────────────────────────
@@ -659,8 +661,10 @@ MD
 @test "paw plan: seeds template files before invoking backend" {
   run "$PAW" plan seeded-task "some task description"
   [ "$status" -eq 0 ]
-  [ -f "$REPO/.agent/seeded-task/contract.md" ]
-  [ -f "$REPO/.agent/seeded-task/plan.md" ]
+  local matches=("$PAW_TASK_HOME"/*/seeded-task/contract.md)
+  [ -f "${matches[0]}" ]
+  matches=("$PAW_TASK_HOME"/*/seeded-task/plan.md)
+  [ -f "${matches[0]}" ]
 }
 
 @test "paw plan: seeds pr.md when the repo has a PR template" {
@@ -670,8 +674,9 @@ MD
   run "$PAW" plan seeded-task-with-pr "some task description"
 
   [ "$status" -eq 0 ]
-  [ -f "$REPO/.agent/seeded-task-with-pr/pr.md" ]
-  prompt_contains ".agent/seeded-task-with-pr/pr.md"
+  local matches=("$PAW_TASK_HOME"/*/seeded-task-with-pr/pr.md)
+  [ -f "${matches[0]}" ]
+  prompt_contains "seeded-task-with-pr/pr.md"
   ! grep -qF "pr.md is not used for this task" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 
@@ -742,9 +747,9 @@ MD
 @test "paw plan: prompt references a single seeded task package" {
   run "$PAW" plan single-plan "some task description"
   [ "$status" -eq 0 ]
-  prompt_contains "create a new plan-only task package in .agent/single-plan/"
-  prompt_contains "- .agent/single-plan/contract.md"
-  prompt_contains "- .agent/single-plan/plan.md"
+  prompt_contains "create a new plan-only task package in"
+  prompt_contains "single-plan/contract.md"
+  prompt_contains "single-plan/plan.md"
   ! grep -qF "Child task package:" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 

@@ -20,6 +20,7 @@ setup() {
   export PATH="$SHIM_DIR:$PATH"
   export PAW_HOME="$(cd "$SCRIPTS_DIR/.." && pwd)"
   export PAW_BACKEND=stub
+  export PAW_TASK_HOME="$BATS_TEST_TMPDIR/paw-state/tasks"
 
   cd "$REPO"
 }
@@ -43,22 +44,34 @@ assignment_file() {
 
 seed_task_package() {
   local task_name="$1"
-  mkdir -p "$REPO/.agent/$task_name"
-  cat > "$REPO/.agent/$task_name/contract.md" <<'EOF'
+  local task_dir
+  task_dir="$(task_dir_for "$task_name")"
+  mkdir -p "$task_dir"
+  cat > "$task_dir/contract.md" <<'EOF'
 # Contract — `pr-workflow`
 
 ## Task Summary
 
 Add two PR commands to paw, change paw review command.
 EOF
-  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$REPO/.agent/$task_name/plan.md"
-  cat > "$REPO/.agent/$task_name/pr.md" <<'EOF'
+  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$task_dir/plan.md"
+  cat > "$task_dir/pr.md" <<'EOF'
 # `Feature: Add two PR commands to paw`
 
 ## Summary
 
 PR body content.
 EOF
+}
+
+task_dir_for() {
+  local task_name="$1"
+  local matches=("$PAW_TASK_HOME"/*/"$task_name")
+  if [[ -d "${matches[0]}" ]]; then
+    printf '%s\n' "${matches[0]}"
+  else
+    printf '%s\n' "$REPO/.agent/$task_name"
+  fi
 }
 
 write_fake_gh() {
@@ -110,6 +123,8 @@ EOF
   [ "$status" -eq 0 ]
 
   seed_task_package pr-workflow
+  local task_dir
+  task_dir="$(task_dir_for pr-workflow)"
   write_fake_gh
 
   run "$PAW" pr-submit pr-workflow
@@ -121,10 +136,10 @@ EOF
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"--draft"* ]]
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"--title"* ]]
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"Feature: Add two PR commands to paw, change paw review command"* ]]
-  grep -q "## PR Tracking" "$REPO/.agent/pr-workflow/plan.md"
-  grep -q "PR Number: #123" "$REPO/.agent/pr-workflow/plan.md"
-  grep -q "PR URL: https://github.com/example/repo/pull/123" "$REPO/.agent/pr-workflow/plan.md"
-  grep -q "PR Number: #123" "$REPO/.agent/pr-workflow/pr.md"
+  grep -q "## PR Tracking" "$task_dir/plan.md"
+  grep -q "PR Number: #123" "$task_dir/plan.md"
+  grep -q "PR URL: https://github.com/example/repo/pull/123" "$task_dir/plan.md"
+  grep -q "PR Number: #123" "$task_dir/pr.md"
 }
 
 @test "paw pr-submit: errors clearly when pr.md is missing" {
@@ -133,16 +148,18 @@ EOF
   run "$PAW" plan missing-pr "record assignment"
   [ "$status" -eq 0 ]
 
-  mkdir -p "$REPO/.agent/missing-pr"
-  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$REPO/.agent/missing-pr/plan.md"
-  cat > "$REPO/.agent/missing-pr/contract.md" <<'EOF'
+  local task_dir
+  task_dir="$(task_dir_for missing-pr)"
+  mkdir -p "$task_dir"
+  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$task_dir/plan.md"
+  cat > "$task_dir/contract.md" <<'EOF'
 # Contract — `missing-pr`
 EOF
 
   run "$PAW" pr-submit missing-pr
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *".agent/missing-pr/pr.md"* ]]
+  [[ "$output" == *"missing-pr/pr.md"* ]]
 }
 
 @test "paw pr-review: first run collects comments into the task review.md draft" {

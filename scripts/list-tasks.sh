@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# list-tasks.sh — list .agent/<task>/ directories in a repo and print their status.
+# list-tasks.sh — list PAW task packages for a repo and print their status.
 #
 # For each task directory it prints:
-#   <task-name>
+#   <task-name> (<central|legacy>)
 #       Plan position:       <value>
 #       Estimated completion: <value>
 #       Next work:           <value>
@@ -17,6 +17,11 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/task_store.sh
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/task_store.sh"
+
 repo_path="${1:-$PWD}"
 
 if [[ ! -d "$repo_path" ]]; then
@@ -24,19 +29,16 @@ if [[ ! -d "$repo_path" ]]; then
   exit 1
 fi
 
-agent_dir="$repo_path/.agent"
+task_rows="$(paw_task_list "$repo_path")"
+repo_path="$(paw_repo_physical_path "$repo_path")"
 
-if [[ ! -d "$agent_dir" ]]; then
-  echo "no .agent/ directory found in $repo_path"
-  exit 0
-fi
-
-shopt -s nullglob
-tasks=("$agent_dir"/*/)
-shopt -u nullglob
-
-if [[ ${#tasks[@]} -eq 0 ]]; then
-  echo "no task directories under $agent_dir/"
+if [[ -z "$task_rows" ]]; then
+  echo "no task directories found for $repo_path"
+  if [[ ! -d "$repo_path/.agent" ]]; then
+    echo "    no .agent/ legacy directory found"
+  fi
+  echo "    central store: $(paw_task_repo_store "$repo_path")"
+  echo "    legacy store:  $repo_path/.agent"
   exit 0
 fi
 
@@ -57,11 +59,11 @@ extract_field() {
   ' "$file"
 }
 
-for task_dir in "${tasks[@]}"; do
-  task_name="$(basename "$task_dir")"
-  plan_file="${task_dir%/}/plan.md"
+while IFS=$'\t' read -r task_name task_source task_dir; do
+  [[ -n "$task_name" ]] || continue
+  plan_file="$task_dir/plan.md"
 
-  echo "$task_name"
+  printf '%s (%s)\n' "$task_name" "$task_source"
 
   if [[ ! -f "$plan_file" ]]; then
     echo "    (no plan.md)"
@@ -75,4 +77,4 @@ for task_dir in "${tasks[@]}"; do
   printf '    Plan position:        %s\n' "${plan_position:-<missing>}"
   printf '    Estimated completion: %s\n' "${estimated_completion:-<missing>}"
   printf '    Next work:            %s\n' "${next_work:-<missing>}"
-done
+done <<< "$task_rows"

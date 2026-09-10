@@ -14,7 +14,8 @@ Repo structure, file layout, and the relationship between task templates, commit
 | `prompts/` | Workflow contract loaded into every agent run | [`prompts/prompt_instructions.md`](../../prompts/prompt_instructions.md) |
 | `examples/` | Committed examples and durable operator docs | See [`examples/README.md`](../README.md) |
 | `examples/docs/` | Durable operator documentation | This directory |
-| `.agent/<task>/` | Local-only task docs | Excluded via `.git/info/exclude`; never committed |
+| `${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}/<repo-slug>/<task>/` | Default local task store | Markdown task package plus local metadata; never committed |
+| `.agent/<task>/` | Legacy local-only task docs | Still resolved for compatibility; excluded via `.git/info/exclude`; never committed |
 
 ## Component Overview
 
@@ -23,12 +24,16 @@ flowchart LR
     CLI[scripts/paw] --> BE[scripts/lib/backends/*.sh]
     CLI --> PL[paw-backend-<name>]
     CLI --> TL[scripts/lint-task.sh]
+    CLI --> TS[scripts/lib/task_store.sh]
+    CLI --> GUI[scripts/lib/gui_server.py]
     CLI --> GH[scripts/gh-pr-comments.sh]
     CLI --> GHA[scripts/gh-actions-review.sh]
-    CLI --> TD[.agent/task/]
+    CLI --> TD[central task store]
+    CLI --> LA[legacy .agent/task/]
     BE --> EXT[backend CLI]
     PL --> EXT
     TD --> TL
+    LA --> TL
     TM[templates/] --> CLI
     EX[examples/] -. reference only .-> TD
 ```
@@ -62,13 +67,15 @@ personal-agentic-workflow/
 │   ├── README.md                         — scripts overview plus env var reference
 │   ├── paw                               — CLI wrapper and dispatcher
 │   ├── setup-repo.sh                     — add `.agent/` to a target repo's `.git/info/exclude`
-│   ├── list-tasks.sh                     — list `.agent/<task>/` packages plus current status
-│   ├── lint-task.sh                      — verify a task package against the contract
+│   ├── list-tasks.sh                     — list central and legacy task packages plus current status
+│   ├── lint-task.sh                      — verify central or legacy task packages against the contract
 │   ├── gh-pr-comments.sh                 — list unresolved PR review comments via GitHub GraphQL
 │   ├── gh-actions-review.sh              — inspect same-day GitHub Actions failures
 │   └── lib/
 │       ├── README.md                     — helper overview and backend module notes
 │       ├── crash_log.sh                  — crash classification and append helpers
+│       ├── task_store.sh                 — central/legacy task path resolution, metadata, and migration helpers
+│       ├── gui_server.py                 — stdlib local HTTP server for `paw gui`
 │       ├── prompt_optimizer.sh           — optional `paw plan` prompt pre-optimizer
 │       ├── claude_invoke.sh              — backwards-compat shim for `backends/claude.sh`
 │       └── backends/
@@ -98,6 +105,8 @@ personal-agentic-workflow/
     ├── gh-pr-comments.bats               — `gh-pr-comments.sh` coverage
     ├── lint-task.bats                    — `scripts/lint-task.sh` coverage
     ├── list-tasks.bats                   — `scripts/list-tasks.sh` coverage
+    ├── task-store.bats                   — central task-store resolver and migration coverage
+    ├── gui-server.bats                   — local dashboard smoke coverage
     ├── makefile.bats                     — smoke tests for every Makefile target
     ├── paw-codex.bats                    — codex backend coverage
     ├── paw-compact.bats                  — `paw compact` archive-on-tick and idempotency
@@ -112,4 +121,6 @@ personal-agentic-workflow/
     └── templates.bats                    — template structure and prompt-anchor guarantees
 ```
 
-The [`examples/example-task/`](../example-task/) directory is still useful even though `templates/` exists: `templates/` shows the empty canonical skeleton, while `examples/` shows what a completed task package looks like after real checklist progress, validation logging, and handoff notes have accumulated. Real `.agent/<task-name>/` directories still live inside their target repo and stay local-only via `.git/info/exclude`.
+The [`examples/example-task/`](../example-task/) directory is still useful even though `templates/` exists: `templates/` shows the empty canonical skeleton, while `examples/` shows what a completed task package looks like after real checklist progress, validation logging, and handoff notes have accumulated. Real task packages now live in the central local task store by default, while existing `.agent/<task-name>/` directories still resolve as legacy local-only packages.
+
+Central-store task packages keep Markdown authoritative. `metadata.gitconfig` records local provenance, and `runs/*.gitconfig` records observational run/session state for `paw gui`; neither file replaces `contract.md`, `plan.md`, or `pr.md`.
