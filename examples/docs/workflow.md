@@ -41,7 +41,10 @@ To copy existing legacy `.agent/<task>/` packages into the central store, run:
 
 ```bash
 paw task-migrate
+paw task-migrate ../api ../web
 ```
+
+Migration is explicit: pass each repo you want imported, or run the command from that repo. PAW keeps `${PAW_TASK_HOME}/<repo-slug>/<task-name>/` as the canonical local layout and uses metadata plus the GUI to present friendly repo grouping.
 
 ## Overall Workflow
 
@@ -65,7 +68,7 @@ flowchart TD
 3. Ensure repo-local `.agent/` is excluded — run `paw setup` once per repo.
 4. Run `paw`:
    - **Plan new work** — `paw plan <task-name> "<prompt>"`; planning orients from repo landmark files directly and, when run inside a Git worktree, records the task's current branch/worktree assignment in local Git metadata shared by sibling worktrees
-   - **Open the local dashboard** — `paw gui`; starts a read-only localhost task tracker for central and legacy tasks
+   - **Open the local dashboard** — `paw gui` for foreground scoped mode, or `paw gui start --all` for a managed background view of every central repo; `paw gui stop` and `paw gui kill` stop only the recorded local dashboard process
    - **Iterate on plan** — `paw edit <task-name>` (plan-only, after `paw plan`); resumes the saved assignment when that is safe and is the required reconciliation step after the user fills in follow-up answers
    - **Implement approved task** — `paw implement <task-name>` (optionally with extra prompt text); resumes the saved assignment when that is safe, but refuses to run while `plan.md` still contains `USER ANSWER (UNRESOLVED):` or `USER ANSWER (PROVIDED):` placeholders
    - **Draft tracer-bullet issues from approved work** — `paw to-issues <task-name>`; reuses the saved assignment, writes a reviewable numbered breakdown to `.agent/<task>/issues/index.md`, and keeps one issue draft per slice under `.agent/<task>/issues/*.md`
@@ -101,9 +104,9 @@ flowchart TD
 
 ### Local GUI
 
-`paw gui [--host 127.0.0.1] [--port 0|<port>] [--repo <path>]` starts a browser dashboard and prints its URL. It binds only to `127.0.0.1` or `localhost`; non-local hosts are rejected.
+`paw gui [--host 127.0.0.1] [--port 0|<port>] [--repo <path>] [--all]` starts a browser dashboard in the foreground and prints its URL. `paw gui start` uses the same options but runs in the background and records lifecycle metadata under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/`. Stop it with `paw gui stop`; use `paw gui kill` only as the force-stop fallback. All GUI modes bind only to `127.0.0.1` or `localhost`; non-local hosts are rejected.
 
-The first GUI release is observational. It lists tasks, shows source paths and Markdown detail pages, detects follow-up placeholder blockers, reports checklist and validation state, and reads run metadata. Use CLI flows such as `paw edit`, `paw implement`, `paw crash-log`, and `paw pr-submit` to change task state.
+The GUI is observational. Scoped mode lists the chosen repo's central tasks plus legacy `.agent/<task>/` packages. `--all` lists every central task store and shows repo name, repo path, branch/head state, slug, source, task path, checklist progress, validation, and run metadata. Use CLI flows such as `paw edit`, `paw implement`, `paw crash-log`, and `paw pr-submit` to change task state.
 
 ### A `paw implement` run in detail
 

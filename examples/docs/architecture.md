@@ -15,6 +15,7 @@ Repo structure, file layout, and the relationship between task templates, commit
 | `examples/` | Committed examples and durable operator docs | See [`examples/README.md`](../README.md) |
 | `examples/docs/` | Durable operator documentation | This directory |
 | `${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}/<repo-slug>/<task>/` | Default local task store | Markdown task package plus local metadata; never committed |
+| `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/active.gitconfig` | Managed GUI lifecycle state | PID, URL, logs, repo path, task home, and start time for `paw gui start`; never committed |
 | `.agent/<task>/` | Legacy local-only task docs | Still resolved for compatibility; excluded via `.git/info/exclude`; never committed |
 
 ## Component Overview
@@ -25,6 +26,7 @@ flowchart LR
     CLI --> PL[paw-backend-<name>]
     CLI --> TL[scripts/lint-task.sh]
     CLI --> TS[scripts/lib/task_store.sh]
+    CLI --> GL[scripts/lib/gui_lifecycle.sh]
     CLI --> GUI[scripts/lib/gui_server.py]
     CLI --> GH[scripts/gh-pr-comments.sh]
     CLI --> GHA[scripts/gh-actions-review.sh]
@@ -75,6 +77,7 @@ personal-agentic-workflow/
 │       ├── README.md                     — helper overview and backend module notes
 │       ├── crash_log.sh                  — crash classification and append helpers
 │       ├── task_store.sh                 — central/legacy task path resolution, metadata, and migration helpers
+│       ├── gui_lifecycle.sh              — local PID/URL metadata and stop/kill helpers for `paw gui start`
 │       ├── gui_server.py                 — stdlib local HTTP server for `paw gui`
 │       ├── prompt_optimizer.sh           — optional `paw plan` prompt pre-optimizer
 │       ├── claude_invoke.sh              — backwards-compat shim for `backends/claude.sh`
@@ -105,8 +108,8 @@ personal-agentic-workflow/
     ├── gh-pr-comments.bats               — `gh-pr-comments.sh` coverage
     ├── lint-task.bats                    — `scripts/lint-task.sh` coverage
     ├── list-tasks.bats                   — `scripts/list-tasks.sh` coverage
-    ├── task-store.bats                   — central task-store resolver and migration coverage
-    ├── gui-server.bats                   — local dashboard smoke coverage
+    ├── task-store.bats                   — central task-store resolver and explicit multi-repo migration coverage
+    ├── gui-server.bats                   — local dashboard lifecycle and multi-repo display coverage
     ├── makefile.bats                     — smoke tests for every Makefile target
     ├── paw-codex.bats                    — codex backend coverage
     ├── paw-compact.bats                  — `paw compact` archive-on-tick and idempotency
@@ -124,3 +127,5 @@ personal-agentic-workflow/
 The [`examples/example-task/`](../example-task/) directory is still useful even though `templates/` exists: `templates/` shows the empty canonical skeleton, while `examples/` shows what a completed task package looks like after real checklist progress, validation logging, and handoff notes have accumulated. Real task packages now live in the central local task store by default, while existing `.agent/<task-name>/` directories still resolve as legacy local-only packages.
 
 Central-store task packages keep Markdown authoritative. `metadata.gitconfig` records local provenance, and `runs/*.gitconfig` records observational run/session state for `paw gui`; neither file replaces `contract.md`, `plan.md`, or `pr.md`.
+
+The slugged central store remains canonical because it handles duplicate repo names and worktrees better than a plain `paw/.agent/<repo>/<task>` tree. The GUI presents the friendlier repo-to-task grouping: scoped mode combines one repo's central and legacy tasks, while `--all` enumerates all central repo slugs and displays repo name, path, branch/head state, slug, source, and task path.

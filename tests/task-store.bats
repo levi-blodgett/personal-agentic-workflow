@@ -58,3 +58,17 @@ setup() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"$REPO/.agent/migrate-me"* ]]
 }
+
+@test "task store: migrate imports multiple explicit repos and preserves repo metadata" {
+  local repo_two="$BATS_TEST_TMPDIR/repo-two"
+  mkdir -p "$REPO/.agent/shared-name" "$repo_two/.agent/shared-name"
+  git -C "$repo_two" init -q
+  printf '# Plan one\n' > "$REPO/.agent/shared-name/plan.md"
+  printf '# Plan two\n' > "$repo_two/.agent/shared-name/plan.md"
+
+  run bash -c 'source "$1"; paw_task_migrate_repo "$2"; paw_task_migrate_repo "$3"; one=$(paw_task_create_dir "$2" shared-name); two=$(paw_task_create_dir "$3" shared-name); git config --file "$one/metadata.gitconfig" --get paw.repo-root; git config --file "$two/metadata.gitconfig" --get paw.repo-root' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO" "$repo_two"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$REPO"* ]]
+  [[ "$output" == *"$repo_two"* ]]
+}

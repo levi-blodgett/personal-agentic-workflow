@@ -135,14 +135,19 @@ def run_rows(task_path: Path) -> str:
 
 
 class Task:
-    def __init__(self, name: str, source: str, path: Path, repo: Path):
+    def __init__(self, name: str, source: str, path: Path, repo: Path, slug: str = ""):
         self.name = name
         self.source = source
         self.path = path
         self.repo = repo
+        self.slug = slug or repo_slug(repo)
         self.plan = (path / "plan.md").read_text(errors="replace") if (path / "plan.md").exists() else ""
         self.contract = (path / "contract.md").read_text(errors="replace") if (path / "contract.md").exists() else ""
         self.pr = (path / "pr.md").read_text(errors="replace") if (path / "pr.md").exists() else ""
+
+    @property
+    def repo_name(self) -> str:
+        return self.repo.name or self.slug
 
     @property
     def blocked(self) -> bool:
@@ -164,7 +169,7 @@ class Task:
         return "ready"
 
 
-def list_tasks(repo: Path, task_home: Path) -> list[Task]:
+def list_repo_tasks(repo: Path, task_home: Path) -> list[Task]:
     tasks: dict[str, Task] = {}
     central_root = task_home / repo_slug(repo)
     if central_root.exists():
@@ -172,12 +177,30 @@ def list_tasks(repo: Path, task_home: Path) -> list[Task]:
             metadata_repo = metadata_value(path / "metadata.gitconfig", "repo-root")
             if metadata_repo and physical(Path(metadata_repo)) != repo:
                 continue
-            tasks[path.name] = Task(path.name, "central", path, repo)
+            tasks[path.name] = Task(path.name, "central", path, repo, central_root.name)
     legacy_root = repo / ".agent"
     if legacy_root.exists():
         for path in sorted(p for p in legacy_root.iterdir() if p.is_dir()):
             tasks.setdefault(path.name, Task(path.name, "legacy", path, repo))
     return list(tasks.values())
+
+
+def list_all_central_tasks(task_home: Path) -> list[Task]:
+    tasks: list[Task] = []
+    if not task_home.exists():
+        return tasks
+    for repo_dir in sorted(p for p in task_home.iterdir() if p.is_dir()):
+        for path in sorted(p for p in repo_dir.iterdir() if p.is_dir()):
+            metadata_repo = metadata_value(path / "metadata.gitconfig", "repo-root")
+            repo = physical(Path(metadata_repo)) if metadata_repo else Path(repo_dir.name)
+            tasks.append(Task(path.name, "central", path, repo, repo_dir.name))
+    return tasks
+
+
+def list_tasks(repo: Path, task_home: Path, all_repos: bool) -> list[Task]:
+    if all_repos:
+        return list_all_central_tasks(task_home)
+    return list_repo_tasks(repo, task_home)
 
 
 STYLE = """
@@ -193,6 +216,7 @@ pre{white-space:pre-wrap;background:white;border:1px solid #dfe3ea;padding:16px;
 class Handler(BaseHTTPRequestHandler):
     repo: Path
     task_home: Path
+    all_repos: bool
 
     def send_html(self, body: str, code: int = 200) -> None:
         self.send_response(code)
@@ -205,16 +229,23 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/":
             return self.index()
         if parsed.path.startswith("/task/"):
-            return self.task(unquote(parsed.path.removeprefix("/task/")), parse_qs(parsed.query).get("doc", ["plan"])[0])
+            query = parse_qs(parsed.query)
+            return self.task(
+                unquote(parsed.path.removeprefix("/task/")),
+                query.get("doc", ["plan"])[0],
+                query.get("path", [""])[0],
+            )
         self.send_html("<h1>Not found</h1>", 404)
 
     def index(self) -> None:
         rows = []
-        for task in list_tasks(self.repo, self.task_home):
+        for task in list_tasks(self.repo, self.task_home, self.all_repos):
             done, total = checklist_counts(task.plan)
+            task_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}"
             rows.append(
                 "<tr>"
-                f"<td><a href='/task/{quote(task.name)}'>{html.escape(task.name)}</a><br><span class='muted'>{html.escape(str(task.path))}</span></td>"
+                f"<td><a href='{task_href}'>{html.escape(task.name)}</a><br><span class='muted'>{html.escape(str(task.path))}</span></td>"
+                f"<td>{html.escape(task.repo_name)}<br><span class='muted'>{html.escape(str(task.repo))}</span><br><span class='muted'>{html.escape(task.slug)}</span></td>"
                 f"<td><span class='pill {task.state}'>{task.state}</span><br>{task.source}</td>"
                 f"<td>{html.escape(status_field(task.plan, 'Plan position') or '<missing>')}</td>"
                 f"<td>{html.escape(status_field(task.plan, 'Estimated completion') or '<missing>')}</td>"
@@ -223,21 +254,28 @@ class Handler(BaseHTTPRequestHandler):
                 f"<td>{done}/{total}</td><td>{validation_state(task.plan)}</td>"
                 "</tr>"
             )
+        scope = "All central task stores" if self.all_repos else str(self.repo)
+        central_note = str(self.task_home) if self.all_repos else str(self.task_home / repo_slug(self.repo))
         body = (
-            f"<header><h1>PAW Tasks</h1><div>{html.escape(str(self.repo))}</div></header><main>"
-            f"<p class='muted'>Central store: {html.escape(str(self.task_home / repo_slug(self.repo)))}</p>"
-            "<table><thead><tr><th>Task</th><th>State</th><th>Plan Position</th><th>Completion</th><th>Next Work</th><th>Branch</th><th>Checklist</th><th>Validation</th></tr></thead>"
-            f"<tbody>{''.join(rows) or '<tr><td colspan=8>No task packages found.</td></tr>'}</tbody></table></main>"
+            f"<header><h1>PAW Tasks</h1><div>{html.escape(scope)}</div></header><main>"
+            f"<p class='muted'>Central store: {html.escape(central_note)}</p>"
+            "<table><thead><tr><th>Task</th><th>Repo</th><th>State</th><th>Plan Position</th><th>Completion</th><th>Next Work</th><th>Branch</th><th>Checklist</th><th>Validation</th></tr></thead>"
+            f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table></main>"
         )
         self.send_html(body)
 
-    def task(self, name: str, doc: str) -> None:
-        matches = [task for task in list_tasks(self.repo, self.task_home) if task.name == name]
+    def task(self, name: str, doc: str, path_value: str = "") -> None:
+        all_tasks = list_tasks(self.repo, self.task_home, self.all_repos)
+        if path_value:
+            matches = [task for task in all_tasks if str(task.path) == path_value]
+        else:
+            matches = [task for task in all_tasks if task.name == name]
         if not matches:
             return self.send_html("<h1>Task not found</h1>", 404)
         task = matches[0]
         content = {"contract": task.contract, "plan": task.plan, "pr": task.pr}.get(doc, task.plan)
-        tabs = " ".join(f"<a href='/task/{quote(name)}?doc={tab}'>{tab}.md</a>" for tab in ("contract", "plan", "pr"))
+        path_query = quote(str(task.path), safe="")
+        tabs = " ".join(f"<a href='/task/{quote(name)}?path={path_query}&doc={tab}'>{tab}.md</a>" for tab in ("contract", "plan", "pr"))
         done, total = checklist_counts(task.plan)
         crash_state = "available" if (task.path / "crash.log").exists() else "none"
         pr_tracking = tracking_summary(task.plan, "PR") or "none"
@@ -247,6 +285,7 @@ class Handler(BaseHTTPRequestHandler):
             f"<p><span class='pill {task.state}'>{task.state}</span> <span class='pill'>{task.source}</span> <span class='pill'>{done}/{total} checklist</span></p>"
             "<table><tbody>"
             f"<tr><th>Repo</th><td>{html.escape(str(task.repo))}</td></tr>"
+            f"<tr><th>Repo Slug</th><td>{html.escape(task.slug)}</td></tr>"
             f"<tr><th>Worktree</th><td>{html.escape(metadata_value(task.path / 'metadata.gitconfig', 'worktree-path') or 'legacy metadata unavailable')}</td></tr>"
             f"<tr><th>PR</th><td>{html.escape(pr_tracking)}</td></tr>"
             f"<tr><th>Issue</th><td>{html.escape(issue_tracking)}</td></tr>"
@@ -265,11 +304,13 @@ def main() -> int:
     parser.add_argument("--task-home", required=True)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--all", action="store_true", help="show every central task store instead of only --repo")
     args = parser.parse_args()
     if args.host != "127.0.0.1" and args.host != "localhost":
         raise SystemExit("error: paw gui only supports localhost hosts")
     Handler.repo = physical(Path(args.repo))
     Handler.task_home = physical(Path(args.task_home))
+    Handler.all_repos = args.all
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     host, port = server.server_address[:2]
     print(f"paw gui: http://{host}:{port}/", flush=True)

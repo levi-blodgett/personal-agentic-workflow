@@ -79,6 +79,9 @@ source "$LIB_DIR/crash_log.sh"
 # shellcheck source=lib/task_store.sh
 # shellcheck disable=SC1091
 source "$LIB_DIR/task_store.sh"
+# shellcheck source=lib/gui_lifecycle.sh
+# shellcheck disable=SC1091
+source "$LIB_DIR/gui_lifecycle.sh"
 
 _backend_kind=""
 _backend_plugin_cmd=""
@@ -164,8 +167,8 @@ diagnosecmd_diagnose<task-name> [extras...]run the feedback-loop-first debugg
 tightencmd_tighten<task-name> [extras...]sharpen an existing task plan one question at a time
 editcmd_edit<task-name> [extras...]refine .agent task docs without code changes
 to-issuescmd_to_issues<task-name> [--publish]draft tracer-bullet issue slices or publish reviewed drafts
-task-migratecmd_task_migrate[repo-path]copy legacy .agent tasks into the central task store
-guicmd_gui[--host 127.0.0.1] [--port 0|<port>] [--repo <path>]start the local PAW task dashboard
+task-migratecmd_task_migrate[repo-path ...]copy legacy .agent tasks into the central task store
+guicmd_gui[start|stop|kill] [--host 127.0.0.1] [--port 0|<port>] [--repo <path>]start, stop, or foreground the local PAW task dashboard
 completioncmd_completionzshprint the zsh completion script for paw
 pr-submitcmd_pr_submit<task-name>create a draft PR from .agent/<task>/pr.md
 issue-submitcmd_issue_submit<task-name>create a GitHub issue from .agent/<task>/issue.md
@@ -2359,20 +2362,24 @@ cmd_gh_actions_review() {
 }
 
 cmd_task_migrate() {
-  local repo_path="${1:-$PWD}"
-  if [[ -n "${2:-}" ]]; then
-    echo "error: paw task-migrate accepts at most one repo path" >&2
-    exit 2
+  local repo_path
+  if [[ $# -eq 0 ]]; then
+    set -- "$PWD"
   fi
-  if [[ ! -d "$repo_path" ]]; then
-    echo "error: '$repo_path' is not a directory" >&2
-    exit 1
-  fi
-  paw_task_migrate_repo "$repo_path"
+  for repo_path in "$@"; do
+    if [[ ! -d "$repo_path" ]]; then
+      echo "error: '$repo_path' is not a directory" >&2
+      exit 1
+    fi
+  done
+  for repo_path in "$@"; do
+    paw_task_migrate_repo "$repo_path"
+  done
 }
 
-cmd_gui() {
-  local host="127.0.0.1" port="0" repo_path="$PWD"
+_gui_parse_options() {
+  local host="127.0.0.1" port="0" repo_path="$PWD" all_repos="0"
+  GUI_HELP="0"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --host)
@@ -2393,8 +2400,10 @@ cmd_gui() {
         repo_path="$1"
         ;;
       --repo=*) repo_path="${1#--repo=}" ;;
+      --all) all_repos="1" ;;
       -h|--help)
-        echo "usage: paw gui [--host 127.0.0.1] [--port 0|<port>] [--repo <path>]"
+        echo "usage: paw gui [start|stop|kill] [--host 127.0.0.1] [--port 0|<port>] [--repo <path>] [--all]"
+        GUI_HELP="1"
         return 0
         ;;
       *)
@@ -2417,9 +2426,26 @@ cmd_gui() {
     echo "error: '$repo_path' is not a directory" >&2
     exit 1
   fi
+  GUI_HOST="$host"
+  GUI_PORT="$port"
+  GUI_REPO_PATH="$repo_path"
+  GUI_ALL_REPOS="$all_repos"
+}
+
+_cmd_gui_foreground() {
+  local host="$1" port="$2" repo_path="$3" all_repos="$4"
   if ! command -v python3 >/dev/null 2>&1; then
     echo "error: paw gui requires python3 on PATH" >&2
     exit 1
+  fi
+  if [[ "$all_repos" == "1" ]]; then
+    python3 "$LIB_DIR/gui_server.py" \
+      --host "$host" \
+      --port "$port" \
+      --repo "$repo_path" \
+      --task-home "$(paw_task_home)" \
+      --all
+    return $?
   fi
 
   python3 "$LIB_DIR/gui_server.py" \
@@ -2427,6 +2453,150 @@ cmd_gui() {
     --port "$port" \
     --repo "$repo_path" \
     --task-home "$(paw_task_home)"
+}
+
+_cmd_gui_start() {
+  local host="$1" port="$2" repo_path="$3" all_repos="$4"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "error: paw gui requires python3 on PATH" >&2
+    exit 1
+  fi
+  if paw_gui_active_metadata; then
+    local metadata_file url pid
+    metadata_file="$(paw_gui_metadata_file)"
+    url="$(git config --file "$metadata_file" --get paw.url 2>/dev/null || true)"
+    pid="$(git config --file "$metadata_file" --get paw.pid 2>/dev/null || true)"
+    echo "error: paw gui already running as pid $pid at ${url:-<unknown url>}" >&2
+    exit 1
+  fi
+
+  local state_dir stdout_log stderr_log pid url actual_port
+  state_dir="$(paw_gui_state_dir)"
+  mkdir -p "$state_dir"
+  stdout_log="$state_dir/stdout.log"
+  stderr_log="$state_dir/stderr.log"
+  : > "$stdout_log"
+  : > "$stderr_log"
+
+  if [[ "$all_repos" == "1" ]]; then
+    python3 "$LIB_DIR/gui_server.py" \
+      --host "$host" \
+      --port "$port" \
+      --repo "$repo_path" \
+      --task-home "$(paw_task_home)" \
+      --all \
+      >"$stdout_log" 2>"$stderr_log" </dev/null &
+  else
+    python3 "$LIB_DIR/gui_server.py" \
+      --host "$host" \
+      --port "$port" \
+      --repo "$repo_path" \
+      --task-home "$(paw_task_home)" \
+      >"$stdout_log" 2>"$stderr_log" </dev/null &
+  fi
+  pid="$!"
+
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if ! paw_gui_process_alive "$pid"; then
+      echo "error: paw gui failed to start; see $stderr_log" >&2
+      exit 1
+    fi
+    url="$(sed -n 's/^paw gui: //p' "$stdout_log" | tail -n 1)"
+    if [[ -n "$url" ]]; then
+      break
+    fi
+    sleep 0.1
+  done
+  if [[ -z "${url:-}" ]]; then
+    kill "$pid" 2>/dev/null || true
+    echo "error: paw gui did not report a listening URL; see $stderr_log" >&2
+    exit 1
+  fi
+
+  actual_port="${url##*:}"
+  actual_port="${actual_port%/}"
+  paw_gui_record_metadata "$pid" "$host" "$actual_port" "$(paw_repo_physical_path "$repo_path")" "$(paw_task_home)" "$url" "$stdout_log" "$stderr_log"
+  echo "paw gui: $url"
+}
+
+_cmd_gui_stop_or_kill() {
+  local signal="$1" verb="$2" metadata_file pid url
+  metadata_file="$(paw_gui_metadata_file)"
+  if ! paw_gui_active_metadata; then
+    echo "paw gui: no recorded GUI process"
+    return 0
+  fi
+  pid="$(git config --file "$metadata_file" --get paw.pid)"
+  url="$(git config --file "$metadata_file" --get paw.url 2>/dev/null || true)"
+  if ! paw_gui_process_matches "$pid"; then
+    echo "error: recorded pid $pid is not a PAW GUI process; leaving metadata at $metadata_file" >&2
+    exit 1
+  fi
+
+  kill "-$signal" "$pid" 2>/dev/null || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if ! paw_gui_process_alive "$pid"; then
+      paw_gui_clear_metadata
+      echo "paw gui: $verb ${url:-pid $pid}"
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  if [[ "$signal" == "TERM" ]]; then
+    echo "error: paw gui pid $pid did not stop; run 'paw gui kill' to force it" >&2
+    exit 1
+  fi
+  paw_gui_clear_metadata
+  echo "paw gui: $verb ${url:-pid $pid}"
+}
+
+cmd_gui() {
+  local action="foreground"
+  GUI_HOST="127.0.0.1"
+  GUI_PORT="0"
+  GUI_REPO_PATH="$PWD"
+  GUI_ALL_REPOS="0"
+  case "${1:-}" in
+    start|stop|kill)
+      action="$1"
+      shift
+      ;;
+    ""|--host|--host=*|--port|--port=*|--repo|--repo=*|--all|-h|--help)
+      ;;
+    *)
+      echo "error: unknown paw gui subcommand: $1" >&2
+      echo "supported subcommands: start, stop, kill" >&2
+      exit 2
+      ;;
+  esac
+
+  case "$action" in
+    foreground)
+      _gui_parse_options "$@"
+      [[ "$GUI_HELP" == "1" ]] && return 0
+      _cmd_gui_foreground "$GUI_HOST" "$GUI_PORT" "$GUI_REPO_PATH" "$GUI_ALL_REPOS"
+      ;;
+    start)
+      _gui_parse_options "$@"
+      [[ "$GUI_HELP" == "1" ]] && return 0
+      _cmd_gui_start "$GUI_HOST" "$GUI_PORT" "$GUI_REPO_PATH" "$GUI_ALL_REPOS"
+      ;;
+    stop)
+      if [[ $# -gt 0 ]]; then
+        echo "error: paw gui stop does not accept options" >&2
+        exit 2
+      fi
+      _cmd_gui_stop_or_kill TERM stopped
+      ;;
+    kill)
+      if [[ $# -gt 0 ]]; then
+        echo "error: paw gui kill does not accept options" >&2
+        exit 2
+      fi
+      _cmd_gui_stop_or_kill KILL killed
+      ;;
+  esac
 }
 
 cmd_review() {

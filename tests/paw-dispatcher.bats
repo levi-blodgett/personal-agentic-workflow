@@ -107,7 +107,7 @@ assignment_file() {
   [[ "$output" == *"paw tighten"* ]]
   [[ "$output" == *"paw to-issues"* ]]
   [[ "$output" == *"paw task-migrate"* ]]
-  [[ "$output" == *"paw gui"* ]]
+  [[ "$output" == *"paw gui [start|stop|kill]"* ]]
   [[ "$output" == *"paw pr-submit"* ]]
   [[ "$output" == *"paw pr-review"* ]]
   [[ "$output" == *"paw pr-address-comments"* ]]
@@ -115,6 +115,29 @@ assignment_file() {
   [[ "$output" == *"paw issue-review"* ]]
   [[ "$output" == *"paw gh-actions-review"* ]]
   [[ "$output" == *"PAW_STREAM"* ]]
+}
+
+@test "paw gui: rejects unknown lifecycle subcommands clearly" {
+  run "$PAW" gui restart
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"unknown paw gui subcommand: restart"* ]]
+  [[ "$output" == *"supported subcommands: start, stop, kill"* ]]
+}
+
+@test "paw gui --help: prints lifecycle usage without starting server" {
+  run "$PAW" gui --help
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == "usage: paw gui [start|stop|kill]"* ]]
+  [[ "$output" == *"[--all]"* ]]
+}
+
+@test "paw gui start: rejects non-local hosts" {
+  run "$PAW" gui start --host 0.0.0.0
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"local-only"* ]]
 }
 
 @test "paw completion zsh: prints a zsh completion script with live subcommands" {
@@ -131,7 +154,7 @@ assignment_file() {
   [[ "$output" == *"'tighten:sharpen an existing task plan one question at a time'"* ]]
   [[ "$output" == *"'to-issues:draft tracer-bullet issue slices or publish reviewed drafts'"* ]]
   [[ "$output" == *"'task-migrate:copy legacy .agent tasks into the central task store'"* ]]
-  [[ "$output" == *"'gui:start the local PAW task dashboard'"* ]]
+  [[ "$output" == *"'gui:start, stop, or foreground the local PAW task dashboard'"* ]]
   [[ "$output" == *"'pr-address-comments:create a plan for addressing PR review comments'"* ]]
   [[ "$output" == *"'implement:resume or complete an approved task'"* ]]
 }

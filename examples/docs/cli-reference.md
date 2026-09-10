@@ -75,14 +75,18 @@ paw edit <task-name> [extras...]       iterate on .agent/<task>/ plan docs
 paw completion zsh                     print the zsh completion script for paw;
                                        v1 is zsh-only and completes top-level
                                        subcommands only
-paw task-migrate [repo-path]           copy legacy `.agent/<task>/` packages for
-                                       the repo into the central task store and
-                                       write local provenance metadata beside
-                                       the copied Markdown files
-paw gui [--host 127.0.0.1] [--port 0|<port>] [--repo <path>]
-                                       start a read-only local dashboard over
-                                       the central task store plus legacy
-                                       `.agent/<task>/` packages; binds to
+paw task-migrate [repo-path ...]       copy legacy `.agent/<task>/` packages for
+                                       one or more explicit repos into the
+                                       central task store and write local
+                                       provenance metadata beside the copied
+                                       Markdown files
+paw gui [start|stop|kill] [--host 127.0.0.1] [--port 0|<port>] [--repo <path>] [--all]
+                                       foreground, background, stop, or
+                                       force-stop the read-only local dashboard;
+                                       scoped mode shows central plus legacy
+                                       `.agent/<task>/` packages for one repo,
+                                       while `--all` shows every central task
+                                       store grouped by repo identity; binds to
                                        127.0.0.1 by default, prints the URL,
                                        and refuses non-local hosts
 paw to-issues <task-name>              draft tracer-bullet issue slices under
@@ -147,20 +151,26 @@ Environment overrides: see the canonical reference table in [`scripts/README.md`
 
 PAW stores new task packages under `${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}` by default. The store is grouped per repo using a stable local repo slug, and each task package keeps Markdown docs plus `metadata.gitconfig` with repo path, Git common dir, worktree, branch/head state, and created or migrated timestamps.
 
-Legacy `.agent/<task>/` packages remain readable. `paw list`, `paw lint --repo`, `paw edit`, `paw implement`, PR/issue helpers, `paw compact`, and `paw crash-log` resolve central tasks first and fall back to legacy packages. If you already have repo-local task packages, run:
+Legacy `.agent/<task>/` packages remain readable. `paw list`, `paw lint --repo`, `paw edit`, `paw implement`, PR/issue helpers, `paw compact`, and `paw crash-log` resolve central tasks first and fall back to legacy packages. If you already have repo-local task packages, run `paw task-migrate` from that repo or pass one or more explicit repo paths:
 
 ```bash
 paw task-migrate
+paw task-migrate ../api ../web
 ```
 
 `paw gui` serves the local dashboard:
 
 ```bash
-paw gui                       # auto-select a localhost port
-paw gui --port 8765 --repo ..  # explicit repo and port
+paw gui                              # foreground, auto-select a localhost port
+paw gui --port 8765 --repo ..        # foreground with explicit repo and port
+paw gui start --all                  # background server showing every central repo
+paw gui stop                         # graceful stop of recorded PAW GUI process
+paw gui kill                         # force-stop fallback for the recorded process
 ```
 
-The GUI is read-only in this release. It shows task lists, Markdown detail pages, checklist counts, follow-up placeholder blocks, validation state, and per-task run status recorded under `runs/*.gitconfig`. It does not edit task docs, publish PRs/issues, launch shell commands, bind externally, or make a database authoritative.
+Managed GUI lifecycle metadata lives under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/active.gitconfig` with the PID, host, port, repo path, task-home path, URL, log paths, and start time. `paw gui start` refuses to overwrite an active recorded process and cleans stale metadata when the PID is gone. `paw gui stop` and `paw gui kill` validate the recorded command before signalling it so unrelated processes are not stopped.
+
+The GUI is read-only in this release. It shows task lists, repo name/path/slug, Markdown detail pages, checklist counts, follow-up placeholder blocks, validation state, and per-task run status recorded under `runs/*.gitconfig`. It does not edit task docs, publish PRs/issues, launch shell commands, bind externally, or make a database authoritative.
 
 ### `paw completion zsh`
 

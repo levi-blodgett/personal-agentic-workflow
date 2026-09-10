@@ -9,7 +9,7 @@
 PAW is a plan-first, file-backed framework for AI-assisted development. The human owns scope review and commits; the agent implements inside an approved task package and leaves a local audit trail behind.
 
 New task packages are stored in a local central task store by default:
-`${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}`. Existing repo-local `.agent/<task>/` packages remain supported and can be copied into the central store with `paw task-migrate`.
+`${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}`. Existing repo-local `.agent/<task>/` packages remain supported and can be copied into the central store with `paw task-migrate [repo-path ...]`.
 
 ```mermaid
 flowchart LR
@@ -51,9 +51,12 @@ paw implement <task-name>
 
 # Optional local dashboard
 paw gui
+paw gui start --all
+paw gui stop
 
 # Optional legacy task migration
 paw task-migrate
+paw task-migrate ../other-repo ../third-repo
 
 # Optional PR helpers after implementation
 paw pr-submit <task-name>
@@ -75,7 +78,7 @@ paw gh-actions-review --create-issue
 
 `paw completion zsh` prints a small `compdef` script for native `zsh` completion. Load it with `source <(paw completion zsh)` in the current shell, and append it to `~/.zshrc` for future shells. v1 is `zsh`-only and completes top-level subcommands only.
 
-`paw gui` starts a read-only local dashboard on `127.0.0.1` by default. It lists central and legacy tasks, shows the Markdown task docs, reports ready/blocked/running state from local files, and never replaces `contract.md`, `plan.md`, or `pr.md` as the source of truth.
+`paw gui` starts a read-only local dashboard on `127.0.0.1` in the foreground. `paw gui start` runs it in the background, records PID/URL metadata under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/`, and `paw gui stop` or `paw gui kill` stops only that recorded PAW GUI process. Add `--all` to show every central task store grouped by repo identity; `--repo <path>` keeps the scoped central-plus-legacy view. The GUI never replaces `contract.md`, `plan.md`, or `pr.md` as the source of truth.
 
 ## Documentation
 
