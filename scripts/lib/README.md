@@ -10,7 +10,7 @@ Shared bash helpers sourced by `scripts/paw`. Each file exports one or more func
 | [`task_store.sh`](task_store.sh) | task path, metadata, listing, and migration helpers | Resolves central task-store packages first, falls back to legacy `.agent/<task>/`, writes `metadata.gitconfig`, and copies legacy packages for `paw task-migrate`. |
 | [`gui_lifecycle.sh`](gui_lifecycle.sh) | GUI process metadata helpers | Stores `paw gui start` PID/URL/log metadata under local state, detects stale records, and validates the recorded PAW GUI process before stop/kill. |
 | [`prompt_optimizer.sh`](prompt_optimizer.sh) | `prompt_optimize` | Optional `paw plan` pre-pass that rewrites the user prompt when `PAW_PROMPT_OPTIMIZE=1`; otherwise it passes the prompt through unchanged. |
-| [`gui_server.py`](gui_server.py) | local HTTP server | Python standard-library server used by `paw gui` to render read-only task lists and Markdown detail pages from local files, including `--all` central-store repo grouping. |
+| [`gui_server.py`](gui_server.py) | local HTTP server | Python standard-library server used by `paw gui` to render task lists, safe Markdown detail pages, local `paw plan`/`edit`/`implement` action forms, guarded task deletion, and `--all` central-store repo grouping. |
 | [`claude_invoke.sh`](claude_invoke.sh) | (thin shim) | Backwards-compatibility shim that sources `backends/claude.sh`. Callers that imported `claude_invoke.sh` directly continue to work. |
 
 ## `backends/` — pluggable AI backends

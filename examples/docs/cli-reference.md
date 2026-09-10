@@ -170,7 +170,11 @@ paw gui kill                         # force-stop fallback for the recorded proc
 
 Managed GUI lifecycle metadata lives under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/active.gitconfig` with the PID, host, port, repo path, task-home path, URL, log paths, and start time. `paw gui start` refuses to overwrite an active recorded process and cleans stale metadata when the PID is gone. `paw gui stop` and `paw gui kill` validate the recorded command before signalling it so unrelated processes are not stopped.
 
-The GUI is read-only in this release. It shows task lists, repo name/path/slug, Markdown detail pages, checklist counts, follow-up placeholder blocks, validation state, and per-task run status recorded under `runs/*.gitconfig`. It does not edit task docs, publish PRs/issues, launch shell commands, bind externally, or make a database authoritative.
+The GUI is a local task control surface. It shows task lists, repo name/path/slug, Markdown detail pages, checklist counts, follow-up placeholder blocks, validation state, and per-task run status recorded under `runs/*.gitconfig`. Task Markdown is rendered with a safe built-in subset: headings, paragraphs, emphasis, inline code, links, lists, task checkboxes, tables, blockquotes, horizontal rules, and fenced code blocks. Raw HTML from task files is escaped.
+
+The index page can start `paw plan <task-name> "<prompt>"`. Task pages can start `paw edit <task-name> [extras...]` and `paw implement <task-name> [extras...]`. GUI actions delegate to `scripts/paw` in a background subprocess from the selected repo, so prompt construction, task-store metadata, branch/worktree assignment, and implement follow-up guards stay in the CLI path. The HTTP request returns immediately with a status message; subprocess stdout/stderr logs are written under the task's `runs/` directory, and CLI run metadata continues to appear as `runs/*.gitconfig`.
+
+Delete is intentionally narrow: the submitted task must resolve from the central/legacy task list, the submitted path must match that listed task path, the confirmation field must exactly equal the task name, and deletion is unavailable while a running PAW subprocess is recorded. The GUI does not publish PRs/issues, bind externally, expose arbitrary shell commands, or make a database authoritative.
 
 ### `paw completion zsh`
 

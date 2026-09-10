@@ -32,31 +32,242 @@ setup() {
 MD
 }
 
-@test "paw gui: serves local dashboard with legacy task details" {
-  local port=18765
-  "$PAW" gui --repo "$REPO" --port "$port" > "$BATS_TEST_TMPDIR/gui.out" 2> "$BATS_TEST_TMPDIR/gui.err" &
-  local pid="$!"
+teardown() {
+  stop_gui
+}
 
+start_gui() {
+  GUI_PORT="$1"
+  "$PAW" gui --repo "$REPO" --port "$GUI_PORT" > "$BATS_TEST_TMPDIR/gui-$GUI_PORT.out" 2> "$BATS_TEST_TMPDIR/gui-$GUI_PORT.err" &
+  GUI_PID="$!"
+}
+
+stop_gui() {
+  if [[ -n "${GUI_PID:-}" ]]; then
+    pkill -P "$GUI_PID" 2>/dev/null || true
+    pkill -f "gui_server.py .*--port $GUI_PORT" 2>/dev/null || true
+    kill "$GUI_PID" 2>/dev/null || true
+    wait "$GUI_PID" 2>/dev/null || true
+  fi
+}
+
+fetch_gui() {
+  local port="$1" path="${2:-/}" out="$3"
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if python3 - "$port" > "$BATS_TEST_TMPDIR/page.html" <<'PY'
+    if python3 - "$port" "$path" > "$out" <<'PY'
 import sys
 from urllib.request import urlopen
-print(urlopen(f"http://127.0.0.1:{sys.argv[1]}/", timeout=1).read().decode())
+print(urlopen(f"http://127.0.0.1:{sys.argv[1]}{sys.argv[2]}", timeout=1).read().decode())
 PY
     then
-      break
+      return 0
     fi
     sleep 0.2
   done
+  return 1
+}
 
-  pkill -P "$pid" 2>/dev/null || true
-  pkill -f "gui_server.py .*--port $port" 2>/dev/null || true
-  kill "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+url_encode() {
+  python3 - "$1" <<'PY'
+import sys
+from urllib.parse import quote
+print(quote(sys.argv[1], safe=""))
+PY
+}
+
+real_path() {
+  python3 - "$1" <<'PY'
+import pathlib
+import sys
+print(pathlib.Path(sys.argv[1]).resolve())
+PY
+}
+
+form_encode() {
+  python3 - "$@" <<'PY'
+import sys
+from urllib.parse import urlencode
+pairs = [tuple(arg.split("=", 1)) for arg in sys.argv[1:]]
+print(urlencode(pairs))
+PY
+}
+
+wait_for_file() {
+  local file="$1"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [[ -f "$file" ]] && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
+post_gui() {
+  local port="$1" path="$2" data="$3" out="$4"
+  python3 - "$port" "$path" "$data" > "$out" <<'PY'
+import sys
+from urllib.request import Request, urlopen
+data = sys.argv[3].encode()
+req = Request(
+    f"http://127.0.0.1:{sys.argv[1]}{sys.argv[2]}",
+    data=data,
+    headers={"Content-Type": "application/x-www-form-urlencoded"},
+    method="POST",
+)
+response = urlopen(req, timeout=3)
+print(response.geturl())
+print(response.read().decode())
+PY
+}
+
+@test "paw gui: serves local dashboard with legacy task details" {
+  local port=18765
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/page.html"
+  stop_gui
 
   grep -q "gui-task" "$BATS_TEST_TMPDIR/page.html"
   grep -q "GUI smoke" "$BATS_TEST_TMPDIR/page.html"
   grep -q "1/2" "$BATS_TEST_TMPDIR/page.html"
+}
+
+@test "paw gui: renders task markdown as safe semantic HTML" {
+  cat > "$REPO/.agent/gui-task/plan.md" <<'MD'
+# Markdown Plan
+
+Paragraph with **bold**, *emphasis*, `code`, [docs](https://example.test/docs), and <script>alert(1)</script>.
+
+> Quoted line
+
+- [x] Done item
+- [ ] Todo item
+
+| Name | State |
+| --- | --- |
+| GUI | Ready |
+
+```sh
+echo "hello"
+```
+MD
+  local port=18767
+  start_gui "$port"
+  fetch_gui "$port" "/task/gui-task?path=$(url_encode "$(real_path "$REPO/.agent/gui-task")")&doc=plan" "$BATS_TEST_TMPDIR/markdown.html"
+  stop_gui
+
+  grep -q "<h1>Markdown Plan</h1>" "$BATS_TEST_TMPDIR/markdown.html"
+  grep -q "<strong>bold</strong>" "$BATS_TEST_TMPDIR/markdown.html"
+  grep -q "<em>emphasis</em>" "$BATS_TEST_TMPDIR/markdown.html"
+  grep -q '<a href="https://example.test/docs" rel="noreferrer">docs</a>' "$BATS_TEST_TMPDIR/markdown.html"
+  grep -q '<input type="checkbox" checked disabled>' "$BATS_TEST_TMPDIR/markdown.html"
+  grep -q "<table>" "$BATS_TEST_TMPDIR/markdown.html"
+  grep -q "<blockquote>" "$BATS_TEST_TMPDIR/markdown.html"
+  grep -q "<pre><code class=\"language-sh\">echo &quot;hello&quot;" "$BATS_TEST_TMPDIR/markdown.html"
+  grep -q "&lt;script&gt;alert(1)&lt;/script&gt;" "$BATS_TEST_TMPDIR/markdown.html"
+  ! grep -q "<pre># Markdown Plan" "$BATS_TEST_TMPDIR/markdown.html"
+}
+
+@test "paw gui: starts paw plan from index form" {
+  git -C "$REPO" init -q
+  local port=18768
+  start_gui "$port"
+
+  post_gui "$port" "/actions/plan" "$(form_encode "task_name=gui-created" "prompt=Build from the browser")" "$BATS_TEST_TMPDIR/plan-post.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/plan-index.html"
+  stop_gui
+
+  grep -q "PAW:PLAN" "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -q "Build from the browser" "$BATS_TEST_TMPDIR/backend.prompt"
+  find "$PAW_TASK_HOME" -path "*/gui-created/plan.md" -print -quit | grep -q "gui-created/plan.md"
+  grep -q "gui-created" "$BATS_TEST_TMPDIR/plan-index.html"
+}
+
+@test "paw gui: starts paw edit for an existing task" {
+  local port=18769 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+
+  post_gui "$port" "/task/gui-task/edit" "$(form_encode "path=$path" "extras=tighten acceptance criteria")" "$BATS_TEST_TMPDIR/edit-post.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  stop_gui
+
+  grep -q "PAW:EDIT" "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -q "tighten acceptance criteria" "$BATS_TEST_TMPDIR/backend.prompt"
+  find "$REPO/.agent/gui-task/runs" -name "*.stdout.log" -print -quit | grep -q stdout.log
+}
+
+@test "paw gui: starts paw implement and blocks duplicate active runs" {
+  local port=18770 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  mkdir -p "$REPO/.agent/gui-task/runs"
+  git config --file "$REPO/.agent/gui-task/runs/running.gitconfig" paw.status running
+  start_gui "$port"
+
+  post_gui "$port" "/task/gui-task/implement" "$(form_encode "path=$path" "extras=finish the approved slice")" "$BATS_TEST_TMPDIR/implement-blocked.html"
+  rm "$REPO/.agent/gui-task/runs/running.gitconfig"
+  post_gui "$port" "/task/gui-task/implement" "$(form_encode "path=$path" "extras=finish the approved slice")" "$BATS_TEST_TMPDIR/implement-post.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  stop_gui
+
+  grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/implement-blocked.html"
+  grep -q "PAW:IMPLEMENT" "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -q "finish the approved slice" "$BATS_TEST_TMPDIR/backend.prompt"
+}
+
+@test "paw gui: blocks implement when follow-up placeholders remain" {
+  cat >> "$REPO/.agent/gui-task/plan.md" <<'MD'
+
+## Open Questions / Follow-Ups
+
+- What should happen?
+  - USER ANSWER (UNRESOLVED):
+MD
+  local port=18771 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+
+  post_gui "$port" "/task/gui-task/implement" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/implement-placeholder.html"
+  stop_gui
+
+  grep -q "implement blocked: reconcile USER ANSWER placeholders first" "$BATS_TEST_TMPDIR/implement-placeholder.html"
+  [[ ! -f "$BATS_TEST_TMPDIR/backend.prompt" ]]
+}
+
+@test "paw gui: deletes a central task only with exact confirmation and listed path" {
+  git -C "$REPO" init -q
+  local central
+  central="$(bash -c 'source "$1"; paw_task_create_dir "$2" delete-me' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
+  mkdir -p "$central"
+  cat > "$central/plan.md" <<'MD'
+# Delete Me
+MD
+  bash -c 'source "$1"; paw_task_write_metadata "$2" "$3" delete-me created ""' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$central" "$REPO"
+  central="$(real_path "$central")"
+  local port=18772
+  start_gui "$port"
+
+  post_gui "$port" "/task/delete-me/delete" "$(form_encode "path=$central" "confirm=wrong")" "$BATS_TEST_TMPDIR/delete-reject.html"
+  [[ -d "$central" ]]
+  post_gui "$port" "/task/delete-me/delete" "$(form_encode "path=/tmp/delete-me" "confirm=delete-me")" "$BATS_TEST_TMPDIR/delete-stale.html"
+  [[ -d "$central" ]]
+  post_gui "$port" "/task/delete-me/delete" "$(form_encode "path=$central" "confirm=delete-me")" "$BATS_TEST_TMPDIR/delete-ok.html"
+  stop_gui
+
+  grep -q "delete confirmation must match" "$BATS_TEST_TMPDIR/delete-reject.html"
+  grep -q "delete rejected: stale task path" "$BATS_TEST_TMPDIR/delete-stale.html"
+  [[ ! -d "$central" ]]
+}
+
+@test "paw gui: deletes a legacy task only with exact confirmation" {
+  local path port=18773
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+
+  post_gui "$port" "/task/gui-task/delete" "$(form_encode "path=$path" "confirm=gui-task")" "$BATS_TEST_TMPDIR/delete-legacy.html"
+  stop_gui
+
+  [[ ! -d "$path" ]]
+  grep -q "deleted task gui-task" "$BATS_TEST_TMPDIR/delete-legacy.html"
 }
 
 @test "paw gui start: launches background dashboard and records metadata" {
