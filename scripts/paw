@@ -163,6 +163,7 @@ architecturecmd_architecture[--pick <candidate-number>] [focus...]explore rep
 teachcmd_teach[focus...]map the relevant modules and callers for an unfamiliar area
 prototypecmd_prototype<task-name> [--question "<question>"] [--logic|--ui] [extras...]run a bounded throwaway prototype workflow for one concrete question
 implementcmd_implement<task-name> [extras...]resume or complete an approved task
+implement-batchcmd_implement_batch<task-name>...launch multiple eligible approved tasks concurrently
 diagnosecmd_diagnose<task-name> [extras...]run the feedback-loop-first debugging workflow for an approved task
 tightencmd_tighten<task-name> [extras...]sharpen an existing task plan one question at a time
 editcmd_edit<task-name> [extras...]refine .agent task docs without code changes
@@ -1107,18 +1108,39 @@ _require_task_dir() {
 
 _plan_has_pending_user_answers() {
   local plan_file="$1"
-  [[ -f "$plan_file" ]] || return 1
-  grep -Eq '^[[:space:]]*-[[:space:]]+USER ANSWER \((UNRESOLVED|PROVIDED)\):' "$plan_file"
+  paw_task_has_pending_user_answers "$(dirname "$plan_file")"
 }
 
 _require_reconciled_user_answers_for_implement() {
   local task_dir="$1" task_name="$2"
   local plan_file="$task_dir/plan.md"
-  if _plan_has_pending_user_answers "$plan_file"; then
+  if paw_task_has_pending_user_answers "$task_dir"; then
     echo "error: task '$task_name' still has pending user-answer placeholders in $plan_file." >&2
     echo "       Answer every follow-up, change unanswered lines to 'USER ANSWER (PROVIDED): ...' as needed, then rerun 'paw edit $task_name' to reconcile the plan before 'paw implement'." >&2
     exit 1
   fi
+}
+
+_batch_implement_ineligible_reason() {
+  local task_name="$1" task_dir="$2" plan_file
+  plan_file="$task_dir/plan.md"
+  if [[ ! -f "$plan_file" ]]; then
+    printf "task '%s' has no plan.md at %s" "$task_name" "$plan_file"
+    return 0
+  fi
+  if paw_task_has_pending_user_answers "$task_dir"; then
+    printf "task '%s' has pending user-answer placeholders in %s" "$task_name" "$plan_file"
+    return 0
+  fi
+  if paw_task_has_active_run "$task_dir"; then
+    printf "task '%s' already has a running PAW subprocess" "$task_name"
+    return 0
+  fi
+  if paw_task_is_finished "$task_dir"; then
+    printf "task '%s' is already complete (%s)" "$task_name" "$plan_file"
+    return 0
+  fi
+  return 1
 }
 
 require_gh() {
@@ -1972,6 +1994,56 @@ cmd_implement() {
   prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue/complete the already in progress task in $(_task_display_path "$task_dir")/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")"
   prompt=$(_prompt_append_human_extras "$prompt" "$extras")
   _run_model_subcommand implement "$task_dir" "implement" "$prompt"
+}
+
+cmd_implement_batch() {
+  ensure_instructions
+  _check_run_model_floor implement
+  require_backend
+  if [[ $# -eq 0 ]]; then
+    echo "usage: paw implement-batch <task-name>..." >&2
+    exit 2
+  fi
+
+  local task_name task_dir reason failed=0 seen=" "
+  local -a task_names=() task_dirs=()
+  for task_name in "$@"; do
+    if [[ "$seen" == *" $task_name "* ]]; then
+      echo "error: task '$task_name' was selected more than once." >&2
+      failed=1
+      continue
+    fi
+    seen="${seen}${task_name} "
+    if ! task_dir="$(_task_dir_for_existing "$task_name")"; then
+      echo "error: task '$task_name' not found." >&2
+      failed=1
+      continue
+    fi
+    if reason="$(_batch_implement_ineligible_reason "$task_name" "$task_dir")"; then
+      echo "error: $reason." >&2
+      failed=1
+      continue
+    fi
+    task_names+=("$task_name")
+    task_dirs+=("$task_dir")
+  done
+
+  if [[ "$failed" -ne 0 ]]; then
+    echo "implement-batch: no tasks launched; fix rejected tasks and retry." >&2
+    exit 1
+  fi
+
+  local index stdout_log stderr_log
+  for index in "${!task_names[@]}"; do
+    task_name="${task_names[$index]}"
+    task_dir="${task_dirs[$index]}"
+    mkdir -p "$task_dir/runs"
+    stdout_log="$task_dir/runs/batch-$$.stdout.log"
+    stderr_log="$task_dir/runs/batch-$$.stderr.log"
+    "$SCRIPT_DIR/paw" implement "$task_name" >"$stdout_log" 2>"$stderr_log" &
+    echo "started: $task_name (logs: $stdout_log, $stderr_log)"
+  done
+  echo "implement-batch: started ${#task_names[@]} task(s)."
 }
 
 cmd_diagnose() {

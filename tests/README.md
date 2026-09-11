@@ -31,12 +31,12 @@ bats tests/lint-task.bats
 | File | Covers |
 |---|---|
 | `setup-repo.bats` | `scripts/setup-repo.sh` |
-| `list-tasks.bats` | `scripts/list-tasks.sh` |
+| `list-tasks.bats` | `scripts/list-tasks.sh` status and running-state output |
 | `lint-task.bats` | `scripts/lint-task.sh` |
-| `task-store.bats` | central task-store resolution, metadata, legacy fallback, and explicit multi-repo migration helpers |
-| `gui-server.bats` | `paw gui` Markdown rendering, main-table filters, combined repo/branch display, local plan/edit/implement actions, guarded deletion, foreground smoke, managed start/stop/kill lifecycle, stale PID protection, and multi-repo dashboard coverage |
+| `task-store.bats` | central task-store resolution, metadata, legacy fallback, eligibility/running-state predicates, and explicit multi-repo migration helpers |
+| `gui-server.bats` | `paw gui` Markdown rendering, main-table filters, combined repo/branch display, local plan/edit/implement actions, selected-task batch implementation, guarded deletion, foreground smoke, managed start/stop/kill lifecycle, stale PID protection, and multi-repo dashboard coverage |
 | `makefile.bats` | `Makefile` targets (install, uninstall, help, -n dry-runs) |
-| `paw-dispatcher.bats` | `scripts/paw` subcommand dispatch, worktree resume, and launcher behavior |
+| `paw-dispatcher.bats` | `scripts/paw` subcommand dispatch, `implement-batch`, worktree resume, and launcher behavior |
 | `paw-completion-docs.bats` | Durable docs coverage for `paw completion zsh` and the narrowed `zsh`-only scope |
 | `paw-codex.bats` | Default codex backend wiring, auth banner, sandbox flags, and usage parsing |
 | `paw-crash.bats` | Crash classification, crash log writing, and prompt-size warnings |

@@ -101,6 +101,15 @@ wait_for_file() {
   return 1
 }
 
+wait_for_run_metadata() {
+  local task_name="$1"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    find "$REPO/.agent/$task_name/runs" -name "*.gitconfig" -print -quit 2>/dev/null | grep -q . && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
 post_gui() {
   local port="$1" path="$2" data="$3" out="$4"
   python3 - "$port" "$path" "$data" > "$out" <<'PY'
@@ -170,6 +179,45 @@ MD
   grep -q "done-task" "$BATS_TEST_TMPDIR/filter-completion.html"
   ! grep -q "blocked-task" "$BATS_TEST_TMPDIR/filter-completion.html"
   grep -q "gui-task" "$BATS_TEST_TMPDIR/filter-repo.html"
+}
+
+@test "paw gui: unfinished eligible tasks can be selected for batch implement" {
+  mkdir -p "$REPO/.agent/blocked-task" "$REPO/.agent/done-task"
+  cat > "$REPO/.agent/blocked-task/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: Blocked task.
+- Estimated completion: 10%
+- Next work: Resolve question.
+
+## Open Questions / Follow-Ups
+
+- What is needed?
+  - USER ANSWER (UNRESOLVED):
+MD
+  cat > "$REPO/.agent/done-task/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: Done task.
+- Estimated completion: 100%
+- Next work: Review.
+MD
+  local port=18762 gui_path blocked_path done_path
+  gui_path="$(real_path "$REPO/.agent/gui-task")"
+  blocked_path="$(real_path "$REPO/.agent/blocked-task")"
+  done_path="$(real_path "$REPO/.agent/done-task")"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/batch-select.html"
+  stop_gui
+
+  grep -q "Start selected implementations" "$BATS_TEST_TMPDIR/batch-select.html"
+  grep -q "name='task' value='$gui_path'" "$BATS_TEST_TMPDIR/batch-select.html"
+  ! grep -q "name='task' value='$blocked_path'" "$BATS_TEST_TMPDIR/batch-select.html"
+  ! grep -q "name='task' value='$done_path'" "$BATS_TEST_TMPDIR/batch-select.html"
 }
 
 @test "paw gui: repo column includes branch context and branch column is removed" {
@@ -266,6 +314,22 @@ MD
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/implement-blocked.html"
   grep -q "PAW:IMPLEMENT" "$BATS_TEST_TMPDIR/backend.prompt"
   grep -q "finish the approved slice" "$BATS_TEST_TMPDIR/backend.prompt"
+}
+
+@test "paw gui: batch implement starts every selected eligible task" {
+  mkdir -p "$REPO/.agent/gui-task-two"
+  cp "$REPO/.agent/gui-task/plan.md" "$REPO/.agent/gui-task-two/plan.md"
+  local port=18781 path_one path_two
+  path_one="$(real_path "$REPO/.agent/gui-task")"
+  path_two="$(real_path "$REPO/.agent/gui-task-two")"
+  start_gui "$port"
+
+  post_gui "$port" "/actions/implement-batch" "$(form_encode "task=$path_one" "task=$path_two")" "$BATS_TEST_TMPDIR/batch-post.html"
+  wait_for_run_metadata gui-task
+  wait_for_run_metadata gui-task-two
+  stop_gui
+
+  grep -q "batch implement started 2 task" "$BATS_TEST_TMPDIR/batch-post.html"
 }
 
 @test "paw gui: blocks implement when follow-up placeholders remain" {

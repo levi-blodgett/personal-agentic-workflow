@@ -124,6 +124,65 @@ paw_task_metadata_get() {
   git config --file "$(paw_task_metadata_file "$task_dir")" --get "paw.$key" 2>/dev/null || true
 }
 
+paw_task_plan_field() {
+  local plan_file="$1" label="$2"
+  [[ -f "$plan_file" ]] || return 1
+  awk -v label="$label" '
+    /^## Current Status[[:space:]]*$/ { in_block = 1; next }
+    in_block && /^## / { in_block = 0 }
+    in_block {
+      pattern = "^- " label ":[[:space:]]*"
+      if ($0 ~ pattern) {
+        sub(pattern, "", $0)
+        print $0
+        exit
+      }
+    }
+  ' "$plan_file"
+}
+
+paw_task_has_pending_user_answers() {
+  local task_dir="$1" plan_file
+  plan_file="$task_dir/plan.md"
+  [[ -f "$plan_file" ]] || return 1
+  grep -Fq 'USER ANSWER (UNRESOLVED):' "$plan_file" || grep -Fq 'USER ANSWER (PROVIDED):' "$plan_file"
+}
+
+paw_task_running_metadata_is_active() {
+  local run_file="$1" base pid
+  [[ -f "$run_file" ]] || return 1
+  [[ "$(git config --file "$run_file" --get paw.status 2>/dev/null || true)" == "running" ]] || return 1
+  base="${run_file##*/}"
+  if [[ "$base" =~ -([0-9]+)\.gitconfig$ ]]; then
+    pid="${BASH_REMATCH[1]}"
+    kill -0 "$pid" 2>/dev/null
+    return $?
+  fi
+  return 0
+}
+
+paw_task_has_active_run() {
+  local task_dir="$1" run_file
+  shopt -s nullglob
+  for run_file in "$task_dir"/runs/*.gitconfig; do
+    if paw_task_running_metadata_is_active "$run_file"; then
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+paw_task_is_finished() {
+  local task_dir="$1" plan_file completion next_work
+  plan_file="$task_dir/plan.md"
+  [[ -f "$plan_file" ]] || return 1
+  completion="$(paw_task_plan_field "$plan_file" "Estimated completion")"
+  next_work="$(paw_task_plan_field "$plan_file" "Next work")"
+  [[ "$completion" == "100%" && "$next_work" == Review.* ]]
+}
+
 paw_task_list() {
   local repo_path="${1:-$PWD}" repo_root repo_store legacy_root task_dir task_name metadata_repo
   repo_root="$(paw_repo_physical_path "$repo_path")"

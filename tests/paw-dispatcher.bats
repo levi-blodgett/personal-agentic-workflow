@@ -80,6 +80,15 @@ physical_path() {
   cd "$1" && pwd -P
 }
 
+wait_for_run_metadata() {
+  local task_name="$1"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    find "$REPO/.agent/$task_name/runs" -name "*.gitconfig" -print -quit 2>/dev/null | grep -q . && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
 assignment_file() {
   local repo_path="$1"
   local task_name="$2"
@@ -103,6 +112,7 @@ assignment_file() {
   [[ "$output" == *"paw completion zsh"* ]]
   [[ "$output" == *"paw plan"* ]]
   [[ "$output" == *"paw implement"* ]]
+  [[ "$output" == *"paw implement-batch"* ]]
   [[ "$output" == *"paw diagnose"* ]]
   [[ "$output" == *"paw tighten"* ]]
   [[ "$output" == *"paw to-issues"* ]]
@@ -150,6 +160,7 @@ assignment_file() {
   [[ "$output" == *"'architecture:explore repo architecture candidates, then continue grilling the selected path'"* ]]
   [[ "$output" == *"'teach:map the relevant modules and callers for an unfamiliar area'"* ]]
   [[ "$output" == *"'prototype:run a bounded throwaway prototype workflow for one concrete question'"* ]]
+  [[ "$output" == *"'implement-batch:launch multiple eligible approved tasks concurrently'"* ]]
   [[ "$output" == *"'diagnose:run the feedback-loop-first debugging workflow for an approved task'"* ]]
   [[ "$output" == *"'tighten:sharpen an existing task plan one question at a time'"* ]]
   [[ "$output" == *"'to-issues:draft tracer-bullet issue slices or publish reviewed drafts'"* ]]
@@ -185,6 +196,40 @@ assignment_file() {
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"no task directories"* ]]
+}
+
+@test "paw implement-batch: rejects any ineligible task before launching" {
+  make_task batch-ready
+  make_task batch-blocked
+  cat >> "$REPO/.agent/batch-blocked/plan.md" <<'MD'
+
+## Open Questions / Follow-Ups
+
+- Which thing?
+  - USER ANSWER (UNRESOLVED):
+MD
+
+  run "$PAW" implement-batch batch-ready batch-blocked
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"batch-blocked"* ]]
+  [[ "$output" == *"pending user-answer placeholders"* ]]
+  [[ "$output" == *"no tasks launched"* ]]
+  [ ! -d "$REPO/.agent/batch-ready/runs" ]
+}
+
+@test "paw implement-batch: starts one implement subprocess per eligible task" {
+  make_task batch-a
+  make_task batch-b
+
+  run "$PAW" implement-batch batch-a batch-b
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"started: batch-a"* ]]
+  [[ "$output" == *"started: batch-b"* ]]
+  [[ "$output" == *"implement-batch: started 2 task(s)."* ]]
+  wait_for_run_metadata batch-a
+  wait_for_run_metadata batch-b
 }
 
 @test "paw lint: delegates to lint-task.sh on a valid fixture" {

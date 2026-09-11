@@ -6,6 +6,7 @@
 #       Plan position:       <value>
 #       Estimated completion: <value>
 #       Next work:           <value>
+#       Running:             yes|no
 #
 # Values come from the "Current Status" block in plan.md
 # (see prompts/prompt_instructions.md for the required format).
@@ -42,23 +43,6 @@ if [[ -z "$task_rows" ]]; then
   exit 0
 fi
 
-extract_field() {
-  local file="$1" label="$2"
-  # Match "- <label>:" inside the "## Current Status" block.
-  awk -v label="$label" '
-    /^## Current Status[[:space:]]*$/ { in_block = 1; next }
-    in_block && /^## / { in_block = 0 }
-    in_block {
-      pattern = "^- " label ":[[:space:]]*"
-      if ($0 ~ pattern) {
-        sub(pattern, "", $0)
-        print $0
-        exit
-      }
-    }
-  ' "$file"
-}
-
 while IFS=$'\t' read -r task_name task_source task_dir; do
   [[ -n "$task_name" ]] || continue
   plan_file="$task_dir/plan.md"
@@ -70,11 +54,16 @@ while IFS=$'\t' read -r task_name task_source task_dir; do
     continue
   fi
 
-  plan_position="$(extract_field "$plan_file" "Plan position")"
-  estimated_completion="$(extract_field "$plan_file" "Estimated completion")"
-  next_work="$(extract_field "$plan_file" "Next work")"
+  plan_position="$(paw_task_plan_field "$plan_file" "Plan position")"
+  estimated_completion="$(paw_task_plan_field "$plan_file" "Estimated completion")"
+  next_work="$(paw_task_plan_field "$plan_file" "Next work")"
 
   printf '    Plan position:        %s\n' "${plan_position:-<missing>}"
   printf '    Estimated completion: %s\n' "${estimated_completion:-<missing>}"
   printf '    Next work:            %s\n' "${next_work:-<missing>}"
+  if paw_task_has_active_run "$task_dir"; then
+    printf '    Running:              yes\n'
+  else
+    printf '    Running:              no\n'
+  fi
 done <<< "$task_rows"

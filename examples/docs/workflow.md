@@ -71,6 +71,7 @@ flowchart TD
    - **Open the local dashboard** — `paw gui` for foreground scoped mode, or `paw gui start --all` for a managed background view of every central repo; `paw gui stop` and `paw gui kill` stop only the recorded local dashboard process
    - **Iterate on plan** — `paw edit <task-name>` (plan-only, after `paw plan`); resumes the saved assignment when that is safe and is the required reconciliation step after the user fills in follow-up answers
    - **Implement approved task** — `paw implement <task-name>` (optionally with extra prompt text); resumes the saved assignment when that is safe, but refuses to run while `plan.md` still contains `USER ANSWER (UNRESOLVED):` or `USER ANSWER (PROVIDED):` placeholders
+   - **Implement several approved tasks** — `paw implement-batch <task-a> <task-b>` or select eligible unfinished tasks in the GUI; PAW rejects the whole selected set before launch if any task is blocked, complete, already running, duplicated, or missing
    - **Draft tracer-bullet issues from approved work** — `paw to-issues <task-name>`; reuses the saved assignment, writes a reviewable numbered breakdown to `.agent/<task>/issues/index.md`, and keeps one issue draft per slice under `.agent/<task>/issues/*.md`
    - **Publish reviewed issue drafts** — `paw to-issues <task-name> --publish`; submits the saved draft files in dependency order, fills in per-draft issue metadata, and syncs aggregate issue tracking back into `plan.md`
    - **Submit a draft PR** — `paw pr-submit <task-name>`; reuses the saved assignment, requires `.agent/<task>/pr.md`, and records the created PR number back into `plan.md` and `pr.md`
@@ -85,7 +86,7 @@ flowchart TD
 - `contract.md` captures the request, constraints, repo context, and assumptions.
 - `plan.md` is the single working surface for planning and implementation progress.
 - `metadata.gitconfig` captures local provenance for central-store packages: task name, repo root, Git common dir, worktree path, branch/head state, and created or migrated timestamps.
-- `runs/*.gitconfig` captures observational run metadata for AI-backed commands: subcommand, backend, model, start/end times, status, and exit status.
+- `runs/*.gitconfig` captures observational run metadata for AI-backed commands: subcommand, backend, model, start/end times, status, and exit status. `paw list` and `paw gui` use active `running` records as the lightweight running/not-running signal.
 - Non-trivial work should use as many implementation phases or vertical slices as needed; do not compress substantial scope into a single checkbox.
 - Follow-up questions that need user input should be written as:
   `- <question>`
@@ -106,7 +107,7 @@ flowchart TD
 
 `paw gui [--host 127.0.0.1] [--port 0|<port>] [--repo <path>] [--all]` starts a browser dashboard in the foreground and prints its URL. `paw gui start` uses the same options but runs in the background and records lifecycle metadata under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/`. Stop it with `paw gui stop`; use `paw gui kill` only as the force-stop fallback. All GUI modes bind only to `127.0.0.1` or `localhost`; non-local hosts are rejected.
 
-The GUI is observational. Scoped mode lists the chosen repo's central tasks plus legacy `.agent/<task>/` packages. `--all` lists every central task store and shows repo name, repo path, slug, branch/head state, source, task path, checklist progress, validation, and run metadata. The main table filters by state, repo text, and completion. Use CLI flows such as `paw edit`, `paw implement`, `paw crash-log`, and `paw pr-submit` to change task state.
+The GUI is observational. Scoped mode lists the chosen repo's central tasks plus legacy `.agent/<task>/` packages. `--all` lists every central task store and shows repo name, repo path, slug, branch/head state, source, task path, checklist progress, validation, and run metadata. The main table filters by state, repo text, and completion. It shows selection checkboxes only for unfinished tasks that are not blocked and not already running; submitting selected tasks starts one background implementation subprocess per task. Use CLI flows such as `paw edit`, `paw implement`, `paw implement-batch`, `paw crash-log`, and `paw pr-submit` to change task state.
 
 ### A `paw implement` run in detail
 
@@ -138,7 +139,7 @@ sequenceDiagram
 ## Weaknesses
 
 - **Prompt overhead** — loading `prompts/prompt_instructions.md` + task docs on every run is heavier than simpler prompt approaches. Prompt caching reduces the marginal overhead but the fixed input surface remains. The working surface is capped at ≤ 350 lines and a bats regression test (`templates.bats`) enforces this automatically so silent growth is caught. Use `paw model` and [`docs/backends.md`](backends.md) to verify the current backend-specific model behavior.
-- **Concurrency** — run one task per branch/worktree stream. The central task store and `runs/*.gitconfig` metadata make those streams visible in `paw list` and `paw gui`, but PAW still does not include a scheduler or a multi-agent graph runtime. Use [git worktrees](https://git-scm.com/docs/git-worktree) (`git worktree add ../repo-feature feature-branch`) to run one agent per worktree and merge back. Multi-repo parallel agents work natively (watch rate limits).
+- **Concurrency** — run one task per branch/worktree stream. `paw implement-batch` and the GUI batch submitter can launch multiple eligible approved tasks, and the central task store plus `runs/*.gitconfig` metadata make those streams visible in `paw list` and `paw gui`, but PAW still does not include a scheduler or conflict resolver. Use [git worktrees](https://git-scm.com/docs/git-worktree) (`git worktree add ../repo-feature feature-branch`) to run one agent per worktree and merge back. Multi-repo parallel agents work natively (watch rate limits).
 - **Backend coverage is still narrow** — the pluggable architecture is in place, but only three backends ship in-repo (`codex`, `claude`, `stub`) and broader third-party coverage (`ollama`, `openai`, `gemini`, …) is still deferred.
 - **Cross-repo coordination** — each task lives inside one repo; multi-repo refactors require manual hand-off between task packages. Deferred.
 

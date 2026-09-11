@@ -49,6 +49,41 @@ setup() {
   [[ "$output" == *"legacy-task"$'\t'*"legacy"* ]]
 }
 
+@test "task store: detects pending answers active runs and finished plans" {
+  mkdir -p "$REPO/.agent/state-task/runs"
+  cat > "$REPO/.agent/state-task/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: Done.
+- Estimated completion: 100%
+- Next work: Review.
+
+## Open Questions / Follow-Ups
+
+- Which path?
+  - USER ANSWER (PROVIDED): later
+MD
+  git config --file "$REPO/.agent/state-task/runs/running.gitconfig" paw.status running
+
+  run bash -c 'source "$1"; paw_task_has_pending_user_answers "$2/.agent/state-task"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+  [ "$status" -eq 0 ]
+  run bash -c 'source "$1"; paw_task_has_active_run "$2/.agent/state-task"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+  [ "$status" -eq 0 ]
+  run bash -c 'source "$1"; paw_task_is_finished "$2/.agent/state-task"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+  [ "$status" -eq 0 ]
+}
+
+@test "task store: ignores stale pid-based running metadata" {
+  mkdir -p "$REPO/.agent/stale-task/runs"
+  git config --file "$REPO/.agent/stale-task/runs/20260911T000000Z-999999.gitconfig" paw.status running
+
+  run bash -c 'source "$1"; ! paw_task_has_active_run "$2/.agent/stale-task"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+
+  [ "$status" -eq 0 ]
+}
+
 @test "task store: migrate copies legacy task and records source path" {
   mkdir -p "$REPO/.agent/migrate-me"
   printf '# Plan\n' > "$REPO/.agent/migrate-me/plan.md"

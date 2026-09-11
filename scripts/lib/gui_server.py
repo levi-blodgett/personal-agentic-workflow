@@ -63,6 +63,19 @@ def metadata_value(file: Path, key: str) -> str:
         return ""
 
 
+def running_metadata_is_active(meta: Path) -> bool:
+    if metadata_value(meta, "status") != "running":
+        return False
+    match = re.search(r"-([0-9]+)\.gitconfig$", meta.name)
+    if not match:
+        return True
+    try:
+        os.kill(int(match.group(1)), 0)
+        return True
+    except OSError:
+        return False
+
+
 def section_body(markdown: str, heading: str) -> str:
     lines = markdown.splitlines()
     wanted = f"## {heading}"
@@ -362,9 +375,17 @@ class Task:
     @property
     def running(self) -> bool:
         for meta in (self.path / "runs").glob("*.gitconfig") if (self.path / "runs").exists() else []:
-            if metadata_value(meta, "status") == "running":
+            if running_metadata_is_active(meta):
                 return True
         return False
+
+    @property
+    def finished(self) -> bool:
+        return status_field(self.plan, "Estimated completion") == "100%" and status_field(self.plan, "Next work").startswith("Review.")
+
+    @property
+    def batch_eligible(self) -> bool:
+        return bool(self.plan) and not self.blocked and not self.running and not self.finished
 
     @property
     def state(self) -> str:
@@ -372,6 +393,8 @@ class Task:
             return "running"
         if self.blocked:
             return "blocked"
+        if self.finished:
+            return "complete"
         return "ready"
 
 
@@ -436,10 +459,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def form_data(self) -> dict[str, str]:
+        values = self.form_values()
+        return {key: value[0] if value else "" for key, value in values.items()}
+
+    def form_values(self) -> dict[str, list[str]]:
         length = int(self.headers.get("Content-Length", "0") or "0")
         raw = self.rfile.read(length).decode("utf-8", errors="replace")
-        parsed = parse_qs(raw, keep_blank_values=True)
-        return {key: values[0] if values else "" for key, values in parsed.items()}
+        return parse_qs(raw, keep_blank_values=True)
 
     def flash_query(self, message: str, level: str = "notice") -> str:
         return f"message={quote(message)}&level={quote(level)}"
@@ -477,6 +503,8 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/actions/plan":
             return self.post_plan()
+        if parsed.path == "/actions/implement-batch":
+            return self.post_implement_batch()
         if parsed.path.startswith("/task/") and parsed.path.endswith("/edit"):
             name = unquote(parsed.path.removeprefix("/task/").removesuffix("/edit"))
             return self.post_task_action(name, "edit")
@@ -499,6 +527,47 @@ class Handler(BaseHTTPRequestHandler):
         task_path = self.task_home / repo_slug(self.repo) / task_name
         ok, message = launch_paw(self.repo, self.task_home, task_path, ["plan", task_name, prompt])
         self.redirect(f"/?{self.flash_query(message, 'notice' if ok else 'error')}")
+
+    def post_implement_batch(self) -> None:
+        form = self.form_values()
+        selected_paths = [value for value in form.get("task", []) if value]
+        if not selected_paths:
+            return self.redirect(f"/?{self.flash_query('select at least one unfinished task', 'error')}")
+        tasks_by_path = {str(task.path): task for task in list_tasks(self.repo, self.task_home, self.all_repos)}
+        selected: list[Task] = []
+        errors: list[str] = []
+        seen: set[str] = set()
+        for path_value in selected_paths:
+            if path_value in seen:
+                errors.append(f"{path_value} selected more than once")
+                continue
+            seen.add(path_value)
+            task = tasks_by_path.get(path_value)
+            if not task:
+                errors.append(f"{path_value} is not a current task")
+                continue
+            if task.blocked:
+                errors.append(f"{task.name} has USER ANSWER placeholders")
+            elif task.running:
+                errors.append(f"{task.name} is already running")
+            elif task.finished:
+                errors.append(f"{task.name} is already complete")
+            elif not task.plan:
+                errors.append(f"{task.name} has no plan.md")
+            else:
+                selected.append(task)
+        if errors:
+            return self.redirect(f"/?{self.flash_query('batch implement blocked: ' + '; '.join(errors), 'error')}")
+
+        messages: list[str] = []
+        ok_all = True
+        for task in selected:
+            ok, message = launch_paw(task.repo, self.task_home, task.path, ["implement", task.name])
+            ok_all = ok_all and ok
+            messages.append(f"{task.name}: {message}")
+        level = "notice" if ok_all else "error"
+        prefix = f"batch implement started {len(selected)} task(s)"
+        self.redirect(f"/?{self.flash_query(prefix + ': ' + '; '.join(messages), level)}")
 
     def post_task_action(self, name: str, subcommand: str) -> None:
         form = self.form_data()
@@ -559,8 +628,14 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             task_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}"
             branch = task.branch_context or "<none>"
+            selector = (
+                f"<input type='checkbox' name='task' value='{html_attr(str(task.path))}' aria-label='Select {html_attr(task.name)}'>"
+                if task.batch_eligible
+                else ""
+            )
             rows.append(
                 "<tr>"
+                f"<td>{selector}</td>"
                 f"<td><a href='{task_href}'>{html.escape(task.name)}</a><br><span class='muted'>{html.escape(str(task.path))}</span></td>"
                 f"<td>{html.escape(task.repo_name)}<br><span class='muted'>{html.escape(str(task.repo))}</span><br><span class='muted'>{html.escape(task.slug)}</span><br><span class='muted'>Branch: {html.escape(branch)}</span></td>"
                 f"<td><span class='pill {task.state}'>{task.state}</span><br>{task.source}</td>"
@@ -592,8 +667,10 @@ class Handler(BaseHTTPRequestHandler):
             "<p><label>Prompt<br><textarea name='prompt' required rows='4'></textarea></label></p>"
             "<p><button type='submit'>Start plan</button></p>"
             "</form>"
-            "<table><thead><tr><th>Task</th><th>Repo</th><th>State</th><th>Plan Position</th><th>Completion</th><th>Next Work</th><th>Checklist</th><th>Validation</th></tr></thead>"
-            f"<tbody>{''.join(rows) or '<tr><td colspan=8>No task packages found.</td></tr>'}</tbody></table></main>"
+            "<form method='post' action='/actions/implement-batch'>"
+            "<p><button type='submit'>Start selected implementations</button></p>"
+            "<table><thead><tr><th>Select</th><th>Task</th><th>Repo</th><th>State</th><th>Plan Position</th><th>Completion</th><th>Next Work</th><th>Checklist</th><th>Validation</th></tr></thead>"
+            f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table></form></main>"
         )
         self.send_html(body)
 

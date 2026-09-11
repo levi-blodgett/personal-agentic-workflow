@@ -50,6 +50,11 @@ paw implement <task-name> [extras...]  resume/complete the in-progress task;
                                        (UNRESOLVED):` or `USER ANSWER
                                        (PROVIDED):`; optional extra text is
                                        appended as "Human extras:" to the prompt
+paw implement-batch <task-name>...     launch multiple eligible approved tasks
+                                       concurrently; rejects the whole batch
+                                       before launch if any selected task is
+                                       missing, complete, already running, or
+                                       still has `USER ANSWER` placeholders
 paw diagnose <task-name> [extras...]   run the debugging-specific workflow for
                                        an approved task; reuses the same saved
                                        branch/worktree assignment and
@@ -131,6 +136,7 @@ paw crash-log <task-name>              print crash log for a task
                                        (.agent/<task>/crash.log); prints
                                        "no crashes recorded" when absent; exit 0
 paw list [repo-path]                   list central and legacy task packages plus current status
+                                       and lightweight running state
 paw lint [task-dir|--repo p]           verify task package(s) against the contract
 paw model [-v|--verbose]               print resolved model for each subcommand;
                                        with -v/--verbose also prints PAW_BACKEND,
@@ -170,11 +176,17 @@ paw gui kill                         # force-stop fallback for the recorded proc
 
 Managed GUI lifecycle metadata lives under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/active.gitconfig` with the PID, host, port, repo path, task-home path, URL, log paths, and start time. `paw gui start` refuses to overwrite an active recorded process and cleans stale metadata when the PID is gone. `paw gui stop` and `paw gui kill` validate the recorded command before signalling it so unrelated processes are not stopped.
 
-The GUI is a local task control surface. It shows task lists, repo name/path/slug plus branch/head-state context, Markdown detail pages, checklist counts, follow-up placeholder blocks, validation state, and per-task run status recorded under `runs/*.gitconfig`. The main table can be filtered by state, repo text, and completion without JavaScript or external dependencies. Task Markdown is rendered with a safe built-in subset: headings, paragraphs, emphasis, inline code, links, lists, task checkboxes, tables, blockquotes, horizontal rules, and fenced code blocks. Raw HTML from task files is escaped.
+The GUI is a local task control surface. It shows task lists, repo name/path/slug plus branch/head-state context, Markdown detail pages, checklist counts, follow-up placeholder blocks, validation state, and per-task run status recorded under `runs/*.gitconfig`. The main table can be filtered by state, repo text, and completion without JavaScript or external dependencies. Active `running` metadata makes a task state `running`; `100%` completion with `Next work: Review.` makes it `complete`; unresolved/provided user-answer markers make it `blocked`. Task Markdown is rendered with a safe built-in subset: headings, paragraphs, emphasis, inline code, links, lists, task checkboxes, tables, blockquotes, horizontal rules, and fenced code blocks. Raw HTML from task files is escaped.
 
 Task `## Current Status` keeps the source label `Estimated completion`, but the value should be a bare integer percentage such as `25%` or `100%`. `Next work` is free-form unless completion is `100%`; then use `Review.` or `Review.` plus a genuinely important follow-up.
 
-The index page can start `paw plan <task-name> "<prompt>"`. Task pages can start `paw edit <task-name> [extras...]` and `paw implement <task-name> [extras...]`. GUI actions delegate to `scripts/paw` in a background subprocess from the selected repo, so prompt construction, task-store metadata, branch/worktree assignment, and implement follow-up guards stay in the CLI path. The HTTP request returns immediately with a status message; subprocess stdout/stderr logs are written under the task's `runs/` directory, and CLI run metadata continues to appear as `runs/*.gitconfig`.
+The index page can start `paw plan <task-name> "<prompt>"`. It also shows checkboxes for unfinished, not-running, unblocked tasks; submitting selected tasks starts one background `paw implement <task-name>` subprocess per task after rejecting the whole selection if any task becomes ineligible. Task pages can start `paw edit <task-name> [extras...]` and `paw implement <task-name> [extras...]`. GUI actions delegate to `scripts/paw` in a background subprocess from the selected repo, so prompt construction, task-store metadata, branch/worktree assignment, and implement follow-up guards stay in the CLI path. The HTTP request returns immediately with a status message; subprocess stdout/stderr logs are written under the task's `runs/` directory, and CLI run metadata continues to appear as `runs/*.gitconfig`.
+
+### Batch implementation
+
+Use `paw implement-batch <task-a> <task-b> ...` when several already-approved tasks should run at the same time. The command preflights every selected task before launching any subprocess. It refuses missing tasks, duplicated names, completed tasks, tasks with active `runs/*.gitconfig` status, and tasks whose `plan.md` still contains `USER ANSWER (UNRESOLVED):` or `USER ANSWER (PROVIDED):`.
+
+Each accepted task launches through the normal `paw implement <task-name>` path in the background, so saved branch/worktree assignment, prompt construction, run metadata, crash logging, and placeholder guardrails remain the same as single-task implementation. Batch launch does not add a scheduler or conflict resolver; use separate branches/worktrees for tasks that might touch overlapping files.
 
 Delete is intentionally narrow: the submitted task must resolve from the central/legacy task list, the submitted path must match that listed task path, the confirmation field must exactly equal the task name, and deletion is unavailable while a running PAW subprocess is recorded. The GUI does not publish PRs/issues, bind externally, expose arbitrary shell commands, or make a database authoritative.
 

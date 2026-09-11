@@ -51,6 +51,20 @@ MD
   [[ "$output" == *"Phase 2 complete"* ]]
   [[ "$output" == *"80%"* ]]
   [[ "$output" == *"Phase 3"* ]]
+  [[ "$output" == *"Running:              no"* ]]
+}
+
+@test "list-tasks: shows active running state from run metadata" {
+  local repo="$BATS_TEST_TMPDIR/repo"
+  make_valid_plan "$repo/.agent/running-task"
+  mkdir -p "$repo/.agent/running-task/runs"
+  git config --file "$repo/.agent/running-task/runs/running.gitconfig" paw.status running
+
+  run "$SCRIPTS_DIR/list-tasks.sh" "$repo"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"running-task"* ]]
+  [[ "$output" == *"Running:              yes"* ]]
 }
 
 @test "list-tasks: task missing plan.md prints fallback message" {
