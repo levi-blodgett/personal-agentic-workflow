@@ -241,6 +241,20 @@ PY
   ! grep -q "<!doctype html>" "$BATS_TEST_TMPDIR/tasks-fragment.html"
 }
 
+@test "paw gui: pages expose home navigation" {
+  local port=18791 path encoded_path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  encoded_path="$(url_encode "$path")"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/home-index.html"
+  fetch_gui "$port" "/task/gui-task?path=$encoded_path&doc=plan" "$BATS_TEST_TMPDIR/home-detail.html"
+  fetch_gui "$port" "/no-such-page" "$BATS_TEST_TMPDIR/home-missing.html" || true
+  stop_gui
+
+  grep -q "<a href='/'>Home</a>" "$BATS_TEST_TMPDIR/home-index.html"
+  grep -q "<a href='/'>Home</a>" "$BATS_TEST_TMPDIR/home-detail.html"
+}
+
 @test "paw gui: task detail fragment reflects updated plan and run metadata" {
   local port=18785 path encoded_path
   path="$(real_path "$REPO/.agent/gui-task")"
@@ -315,7 +329,7 @@ MD
   fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/batch-select.html"
   stop_gui
 
-  grep -q "Start selected implementations" "$BATS_TEST_TMPDIR/batch-select.html"
+  grep -q "Implement selected" "$BATS_TEST_TMPDIR/batch-select.html"
   grep -q "name='task' value='$gui_path'" "$BATS_TEST_TMPDIR/batch-select.html"
   ! grep -q "name='task' value='$blocked_path'" "$BATS_TEST_TMPDIR/batch-select.html"
   ! grep -q "name='task' value='$done_path'" "$BATS_TEST_TMPDIR/batch-select.html"
@@ -385,6 +399,47 @@ MD
   grep -q "gui-created" "$BATS_TEST_TMPDIR/plan-index.html"
 }
 
+@test "paw gui: index uses concise labels modals row actions and doc preview controls" {
+  local port=18792
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/index-actions.html"
+  stop_gui
+
+  grep -q "data-doc-preview" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q "data-doc-preview-url='/fragments/task-doc/gui-task" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q "contract.md" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q "plan.md" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q "pr.md" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q "/task/gui-task/edit" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q "/task/gui-task/implement" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q "/task/gui-task/delete" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q ">Plan<" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q ">Edit<" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q ">Implement<" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q ">Delete<" "$BATS_TEST_TMPDIR/index-actions.html"
+  ! grep -q "Start plan" "$BATS_TEST_TMPDIR/index-actions.html"
+  ! grep -q "Start edit" "$BATS_TEST_TMPDIR/index-actions.html"
+  ! grep -q "Start implement" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q "Extra instructions" "$BATS_TEST_TMPDIR/index-actions.html"
+}
+
+@test "paw gui: homepage task doc preview returns safe overlay fragment" {
+  rm -f "$REPO/.agent/gui-task/pr.md"
+  local port=18793 path encoded_path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  encoded_path="$(url_encode "$path")"
+  start_gui "$port"
+  fetch_gui "$port" "/fragments/task-doc/gui-task?path=$encoded_path&doc=plan" "$BATS_TEST_TMPDIR/plan-preview.html"
+  fetch_gui "$port" "/fragments/task-doc/gui-task?path=$encoded_path&doc=pr" "$BATS_TEST_TMPDIR/pr-preview.html"
+  stop_gui
+
+  grep -q "modal-panel" "$BATS_TEST_TMPDIR/plan-preview.html"
+  grep -q "gui-task / plan.md" "$BATS_TEST_TMPDIR/plan-preview.html"
+  grep -q "<h1>Plan</h1>" "$BATS_TEST_TMPDIR/plan-preview.html"
+  grep -q "(file missing)" "$BATS_TEST_TMPDIR/pr-preview.html"
+  ! grep -q "<!doctype html>" "$BATS_TEST_TMPDIR/plan-preview.html"
+}
+
 @test "paw gui: starts paw edit for an existing task" {
   local port=18769 path
   path="$(real_path "$REPO/.agent/gui-task")"
@@ -414,7 +469,7 @@ MD
 
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/implement-blocked.html"
   grep -q "PAW:IMPLEMENT" "$BATS_TEST_TMPDIR/backend.prompt"
-  grep -q "finish the approved slice" "$BATS_TEST_TMPDIR/backend.prompt"
+  ! grep -q "finish the approved slice" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 
 @test "paw gui: task detail exposes review prototype and archive actions" {
@@ -427,9 +482,16 @@ MD
   grep -q "/task/gui-task/review" "$BATS_TEST_TMPDIR/actions.html"
   grep -q "/task/gui-task/prototype" "$BATS_TEST_TMPDIR/actions.html"
   grep -q "/task/gui-task/archive" "$BATS_TEST_TMPDIR/actions.html"
-  grep -q "Start review" "$BATS_TEST_TMPDIR/actions.html"
-  grep -q "Start prototype" "$BATS_TEST_TMPDIR/actions.html"
-  grep -q "Archive task" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q ">Review<" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q ">Prototype<" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q ">Archive<" "$BATS_TEST_TMPDIR/actions.html"
+  ! grep -q "Start review" "$BATS_TEST_TMPDIR/actions.html"
+  ! grep -q "Start prototype" "$BATS_TEST_TMPDIR/actions.html"
+  ! grep -q "Archive task" "$BATS_TEST_TMPDIR/actions.html"
+  ! grep -q "Start edit" "$BATS_TEST_TMPDIR/actions.html"
+  ! grep -q "Start implement" "$BATS_TEST_TMPDIR/actions.html"
+  ! grep -q "<label>Type gui-task" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q "Are you sure?" "$BATS_TEST_TMPDIR/actions.html"
 }
 
 @test "paw gui: starts review and prototype through paw actions" {
@@ -504,7 +566,7 @@ MD
   [[ ! -f "$BATS_TEST_TMPDIR/backend.prompt" ]]
 }
 
-@test "paw gui: deletes a central task only with exact confirmation and listed path" {
+@test "paw gui: deletes a central task only with confirmation and listed path" {
   git -C "$REPO" init -q
   local central
   central="$(bash -c 'source "$1"; paw_task_create_dir "$2" delete-me' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
@@ -519,12 +581,12 @@ MD
 
   post_gui "$port" "/task/delete-me/delete" "$(form_encode "path=$central" "confirm=wrong")" "$BATS_TEST_TMPDIR/delete-reject.html"
   [[ -d "$central" ]]
-  post_gui "$port" "/task/delete-me/delete" "$(form_encode "path=/tmp/delete-me" "confirm=delete-me")" "$BATS_TEST_TMPDIR/delete-stale.html"
+  post_gui "$port" "/task/delete-me/delete" "$(form_encode "path=/tmp/delete-me" "confirm=yes")" "$BATS_TEST_TMPDIR/delete-stale.html"
   [[ -d "$central" ]]
-  post_gui "$port" "/task/delete-me/delete" "$(form_encode "path=$central" "confirm=delete-me")" "$BATS_TEST_TMPDIR/delete-ok.html"
+  post_gui "$port" "/task/delete-me/delete" "$(form_encode "path=$central" "confirm=yes")" "$BATS_TEST_TMPDIR/delete-ok.html"
   stop_gui
 
-  grep -q "delete confirmation must match" "$BATS_TEST_TMPDIR/delete-reject.html"
+  grep -q "delete confirmation is required" "$BATS_TEST_TMPDIR/delete-reject.html"
   grep -q "delete rejected: stale task path" "$BATS_TEST_TMPDIR/delete-stale.html"
   [[ ! -d "$central" ]]
 }
@@ -570,12 +632,12 @@ MD
   grep -q "planned-source-reverted from source-task" "$BATS_TEST_TMPDIR/prototype-detail.html"
 }
 
-@test "paw gui: deletes a legacy task only with exact confirmation" {
+@test "paw gui: deletes a legacy task only with confirmation" {
   local path port=18773
   path="$(real_path "$REPO/.agent/gui-task")"
   start_gui "$port"
 
-  post_gui "$port" "/task/gui-task/delete" "$(form_encode "path=$path" "confirm=gui-task")" "$BATS_TEST_TMPDIR/delete-legacy.html"
+  post_gui "$port" "/task/gui-task/delete" "$(form_encode "path=$path" "confirm=yes")" "$BATS_TEST_TMPDIR/delete-legacy.html"
   stop_gui
 
   [[ ! -d "$path" ]]

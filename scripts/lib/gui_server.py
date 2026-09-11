@@ -496,16 +496,33 @@ def list_tasks(repo: Path, task_home: Path, all_repos: bool) -> list[Task]:
 
 STYLE = """
 body{font:14px/1.45 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;color:#202124;background:#f7f8fa}
-header{background:#243447;color:white;padding:20px 28px}main{padding:24px 28px;max-width:1180px;margin:auto}
-a{color:#0b57d0;text-decoration:none}table{border-collapse:collapse;width:100%;background:white;border:1px solid #dfe3ea}
+header{background:#243447;color:white;padding:20px 28px}header a{color:white;text-decoration:underline}main{padding:24px 28px;max-width:1180px;margin:auto}
+a{color:#0b57d0;text-decoration:none}button,.button{border:1px solid #b8c0cc;background:white;color:#1f2937;border-radius:6px;padding:5px 9px;font:inherit;cursor:pointer}.button{display:inline-block}button:hover,.button:hover{background:#f3f6fa}.danger{border-color:#dc2626;color:#991b1b}.primary{border-color:#0b57d0;color:#0b57d0}
+table{border-collapse:collapse;width:100%;background:white;border:1px solid #dfe3ea}
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical-align:top}th{background:#edf1f7;font-size:12px;text-transform:uppercase;color:#4b5563}
 .pill{display:inline-block;border:1px solid #ccd3dd;border-radius:999px;padding:2px 8px;background:#f8fafc;font-size:12px}.blocked{border-color:#d97706;color:#92400e}.running{border-color:#2563eb;color:#1d4ed8}.ready{border-color:#15803d;color:#166534}
 .tabs a{margin-right:14px}.muted{color:#667085}.document{background:white;border:1px solid #dfe3ea;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:#f6f8fa;border:1px solid #dfe3ea;padding:12px;overflow:auto}.document code{background:#eef2f7;padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid #d0d7de;color:#57606a;margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}
+.action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:white;color:#202124;border:1px solid #cfd7e3;border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
 """
 
 SCRIPT = """
 <script>
 document.addEventListener("DOMContentLoaded", () => {
+  const preview = document.querySelector("[data-doc-preview]");
+  if (preview) {
+    document.addEventListener("click", async (event) => {
+      const trigger = event.target.closest("[data-doc-preview-url]");
+      if (!trigger) return;
+      event.preventDefault();
+      try {
+        const response = await fetch(trigger.dataset.docPreviewUrl, {cache: "no-store"});
+        if (!response.ok) return;
+        preview.innerHTML = await response.text();
+      } catch (_error) {
+        preview.innerHTML = "<p class='flash-error'>preview failed</p>";
+      }
+    });
+  }
   document.querySelectorAll("[data-paw-refresh-url]").forEach((target) => {
     const interval = Number(target.dataset.pawRefreshIntervalMs || "2500");
     const refreshUrl = target.dataset.pawRefreshUrl;
@@ -524,6 +541,19 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 </script>
 """
+
+
+def page_header(title: str, subtitle: str = "") -> str:
+    subtitle_html = f"<div>{html.escape(subtitle)}</div>" if subtitle else ""
+    return f"<header><p><a href='/'>Home</a></p><h1>{html.escape(title)}</h1>{subtitle_html}</header>"
+
+
+def stable_id(*parts: str) -> str:
+    return "paw-" + cksum("|".join(parts))
+
+
+def doc_name(value: str) -> str:
+    return value if value in {"contract", "plan", "pr", "review"} else "plan"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -581,6 +611,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.index()
         if parsed.path == "/fragments/tasks":
             return self.tasks_fragment(parse_qs(parsed.query))
+        if parsed.path.startswith("/fragments/task-doc/"):
+            query = parse_qs(parsed.query)
+            return self.task_doc_fragment(
+                unquote(parsed.path.removeprefix("/fragments/task-doc/")),
+                query.get("doc", ["plan"])[0],
+                query.get("path", [""])[0],
+            )
         if parsed.path.startswith("/fragments/task/"):
             query = parse_qs(parsed.query)
             return self.task_fragment(
@@ -687,8 +724,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect(self.task_url(task, "implement blocked: reconcile USER ANSWER placeholders first", "error"))
         if task.running:
             return self.redirect(self.task_url(task, f"{task.name} already has a running PAW subprocess", "error"))
-        extras = form.get("extras", "").strip()
         args = [subcommand, task.name]
+        extras = "" if subcommand == "implement" else form.get("extras", "").strip()
         if extras and subcommand != "archive":
             args.append(extras)
         ok, message = launch_paw(task.repo, self.task_home, task.path, args)
@@ -706,8 +743,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_html("<h1>Task not found</h1>", 404)
         if task.running:
             return self.redirect(self.task_url(task, "delete blocked while a PAW subprocess is running", "error"))
-        if form.get("confirm", "") != task.name:
-            return self.redirect(self.task_url(task, "delete confirmation must match the task name", "error"))
+        if form.get("confirm", "") != "yes":
+            return self.redirect(self.task_url(task, "delete confirmation is required", "error"))
         submitted = form.get("path", "")
         if submitted != str(task.path):
             return self.redirect(self.task_url(task, "delete rejected: stale task path", "error"))
@@ -729,19 +766,14 @@ class Handler(BaseHTTPRequestHandler):
         if refresh_query:
             refresh_url += "?" + urlencode(refresh_query)
         body = (
-            f"<header><h1>PAW Tasks</h1><div>{html.escape(scope)}</div></header><main>"
+            f"{page_header('PAW Tasks', scope)}<main>"
             f"{self.flash_html(message, level)}"
             f"<p class='muted'>Central store: {html.escape(central_note)}</p>"
             f"{self.index_filters(query)}"
-            "<form method='post' action='/actions/plan'>"
-            "<h2>New Plan</h2>"
-            "<p><label>Task name <input name='task_name' required pattern='[A-Za-z0-9._-]+'></label></p>"
-            "<p><label>Prompt<br><textarea name='prompt' required rows='4'></textarea></label></p>"
-            "<p><button type='submit'>Start plan</button></p>"
-            "</form>"
+            f"{self.new_plan_modal()}"
             f"<div id='task-list' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
             f"{self.index_task_list(query)}"
-            "</div></main>"
+            "</div><div class='doc-preview' data-doc-preview></div></main>"
         )
         self.send_html(body)
 
@@ -769,6 +801,78 @@ class Handler(BaseHTTPRequestHandler):
             "</form>"
         )
 
+    def new_plan_modal(self) -> str:
+        return (
+            "<details class='modal-toggle'><summary><span class='button primary'>Plan</span></summary>"
+            "<div class='modal-panel'><div class='modal-body'>"
+            "<form method='post' action='/actions/plan'>"
+            "<h2>Plan</h2>"
+            "<p><label>Task name <input name='task_name' required pattern='[A-Za-z0-9._-]+'></label></p>"
+            "<p><label>Prompt<br><textarea name='prompt' required rows='4'></textarea></label></p>"
+            "<p class='action-row'><button type='submit'>Plan</button><button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Close</button></p>"
+            "</form></div></div></details>"
+        )
+
+    def extras_modal(self, task: Task, action: str, label: str) -> str:
+        action_path = f"/task/{quote(task.name)}/{action}"
+        return (
+            "<details class='modal-toggle'>"
+            f"<summary><span class='button'>{html.escape(label)}</span></summary>"
+            "<div class='modal-panel'><div class='modal-body'>"
+            f"<form method='post' action='{action_path}'>"
+            f"<h2>{html.escape(label)} {html.escape(task.name)}</h2>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            "<p><label>Extra instructions<br><textarea name='extras' rows='4'></textarea></label></p>"
+            f"<p class='action-row'><button type='submit'>{html.escape(label)}</button><button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Close</button></p>"
+            "</form></div></div></details>"
+        )
+
+    def implement_form(self, task: Task) -> str:
+        return (
+            f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/implement'>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            "<button type='submit'>Implement</button></form>"
+        )
+
+    def archive_form(self, task: Task) -> str:
+        return (
+            f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/archive'>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            "<button type='submit'>Archive</button></form>"
+        )
+
+    def delete_modal(self, task: Task) -> str:
+        return (
+            "<details class='modal-toggle'>"
+            "<summary><span class='button danger'>Delete</span></summary>"
+            "<div class='modal-panel'><div class='modal-body'>"
+            f"<form method='post' action='/task/{quote(task.name)}/delete'>"
+            f"<h2>Delete {html.escape(task.name)}</h2>"
+            "<p>Are you sure?</p>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            "<input type='hidden' name='confirm' value='yes'>"
+            "<p class='action-row'><button class='danger' type='submit'>Delete</button><button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Cancel</button></p>"
+            "</form></div></div></details>"
+        )
+
+    def task_actions(self, task: Task, include_docs: bool = False) -> str:
+        detail_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}"
+        pieces = [f"<a class='button' href='{detail_href}'>Open</a>"]
+        if include_docs:
+            for doc in ("contract", "plan", "pr"):
+                preview_url = f"/fragments/task-doc/{quote(task.name)}?path={quote(str(task.path), safe='')}&doc={doc}"
+                pieces.append(f"<button type='button' data-doc-preview-url='{html_attr(preview_url)}'>{doc}.md</button>")
+        pieces.extend(
+            [
+                self.extras_modal(task, "edit", "Edit"),
+                self.implement_form(task),
+                self.delete_modal(task),
+            ]
+        )
+        if not include_docs:
+            pieces.extend([self.extras_modal(task, "review", "Review"), self.extras_modal(task, "prototype", "Prototype"), self.archive_form(task)])
+        return f"<div class='action-row'>{''.join(pieces)}</div>"
+
     def index_task_list(self, query: dict[str, list[str]]) -> str:
         state_filter = query.get("state", [""])[0]
         repo_filter = query.get("repo", [""])[0].strip().lower()
@@ -794,7 +898,7 @@ class Handler(BaseHTTPRequestHandler):
                     label = f"{label} from {task.prototype_source}"
                 prototype = f"<br><span class='pill'>{html.escape(label)}</span>"
             selector = (
-                f"<input type='checkbox' name='task' value='{html_attr(str(task.path))}' aria-label='Select {html_attr(task.name)}'>"
+                f"<input form='batch-implement-form' type='checkbox' name='task' value='{html_attr(str(task.path))}' aria-label='Select {html_attr(task.name)}'>"
                 if task.batch_eligible
                 else ""
             )
@@ -808,13 +912,14 @@ class Handler(BaseHTTPRequestHandler):
                 f"<td>{html.escape(completion)}</td>"
                 f"<td>{html.escape(status_field(task.plan, 'Next work') or '<missing>')}</td>"
                 f"<td>{done}/{total}</td><td>{validation_state(task.plan)}</td>"
+                f"<td>{self.task_actions(task, include_docs=True)}</td>"
                 "</tr>"
             )
         return (
-            "<form method='post' action='/actions/implement-batch'>"
-            "<p><button type='submit'>Start selected implementations</button></p>"
-            "<table><thead><tr><th>Select</th><th>Task</th><th>Repo</th><th>State</th><th>Plan Position</th><th>Completion</th><th>Next Work</th><th>Checklist</th><th>Validation</th></tr></thead>"
-            f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table></form>"
+            "<form id='batch-implement-form' method='post' action='/actions/implement-batch'></form>"
+            "<p><button form='batch-implement-form' type='submit'>Implement selected</button></p>"
+            "<table><thead><tr><th>Select</th><th>Task</th><th>Repo</th><th>State</th><th>Plan Position</th><th>Completion</th><th>Next Work</th><th>Checklist</th><th>Validation</th><th>Actions</th></tr></thead>"
+            f"<tbody>{''.join(rows) or '<tr><td colspan=10>No task packages found.</td></tr>'}</tbody></table>"
         )
 
     def flash_html(self, message: str, level: str = "notice") -> str:
@@ -828,35 +933,14 @@ class Handler(BaseHTTPRequestHandler):
         if not task:
             return self.send_html("<h1>Task not found</h1>", 404)
         path_query = quote(str(task.path), safe="")
-        refresh_url = f"/fragments/task/{quote(task.name)}?path={path_query}&doc={quote(doc)}"
+        selected_doc = doc_name(doc)
+        refresh_url = f"/fragments/task/{quote(task.name)}?path={path_query}&doc={quote(selected_doc)}"
         body = (
-            f"<header><h1>{html.escape(task.name)}</h1><div>{html.escape(str(task.path))}</div></header><main>"
+            f"{page_header(task.name, str(task.path))}<main>"
             f"{self.flash_html(message, level)}"
-            f"<form method='post' action='/task/{quote(task.name)}/edit'>"
-            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
-            "<h2>Edit Plan</h2><p><label>Extra instructions<br><textarea name='extras' rows='3'></textarea></label></p>"
-            "<p><button type='submit'>Start edit</button></p></form>"
-            f"<form method='post' action='/task/{quote(task.name)}/implement'>"
-            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
-            "<h2>Implement</h2><p><label>Extra instructions<br><textarea name='extras' rows='3'></textarea></label></p>"
-            "<p><button type='submit'>Start implement</button></p></form>"
-            f"<form method='post' action='/task/{quote(task.name)}/review'>"
-            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
-            "<h2>Review</h2><p><label>Extra instructions<br><textarea name='extras' rows='3'></textarea></label></p>"
-            "<p><button type='submit'>Start review</button></p></form>"
-            f"<form method='post' action='/task/{quote(task.name)}/prototype'>"
-            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
-            "<h2>Prototype</h2><p><label>Extra instructions<br><textarea name='extras' rows='3'></textarea></label></p>"
-            "<p><button type='submit'>Start prototype</button></p></form>"
-            f"<form method='post' action='/task/{quote(task.name)}/archive'>"
-            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
-            "<h2>Archive Task</h2><p><button type='submit'>Archive task</button></p></form>"
-            f"<form method='post' action='/task/{quote(task.name)}/delete'>"
-            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
-            f"<h2>Delete Task</h2><p><label>Type {html.escape(task.name)} <input name='confirm'></label></p>"
-            "<p><button type='submit'>Delete task</button></p></form>"
+            f"{self.task_actions(task)}"
             f"<div id='task-detail' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
-            f"{self.task_detail(task, doc)}"
+            f"{self.task_detail(task, selected_doc)}"
             "</div></main>"
         )
         self.send_html(body)
@@ -865,10 +949,28 @@ class Handler(BaseHTTPRequestHandler):
         task = self.resolve_task(name, path_value)
         if not task:
             return self.send_fragment("<h1>Task not found</h1>", 404)
-        self.send_fragment(self.task_detail(task, doc))
+        self.send_fragment(self.task_detail(task, doc_name(doc)))
+
+    def task_doc_fragment(self, name: str, doc: str, path_value: str = "") -> None:
+        task = self.resolve_task(name, path_value)
+        if not task:
+            return self.send_fragment("<h1>Task not found</h1>", 404)
+        selected_doc = doc_name(doc)
+        content = self.task_doc_content(task, selected_doc)
+        self.send_fragment(
+            "<div class='modal-panel'><div class='modal-body'>"
+            f"<h2>{html.escape(task.name)} / {html.escape(selected_doc)}.md</h2>"
+            "<p><button type='button' onclick='this.closest(\"[data-doc-preview]\").innerHTML=\"\"'>Close</button></p>"
+            f"<div class='document'>{render_markdown(content)}</div>"
+            "</div></div>"
+        )
+
+    def task_doc_content(self, task: Task, doc: str) -> str:
+        return {"contract": task.contract, "plan": task.plan, "pr": task.pr, "review": task.review}.get(doc, task.plan)
 
     def task_detail(self, task: Task, doc: str) -> str:
-        content = {"contract": task.contract, "plan": task.plan, "pr": task.pr, "review": task.review}.get(doc, task.plan)
+        selected_doc = doc_name(doc)
+        content = self.task_doc_content(task, selected_doc)
         path_query = quote(str(task.path), safe="")
         doc_tabs = ["contract", "plan", "pr"]
         if task.review:
