@@ -1639,3 +1639,113 @@ MD
   [ -f "$created/metadata.gitconfig" ]
   git config --file "$created/metadata.gitconfig" --get paw.repo-root | grep -Fx "$repo_two_path"
 }
+
+@test "paw gui: edits queued prompt and task name before triggering" {
+  git -C "$REPO" init -q
+  local port=18810
+  start_gui "$port"
+  post_gui "$port" /actions/plan "$(form_encode plan_action=queue task_name=before prompt=Original)" "$BATS_TEST_TMPDIR/post.html"
+  post_gui "$port" /actions/queue/edit "$(form_encode original_task_name=before task_name=after 'prompt=Edited prompt')" "$BATS_TEST_TMPDIR/edit.html"
+  grep -q 'updated queued plan after' "$BATS_TEST_TMPDIR/edit.html"
+  [[ ! -f "$BATS_TEST_TMPDIR/backend.prompt" ]]
+  fetch_gui "$port" / "$BATS_TEST_TMPDIR/index.html"
+  grep -q "action='/actions/queue/edit'" "$BATS_TEST_TMPDIR/index.html"
+  grep -q 'Edited prompt' "$BATS_TEST_TMPDIR/index.html"
+  post_gui "$port" /actions/queue/trigger "$(form_encode task_name=after)" "$BATS_TEST_TMPDIR/trigger.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -q 'Edited prompt' "$BATS_TEST_TMPDIR/backend.prompt"
+  find "$PAW_TASK_HOME" -path '*/after/plan.md' -print -quit | grep -q after
+  [[ -z "$(find "$PAW_TASK_HOME" -path '*/.queue/*/prompt.txt' -print)" ]]
+}
+
+@test "paw gui: displays complete escaped multiline queued prompts" {
+  git -C "$REPO" init -q
+  local port=18811 prompt
+  prompt="$(python3 -c 'print("Long prompt " * 30 + "\n  <script>tail & text</script>")')"
+  start_gui "$port"
+  post_gui "$port" /actions/plan "$(form_encode plan_action=queue task_name=long "prompt=$prompt")" "$BATS_TEST_TMPDIR/post.html"
+  fetch_gui "$port" / "$BATS_TEST_TMPDIR/index.html"
+  python3 - "$BATS_TEST_TMPDIR/index.html" "$prompt" <<'PY'
+import html, pathlib, sys
+page = pathlib.Path(sys.argv[1]).read_text()
+assert "<pre class='queued-prompt'>" + html.escape(sys.argv[2]) + "\n</pre>" in page
+assert '<script>tail' not in page
+assert 'white-space:pre-wrap' in page
+PY
+}
+
+@test "paw gui: rejects invalid queued edits without changing saved prompts" {
+  git -C "$REPO" init -q
+  local port=18812 name prompt original expected
+  start_gui "$port"
+  post_gui "$port" /actions/plan "$(form_encode plan_action=queue task_name=original prompt=Original)" "$BATS_TEST_TMPDIR/post.html"
+  post_gui "$port" /actions/plan "$(form_encode plan_action=queue task_name=occupied prompt=Occupied)" "$BATS_TEST_TMPDIR/post.html"
+  while IFS='|' read -r original name prompt expected; do
+    post_gui "$port" /actions/queue/edit "$(form_encode "original_task_name=$original" "task_name=$name" "prompt=$prompt")" "$BATS_TEST_TMPDIR/error.html"
+    grep -q "$expected" "$BATS_TEST_TMPDIR/error.html"
+  done <<'CASES'
+original|../invalid|Changed|invalid task name
+../invalid|valid|Changed|invalid task name
+original|original|   |prompt is required
+missing|valid|Changed|queued plan prompt not found
+original|occupied|Changed|already exists for occupied
+CASES
+  local queue_root
+  queue_root="$(find "$PAW_TASK_HOME" -type d -name .queue -print -quit)"
+  [[ "$(cat "$queue_root/original/prompt.txt")" == Original ]]
+  [[ "$(cat "$queue_root/occupied/prompt.txt")" == Occupied ]]
+  post_gui "$port" /actions/queue/edit "$(form_encode original_task_name=original task_name=original 'prompt=Same name edited')" "$BATS_TEST_TMPDIR/edit.html"
+  [[ "$(cat "$queue_root/original/prompt.txt")" == 'Same name edited' ]]
+  post_gui "$port" /actions/queue/delete "$(form_encode task_name=original)" "$BATS_TEST_TMPDIR/delete.html"
+  grep -q 'removed queued plan original' "$BATS_TEST_TMPDIR/delete.html"
+  [[ ! -d "$queue_root/original" ]]
+  [[ ! -f "$BATS_TEST_TMPDIR/backend.prompt" ]]
+}
+
+@test "paw gui: failed queued saves and launches retain the original prompt" {
+  python3 - "$REPO_ROOT" "$BATS_TEST_TMPDIR" <<'PY'
+import importlib.util
+from pathlib import Path
+import subprocess
+import sys
+from unittest.mock import patch
+spec = importlib.util.spec_from_file_location('gui_server', Path(sys.argv[1]) / 'scripts/lib/gui_server.py')
+gui = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = gui
+spec.loader.exec_module(gui)
+root = Path(sys.argv[2])
+home, repo = root / 'tasks', root / 'repo'
+gui.write_queued_plan(home, repo, 'original', 'Original')
+item = gui.queue_item_dir(home, repo, 'original')
+with patch.object(gui.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'git')):
+    try:
+        gui.update_queued_plan(home, repo, 'original', 'renamed', 'Changed')
+    except subprocess.CalledProcessError:
+        pass
+    else:
+        raise AssertionError('expected metadata write failure')
+assert (item / 'prompt.txt').read_text() == 'Original\n'
+assert not gui.queue_item_dir(home, repo, 'renamed').exists()
+with patch.object(Path, 'replace', side_effect=OSError('disk write failure')):
+    try:
+        gui.update_queued_plan(home, repo, 'original', 'original', 'Changed')
+    except OSError:
+        pass
+    else:
+        raise AssertionError('expected prompt replacement failure')
+assert (item / 'prompt.txt').read_text() == 'Original\n'
+gui.update_queued_plan(home, repo, 'original', 'renamed', 'Edited')
+handler = gui.Handler.__new__(gui.Handler)
+handler.task_home = home
+handler.repo = repo
+handler.form_data = lambda: {'task_name': 'renamed'}
+handler.selected_repo = lambda _: (repo, '')
+redirects = []
+handler.redirect = redirects.append
+with patch.object(gui, 'launch_paw', return_value=(False, 'start failed')):
+    handler.post_queue_trigger()
+assert gui.queue_item_dir(home, repo, 'renamed').joinpath('prompt.txt').read_text() == 'Edited'
+from urllib.parse import parse_qs, urlparse
+assert parse_qs(urlparse(redirects[0]).query)['message'] == ['start failed']
+PY
+}

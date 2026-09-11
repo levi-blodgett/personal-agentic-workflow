@@ -10,7 +10,10 @@ import re
 import signal
 import shutil
 import subprocess
+import tempfile
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,6 +24,16 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 PAW_SCRIPT = Path(__file__).resolve().parents[1] / "paw"
 TASK_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 LOG_TAIL_BYTES = 64 * 1024
+
+
+QUEUE_LOCK = threading.RLock()
+
+
+@contextmanager
+def queue_lock():
+    """Serialize queue reads and mutations within the threaded GUI server."""
+    with QUEUE_LOCK:
+        yield
 
 
 def git_value(repo: Path, *args: str) -> str:
@@ -723,6 +736,7 @@ class QueuedPlan:
     created_at: str
 
 
+@queue_lock()
 def list_queued_plans(task_home: Path, repo: Path) -> list[QueuedPlan]:
     root = queue_root(task_home, repo)
     if not root.exists():
@@ -737,6 +751,7 @@ def list_queued_plans(task_home: Path, repo: Path) -> list[QueuedPlan]:
     return items
 
 
+@queue_lock()
 def write_queued_plan(task_home: Path, repo: Path, task_name: str, prompt: str) -> None:
     item = queue_item_dir(task_home, repo, task_name)
     item.mkdir(parents=True, exist_ok=False)
@@ -745,6 +760,39 @@ def write_queued_plan(task_home: Path, repo: Path, task_name: str, prompt: str) 
     subprocess.run(["git", "config", "--file", str(meta), "paw.task-name", task_name], check=True)
     subprocess.run(["git", "config", "--file", str(meta), "paw.repo-root", str(repo)], check=True)
     subprocess.run(["git", "config", "--file", str(meta), "paw.created-at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())], check=True)
+
+
+@queue_lock()
+def update_queued_plan(task_home: Path, repo: Path, original: str, task_name: str, prompt: str) -> None:
+    if not valid_task_name(original) or not valid_task_name(task_name):
+        raise ValueError("invalid task name")
+    if not prompt.strip():
+        raise ValueError("prompt is required")
+    item = queue_item_dir(task_home, repo, original)
+    destination = queue_item_dir(task_home, repo, task_name)
+    if item.is_symlink() or not (item / "prompt.txt").is_file():
+        raise ValueError("queued plan prompt not found")
+    if original != task_name and (destination.exists() or destination.is_symlink()):
+        raise ValueError(f"queued plan prompt already exists for {task_name}")
+    # Stage the complete replacement before touching the original prompt.
+    with tempfile.TemporaryDirectory(prefix=".queue-edit-", dir=item.parent) as staging:
+        staged = Path(staging)
+        (staged / "prompt.txt").write_text(prompt)
+        if original == task_name:
+            (staged / "prompt.txt").replace(item / "prompt.txt")
+            return
+        meta = item / "metadata.gitconfig"
+        if meta.exists():
+            shutil.copyfile(meta, staged / "metadata.gitconfig")
+        subprocess.run(["git", "config", "--file", str(staged / "metadata.gitconfig"), "paw.task-name", task_name], check=True)
+        destination.mkdir(exist_ok=False)
+        try:
+            for path in staged.iterdir():
+                path.replace(destination / path.name)
+        except OSError:
+            shutil.rmtree(destination)
+            raise
+        shutil.rmtree(item)
 
 
 class Task:
@@ -951,7 +999,7 @@ th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical
 .task-title{font-weight:600}.task-subtle{margin-top:4px}.repo-name{font-weight:600}.path-disclosure{margin-top:5px;font-size:12px;color:#667085}.path-disclosure summary{cursor:pointer;color:#3b495c}.path-disclosure code{display:block;margin-top:5px;white-space:nowrap;overflow:auto;max-width:42rem}.path-disclosure dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;margin:6px 0 0}.path-disclosure dt{font-weight:600;color:#475467}.path-disclosure dd{margin:0;min-width:0}
 .tabs a{margin-right:14px}.muted{color:#667085}.document{background:white;border:1px solid #dfe3ea;border-radius:8px;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:#f6f8fa;border:1px solid #dfe3ea;padding:12px;overflow:auto}.document code{background:#eef2f7;padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid #d0d7de;color:#57606a;margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}.document table{border:1px solid #dfe3ea}.document tr:nth-child(even),.table-wrap tbody tr:nth-child(even){background:#fbfcfe}
 .log-stream{display:grid;gap:14px;margin:14px 0 24px}.log-panel{background:white;border:1px solid #dfe3ea;border-radius:8px;overflow:hidden}.log-panel h3{font-size:13px;text-transform:uppercase;color:#4b5563;background:#edf1f7;margin:0;padding:8px 12px}.log-panel pre{margin:0;max-height:45vh;overflow:auto;padding:12px;background:#0f172a;color:#e5e7eb;white-space:pre-wrap}
-.action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid #ccd3dd;border-radius:6px;padding:5px 9px;background:#f8fafc;color:#667085}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:white;color:#202124;border:1px solid #cfd7e3;border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
+.action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid #ccd3dd;border-radius:6px;padding:5px 9px;background:#f8fafc;color:#667085}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:white;color:#202124;border:1px solid #cfd7e3;border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.queued-prompt{white-space:pre-wrap;overflow-wrap:anywhere;min-width:18ch;max-width:60ch;margin:0}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
 @media (max-width:640px){.shell{width:min(100% - 20px,1600px)}.header-context{margin-left:0;flex-basis:100%}}
 """
 
@@ -1173,6 +1221,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.post_selected_action()
         if parsed.path == "/actions/queue/trigger":
             return self.post_queue_trigger()
+        if parsed.path == "/actions/queue/edit":
+            return self.post_queue_edit()
         if parsed.path == "/actions/queue/delete":
             return self.post_queue_delete()
         if parsed.path.startswith("/task/") and parsed.path.endswith("/edit"):
@@ -1293,6 +1343,17 @@ class Handler(BaseHTTPRequestHandler):
                 subprocess.run(["git", "config", "--file", str(meta), "paw.archived-at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())], check=False)
         self.redirect(self.with_active_repo(active_repo, self.flash_query(f"archived {len(selected)} selected task(s)", "notice")))
 
+    def post_queue_edit(self) -> None:
+        form = self.form_data()
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
+        task_name = form.get("task_name", "").strip()
+        try:
+            update_queued_plan(self.task_home, active_repo, form.get("original_task_name", "").strip(), task_name, form.get("prompt", ""))
+        except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+            return self.redirect(self.with_active_repo(active_repo, self.flash_query(f"could not update queued plan: {exc}", "error")))
+        self.redirect(self.with_active_repo(active_repo, self.flash_query(f"updated queued plan {task_name}", "notice")))
+
+    @queue_lock()
     def post_queue_trigger(self) -> None:
         form = self.form_data()
         active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
@@ -1309,6 +1370,7 @@ class Handler(BaseHTTPRequestHandler):
             message = f"triggered queued plan {task_name}: {message}"
         self.redirect(self.with_active_repo(active_repo, self.flash_query(message, "notice" if ok else "error")))
 
+    @queue_lock()
     def post_queue_delete(self) -> None:
         form = self.form_data()
         active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
@@ -1575,12 +1637,18 @@ class Handler(BaseHTTPRequestHandler):
             return ""
         rows = []
         for item in items:
-            preview = " ".join(item.prompt.split())[:160]
             rows.append(
                 "<tr>"
                 f"<td><span class='task-title'>{html.escape(item.task_name)}</span></td>"
-                f"<td>{html.escape(preview)}</td>"
+                f"<td><pre class='queued-prompt'>{html.escape(item.prompt)}</pre></td>"
                 "<td><div class='action-row'>"
+                "<details><summary>Edit</summary>"
+                "<form method='post' action='/actions/queue/edit'>"
+                f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
+                f"<input type='hidden' name='original_task_name' value='{html_attr(item.task_name)}'>"
+                f"<label>Task name <input name='task_name' value='{html_attr(item.task_name)}' required></label>"
+                f"<label>Prompt <textarea name='prompt' rows='8' required>{html.escape(item.prompt)}</textarea></label>"
+                "<button type='submit'>Save</button></form></details>"
                 "<form class='inline-form' method='post' action='/actions/queue/trigger'>"
                 f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
                 f"<input type='hidden' name='task_name' value='{html_attr(item.task_name)}'>"
