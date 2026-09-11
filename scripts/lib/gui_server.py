@@ -7,6 +7,7 @@ import argparse
 import html
 import os
 import re
+import signal
 import shutil
 import subprocess
 import time
@@ -154,6 +155,59 @@ def running_metadata_is_active(meta: Path) -> bool:
         return True
     except OSError:
         return False
+
+
+@dataclass(frozen=True)
+class ActiveRun:
+    metadata: Path
+    pid: int | None
+    active: bool
+
+    @property
+    def cancellable(self) -> bool:
+        return self.active and self.pid is not None
+
+
+def active_run_info(task_path: Path) -> ActiveRun | None:
+    runs_dir = task_path / "runs"
+    if not runs_dir.exists():
+        return None
+    for meta in sorted(runs_dir.glob("*.gitconfig"), reverse=True):
+        if metadata_value(meta, "status") != "running":
+            continue
+        match = re.search(r"-([0-9]+)\.gitconfig$", meta.name)
+        if not match:
+            return ActiveRun(meta, None, True)
+        pid = int(match.group(1))
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            continue
+        return ActiveRun(meta, pid, True)
+    return None
+
+
+def process_command(pid: int) -> str:
+    try:
+        return subprocess.check_output(["ps", "-p", str(pid), "-o", "command="], text=True, stderr=subprocess.DEVNULL).strip()
+    except Exception:
+        return ""
+
+
+def process_looks_like_paw(pid: int) -> bool:
+    command = process_command(pid)
+    if not command:
+        return False
+    normalized = command.replace("\\", "/")
+    return "scripts/paw" in normalized or re.search(r"(^|[/\s])paw(?:\s|$|-)", normalized) is not None
+
+
+def mark_run_cancelled(meta: Path, exit_status: int = 143) -> None:
+    if not meta.exists():
+        return
+    subprocess.run(["git", "config", "--file", str(meta), "paw.status", "cancelled"], check=False)
+    subprocess.run(["git", "config", "--file", str(meta), "paw.end-time", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())], check=False)
+    subprocess.run(["git", "config", "--file", str(meta), "paw.exit-status", str(exit_status)], check=False)
 
 
 def section_body(markdown: str, heading: str) -> str:
@@ -533,11 +587,12 @@ class Task:
         return bool(re.search(r"USER ANSWER \((UNRESOLVED|PROVIDED)\):", self.plan))
 
     @property
+    def active_run(self) -> ActiveRun | None:
+        return active_run_info(self.path)
+
+    @property
     def running(self) -> bool:
-        for meta in (self.path / "runs").glob("*.gitconfig") if (self.path / "runs").exists() else []:
-            if running_metadata_is_active(meta):
-                return True
-        return False
+        return self.active_run is not None
 
     @property
     def finished(self) -> bool:
@@ -571,7 +626,16 @@ def task_workflow(task: Task) -> TaskWorkflow:
     plan_position = status_field(task.plan, "Plan position") or "<missing>"
     next_work = status_field(task.plan, "Next work") or "<missing>"
     if task.running:
-        return TaskWorkflow("Running", "Wait for run", "", "A PAW subprocess is active.", f"{task.name} already has a running PAW subprocess")
+        run = task.active_run
+        if run and run.cancellable:
+            return TaskWorkflow("Running", "Cancel", "cancel", "A PAW subprocess is active.", "")
+        return TaskWorkflow(
+            "Running",
+            "Wait for run",
+            "",
+            "A PAW subprocess is active.",
+            f"{task.name} has running metadata without a live cancellable PID",
+        )
     if not task.plan:
         return TaskWorkflow("Missing plan", "Edit", "edit", "plan.md is missing.", "plan.md missing")
     if task.blocked:
@@ -621,6 +685,39 @@ def list_tasks(repo: Path, task_home: Path, all_repos: bool) -> list[Task]:
     if all_repos:
         return sort_tasks_by_recent_activity(list_all_central_tasks(task_home))
     return sort_tasks_by_recent_activity(list_repo_tasks(repo, task_home))
+
+
+def list_repo_archived_tasks(repo: Path, task_home: Path) -> list[Task]:
+    tasks: list[Task] = []
+    archive_root = task_home / repo_slug(repo) / ".archive"
+    if not archive_root.exists():
+        return tasks
+    for path in sorted(p for p in archive_root.iterdir() if p.is_dir()):
+        metadata_repo = metadata_value(path / "metadata.gitconfig", "repo-root")
+        if metadata_repo and physical(Path(metadata_repo)) != repo:
+            continue
+        tasks.append(Task(path.name, "archived", path, repo, archive_root.parent.name))
+    return tasks
+
+
+def list_all_archived_tasks(task_home: Path) -> list[Task]:
+    tasks: list[Task] = []
+    if not task_home.exists():
+        return tasks
+    for repo_dir in sorted(p for p in task_home.iterdir() if p.is_dir()):
+        archive_root = repo_dir / ".archive"
+        if not archive_root.exists():
+            continue
+        for path in sorted(p for p in archive_root.iterdir() if p.is_dir()):
+            metadata_repo = metadata_value(path / "metadata.gitconfig", "repo-root")
+            repo = physical(Path(metadata_repo)) if metadata_repo else Path(repo_dir.name)
+            tasks.append(Task(path.name, "archived", path, repo, repo_dir.name))
+    return tasks
+
+
+def list_archived_tasks(repo: Path, task_home: Path, all_repos: bool) -> list[Task]:
+    tasks = list_all_archived_tasks(task_home) if all_repos else list_repo_archived_tasks(repo, task_home)
+    return sort_tasks_by_recent_activity(tasks)
 
 
 STYLE = """
@@ -676,11 +773,14 @@ document.addEventListener("DOMContentLoaded", () => {
 """
 
 
-def page_header(title: str, context: str = "") -> str:
+def page_header(title: str, context: str = "", active_repo: Path | None = None) -> str:
     context_html = f"<span class='header-context'>{html.escape(context)}</span>" if context else ""
+    archive_href = "/archive"
+    if active_repo is not None:
+        archive_href += f"?active_repo={quote(str(active_repo), safe='')}"
     return (
         "<header class='site-header'><div class='shell header-row'>"
-        f"<a class='home-link' href='/'>Home</a><h1>{html.escape(title)}</h1>{context_html}"
+        f"<a class='home-link' href='/'>Home</a><a class='home-link' href='{archive_href}'>Archived</a><h1>{html.escape(title)}</h1>{context_html}"
         "</div></header>"
     )
 
@@ -796,6 +896,8 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/":
             return self.index()
+        if parsed.path == "/archive":
+            return self.archive_index()
         if parsed.path == "/fragments/tasks":
             return self.tasks_fragment(parse_qs(parsed.query))
         if parsed.path.startswith("/fragments/task-doc/"):
@@ -849,6 +951,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/task/") and parsed.path.endswith("/archive"):
             name = unquote(parsed.path.removeprefix("/task/").removesuffix("/archive"))
             return self.post_task_action(name, "archive")
+        if parsed.path.startswith("/task/") and parsed.path.endswith("/cancel"):
+            name = unquote(parsed.path.removeprefix("/task/").removesuffix("/cancel"))
+            return self.post_cancel(name)
+        if parsed.path.startswith("/archive/") and parsed.path.endswith("/unarchive"):
+            name = unquote(parsed.path.removeprefix("/archive/").removesuffix("/unarchive"))
+            return self.post_unarchive(name)
         if parsed.path.startswith("/task/") and parsed.path.endswith("/delete"):
             name = unquote(parsed.path.removeprefix("/task/").removesuffix("/delete"))
             return self.post_delete(name)
@@ -936,6 +1044,47 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect(f"/?{self.flash_query(message, 'notice')}")
         self.redirect(self.task_url(task, message, "notice" if ok else "error"))
 
+    def post_cancel(self, name: str) -> None:
+        form = self.form_data()
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
+        task = self.resolve_task(name, form.get("path", ""), active_repo)
+        if not task:
+            return self.send_html("<h1>Task not found</h1>", 404)
+        run = task.active_run
+        if not run:
+            return self.redirect(self.task_url(task, f"{task.name} has no active PAW run to cancel", "error"))
+        if not run.cancellable or run.pid is None:
+            return self.redirect(self.task_url(task, f"{task.name} has running metadata without a live cancellable PID", "error"))
+        if not process_looks_like_paw(run.pid):
+            return self.redirect(self.task_url(task, f"cancel blocked: recorded pid {run.pid} is not a verified PAW process", "error"))
+
+        try:
+            pgid = os.getpgid(run.pid)
+            if pgid == run.pid:
+                os.killpg(pgid, signal.SIGTERM)
+            else:
+                os.kill(run.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return self.redirect(self.task_url(task, f"{task.name} run already exited", "notice"))
+        except PermissionError:
+            return self.redirect(self.task_url(task, f"cancel blocked: permission denied for pid {run.pid}", "error"))
+
+        for _ in range(10):
+            try:
+                os.kill(run.pid, 0)
+            except OSError:
+                mark_run_cancelled(run.metadata)
+                return self.redirect(self.task_url(task, f"cancelled {task.name}", "notice"))
+            time.sleep(0.1)
+        if process_looks_like_paw(run.pid):
+            try:
+                os.kill(run.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            mark_run_cancelled(run.metadata, 137)
+            return self.redirect(self.task_url(task, f"cancelled {task.name} after SIGKILL fallback", "notice"))
+        return self.redirect(self.task_url(task, f"cancel incomplete: recorded pid {run.pid} changed before exit", "error"))
+
     def post_delete(self, name: str) -> None:
         form = self.form_data()
         active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
@@ -974,7 +1123,7 @@ class Handler(BaseHTTPRequestHandler):
         if refresh_query:
             refresh_url += "?" + urlencode(refresh_query)
         body = (
-            f"{page_header('PAW Tasks', scope)}<main class='shell'>"
+            f"{page_header('PAW Tasks', scope, active_repo)}<main class='shell'>"
             f"{self.flash_html(message, level)}"
             f"<p class='muted'>Central store {path_disclosure('Central store', central_note)}</p>"
             f"{self.index_filters(query, active_repo)}"
@@ -982,6 +1131,24 @@ class Handler(BaseHTTPRequestHandler):
             f"<div id='task-list' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
             f"{self.index_task_list(query, active_repo)}"
             "</div><div class='doc-preview' data-doc-preview></div></main>"
+        )
+        self.send_html(body)
+
+    def archive_index(self) -> None:
+        query = parse_qs(urlparse(self.path).query)
+        active_repo, repo_error = self.selected_repo(query)
+        message = query.get("message", [""])[0]
+        level = query.get("level", ["notice"])[0]
+        if repo_error:
+            message = repo_error if not message else f"{repo_error}; {message}"
+            level = "error"
+        scope = "All task stores" if self.all_repos else f"{active_repo.name or 'repo'} repo"
+        body = (
+            f"{page_header('Archived Tasks', scope, active_repo)}<main class='shell'>"
+            f"{self.flash_html(message, level)}"
+            f"{self.repo_selector(active_repo)}"
+            f"{self.archived_task_list(active_repo)}"
+            "</main>"
         )
         self.send_html(body)
 
@@ -1085,6 +1252,22 @@ class Handler(BaseHTTPRequestHandler):
             "<button type='submit'>Archive</button></form>"
         )
 
+    def cancel_form(self, task: Task) -> str:
+        return (
+            f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/cancel'>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
+            "<button class='danger' type='submit'>Cancel</button></form>"
+        )
+
+    def unarchive_form(self, task: Task) -> str:
+        return (
+            f"<form class='inline-form' method='post' action='/archive/{quote(task.name)}/unarchive'>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
+            "<button type='submit'>Unarchive</button></form>"
+        )
+
     def delete_modal(self, task: Task) -> str:
         return (
             "<details class='modal-toggle'>"
@@ -1102,8 +1285,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def task_actions(self, task: Task, include_docs: bool = False) -> str:
         active_query = f"&active_repo={quote(str(task.repo), safe='')}"
-        detail_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}{active_query}"
-        pieces = [f"<a class='button' href='{detail_href}'>Open</a>"]
+        pieces = [self.archive_form(task)]
         if include_docs:
             for doc in ("contract", "plan"):
                 preview_url = f"/fragments/task-doc/{quote(task.name)}?path={quote(str(task.path), safe='')}&doc={doc}{active_query}"
@@ -1122,6 +1304,8 @@ class Handler(BaseHTTPRequestHandler):
     def workflow_action_control(self, task: Task, workflow: TaskWorkflow) -> str:
         if workflow.action == "edit":
             return self.extras_modal(task, "edit", workflow.next_label)
+        if workflow.action == "cancel":
+            return self.cancel_form(task)
         if workflow.action in {"implement", "review", "prototype", "archive"}:
             return self.action_form(task, workflow.action, workflow.next_label)
         reason = workflow.disabled_reason or "Action unavailable"
@@ -1216,7 +1400,7 @@ class Handler(BaseHTTPRequestHandler):
         selected_doc = doc_name(doc)
         refresh_url = f"/fragments/task/{quote(task.name)}?path={path_query}&doc={quote(selected_doc)}&active_repo={quote(str(task.repo), safe='')}"
         body = (
-            f"{page_header(task.name, task.repo_name)}<main class='shell'>"
+            f"{page_header(task.name, task.repo_name, task.repo)}<main class='shell'>"
             f"{self.flash_html(message, level)}"
             f"{self.task_actions(task)}"
             f"<div id='task-detail' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
@@ -1231,6 +1415,57 @@ class Handler(BaseHTTPRequestHandler):
         if not task:
             return self.send_fragment("<h1>Task not found</h1>", 404)
         self.send_fragment(self.task_detail(task, doc_name(doc)))
+
+    def resolve_archived_task(self, name: str, path_value: str, active_repo: Path) -> Task | None:
+        if not valid_task_name(name):
+            return None
+        try:
+            archived_path = physical(Path(path_value))
+        except Exception:
+            return None
+        for task in list_archived_tasks(active_repo, self.task_home, self.all_repos):
+            if task.name == name and task.path == archived_path:
+                return task
+        return None
+
+    def post_unarchive(self, name: str) -> None:
+        form = self.form_data()
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
+        task = self.resolve_archived_task(name, form.get("path", ""), active_repo)
+        if not task:
+            return self.redirect(f"/archive?{self.flash_query('unarchive rejected: archived task path is not listed', 'error')}")
+        archive_root = self.task_home / task.slug / ".archive"
+        active_dest = self.task_home / task.slug / task.name
+        try:
+            task.path.relative_to(archive_root)
+        except ValueError:
+            return self.redirect(f"/archive?{self.flash_query('unarchive rejected: archive path is outside the central task store', 'error')}")
+        if active_dest.exists():
+            return self.redirect(f"/archive?{self.flash_query(f'unarchive blocked: active task already exists for {task.name}', 'error')}")
+        shutil.move(str(task.path), str(active_dest))
+        meta = active_dest / "metadata.gitconfig"
+        if meta.exists():
+            subprocess.run(["git", "config", "--file", str(meta), "--unset", "paw.archived-at"], check=False)
+            subprocess.run(["git", "config", "--file", str(meta), "paw.unarchived-at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())], check=False)
+        self.redirect(self.with_active_repo(task.repo, self.flash_query(f"unarchived task {task.name}", "notice")))
+
+    def archived_task_list(self, active_repo: Path) -> str:
+        rows = []
+        for task in list_archived_tasks(active_repo, self.task_home, self.all_repos):
+            branch = task.branch_context or "<none>"
+            rows.append(
+                "<tr>"
+                f"<td><span class='task-title'>{html.escape(task.name)}</span>{path_disclosure('Task path', str(task.path))}</td>"
+                f"<td><div class='repo-name'>{html.escape(task.repo_name)}</div><div class='task-subtle muted'>Branch: {html.escape(branch)}</div>{repo_disclosure(task, branch)}</td>"
+                f"<td><span class='metric-chip'>{html.escape(status_field(task.plan, 'Estimated completion') or '<missing>')}</span></td>"
+                f"<td>{self.unarchive_form(task)}</td>"
+                "</tr>"
+            )
+        empty = "<tr><td colspan=4>No archived task packages found.</td></tr>"
+        return (
+            "<div class='table-wrap'><table><thead><tr><th>Task</th><th>Repo</th><th>Completion</th><th>Actions</th></tr></thead>"
+            f"<tbody>{''.join(rows) or empty}</tbody></table></div>"
+        )
 
     def task_doc_fragment(self, name: str, doc: str, path_value: str = "", active_repo_value: str = "") -> None:
         active_repo, _ = self.selected_repo({"active_repo": [active_repo_value]})

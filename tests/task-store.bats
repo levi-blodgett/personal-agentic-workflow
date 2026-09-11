@@ -112,6 +112,38 @@ MD
   [ "$status" -eq 0 ]
 }
 
+@test "task store: finds active cancellable pid-bearing running metadata" {
+  mkdir -p "$REPO/.agent/cancellable-task/runs"
+  sleep 60 &
+  local sleeper="$!"
+  git config --file "$REPO/.agent/cancellable-task/runs/20260911T000000Z-$sleeper.gitconfig" paw.status running
+
+  run bash -c 'source "$1"; paw_task_active_run_info "$2/.agent/cancellable-task"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+  kill "$sleeper" 2>/dev/null || true
+  wait "$sleeper" 2>/dev/null || true
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == "$REPO/.agent/cancellable-task/runs/20260911T000000Z-$sleeper.gitconfig"$'\t'"$sleeper" ]]
+}
+
+@test "task store: active run info ignores stale pid metadata" {
+  mkdir -p "$REPO/.agent/stale-cancel-task/runs"
+  git config --file "$REPO/.agent/stale-cancel-task/runs/20260911T000000Z-999999.gitconfig" paw.status running
+
+  run bash -c 'source "$1"; ! paw_task_active_run_info "$2/.agent/stale-cancel-task"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+
+  [ "$status" -eq 0 ]
+}
+
+@test "task store: pidless running metadata remains active but not cancellable" {
+  mkdir -p "$REPO/.agent/pidless-task/runs"
+  git config --file "$REPO/.agent/pidless-task/runs/running.gitconfig" paw.status running
+
+  run bash -c 'source "$1"; paw_task_has_active_run "$2/.agent/pidless-task"; ! paw_task_active_run_info "$2/.agent/pidless-task"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+
+  [ "$status" -eq 0 ]
+}
+
 @test "task store: migrate copies legacy task and records source path" {
   mkdir -p "$REPO/.agent/migrate-me"
   printf '# Plan\n' > "$REPO/.agent/migrate-me/plan.md"

@@ -225,6 +225,31 @@ paw_task_running_metadata_is_active() {
   return 0
 }
 
+paw_task_running_metadata_pid() {
+  local run_file="$1" base pid
+  [[ -f "$run_file" ]] || return 1
+  [[ "$(git config --file "$run_file" --get paw.status 2>/dev/null || true)" == "running" ]] || return 1
+  base="${run_file##*/}"
+  [[ "$base" =~ -([0-9]+)\.gitconfig$ ]] || return 1
+  pid="${BASH_REMATCH[1]}"
+  kill -0 "$pid" 2>/dev/null || return 1
+  printf '%s\n' "$pid"
+}
+
+paw_task_active_run_info() {
+  local task_dir="$1" run_file pid
+  shopt -s nullglob
+  for run_file in "$task_dir"/runs/*.gitconfig; do
+    if pid="$(paw_task_running_metadata_pid "$run_file")"; then
+      shopt -u nullglob
+      printf '%s\t%s\n' "$run_file" "$pid"
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
 paw_task_has_active_run() {
   local task_dir="$1" run_file
   shopt -s nullglob

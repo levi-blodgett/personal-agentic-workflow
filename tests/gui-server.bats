@@ -110,6 +110,11 @@ wait_for_run_metadata() {
   return 1
 }
 
+start_paw_like_sleeper() {
+  bash -c 'exec -a paw-test sleep 60' &
+  SLEEPER_PID="$!"
+}
+
 post_gui() {
   local port="$1" path="$2" data="$3" out="$4"
   for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -205,8 +210,8 @@ MD
   - USER ANSWER (UNRESOLVED):
 MD
   cp "$REPO/.agent/gui-task/plan.md" "$REPO/.agent/running-task/plan.md"
-  git config --file "$REPO/.agent/running-task/runs/running-999999.gitconfig" paw.status running
-  git config --file "$REPO/.agent/running-task/runs/running.gitconfig" paw.status running
+  start_paw_like_sleeper
+  git config --file "$REPO/.agent/running-task/runs/running-$SLEEPER_PID.gitconfig" paw.status running
   cat > "$REPO/.agent/done-task/plan.md" <<'MD'
 # Plan
 
@@ -246,6 +251,8 @@ MD
   start_gui "$port"
   fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/stage-workflow.html"
   stop_gui
+  kill "$SLEEPER_PID" 2>/dev/null || true
+  wait "$SLEEPER_PID" 2>/dev/null || true
 
   grep -q "<th>Stage</th>" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "<th>Next</th>" "$BATS_TEST_TMPDIR/stage-workflow.html"
@@ -256,8 +263,9 @@ MD
   grep -q "Next: Edit" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "USER ANSWER placeholders remain" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Stage: Running" "$BATS_TEST_TMPDIR/stage-workflow.html"
-  grep -q "Next: Wait for run" "$BATS_TEST_TMPDIR/stage-workflow.html"
-  grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Next: Cancel" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "/task/running-task/cancel" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  ! grep -q "Next: Wait for run" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Stage: Review" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Next: Review" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "/task/done-task/review" "$BATS_TEST_TMPDIR/stage-workflow.html"
@@ -345,7 +353,9 @@ PY
   stop_gui
 
   grep -q "<a class='home-link' href='/'>Home</a>" "$BATS_TEST_TMPDIR/home-index.html"
+  grep -q "<a class='home-link' href='/archive" "$BATS_TEST_TMPDIR/home-index.html"
   grep -q "<a class='home-link' href='/'>Home</a>" "$BATS_TEST_TMPDIR/home-detail.html"
+  grep -q "<a class='home-link' href='/archive" "$BATS_TEST_TMPDIR/home-detail.html"
 }
 
 @test "paw gui: uses compact headers without always-visible full paths" {
@@ -359,10 +369,12 @@ PY
   stop_gui
 
   grep -q "<header class='site-header'><div class='shell header-row'>" "$BATS_TEST_TMPDIR/compact-index.html"
-  grep -q "<a class='home-link' href='/'>Home</a><h1>PAW Tasks</h1>" "$BATS_TEST_TMPDIR/compact-index.html"
+  grep -q "<a class='home-link' href='/'>Home</a><a class='home-link' href='/archive" "$BATS_TEST_TMPDIR/compact-index.html"
+  grep -q "<h1>PAW Tasks</h1>" "$BATS_TEST_TMPDIR/compact-index.html"
   grep -q "repo</span>" "$BATS_TEST_TMPDIR/compact-index.html"
   ! grep -q "<div>$repo_path</div>" "$BATS_TEST_TMPDIR/compact-index.html"
-  grep -q "<a class='home-link' href='/'>Home</a><h1>gui-task</h1>" "$BATS_TEST_TMPDIR/compact-detail.html"
+  grep -q "<a class='home-link' href='/'>Home</a><a class='home-link' href='/archive" "$BATS_TEST_TMPDIR/compact-detail.html"
+  grep -q "<h1>gui-task</h1>" "$BATS_TEST_TMPDIR/compact-detail.html"
   ! grep -q "<div>$path</div>" "$BATS_TEST_TMPDIR/compact-detail.html"
 }
 
@@ -667,10 +679,13 @@ MD
   grep -q "contract.md" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "plan.md" "$BATS_TEST_TMPDIR/index-actions.html"
   ! grep -q "pr.md" "$BATS_TEST_TMPDIR/index-actions.html"
+  ! grep -q ">Open<" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q "/task/gui-task/archive" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "/task/gui-task/edit" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "/task/gui-task/implement" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "/task/gui-task/delete" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q ">Plan<" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q ">Archive<" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q ">Edit<" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q ">Implement<" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q ">Delete<" "$BATS_TEST_TMPDIR/index-actions.html"
@@ -727,6 +742,37 @@ MD
   ! grep -q "finish the approved slice" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 
+@test "paw gui: cancels a verified active PAW run" {
+  local port=18761 path meta
+  path="$(real_path "$REPO/.agent/gui-task")"
+  mkdir -p "$REPO/.agent/gui-task/runs"
+  start_paw_like_sleeper
+  meta="$REPO/.agent/gui-task/runs/running-$SLEEPER_PID.gitconfig"
+  git config --file "$meta" paw.status running
+  git config --file "$meta" paw.subcommand implement
+  start_gui "$port"
+
+  post_gui "$port" "/task/gui-task/cancel" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/cancel-post.html"
+  stop_gui
+  wait "$SLEEPER_PID" 2>/dev/null || true
+
+  grep -Eq "cancelled gui-task|SIGKILL fallback" "$BATS_TEST_TMPDIR/cancel-post.html"
+  git config --file "$meta" --get paw.status | grep -Fx cancelled
+}
+
+@test "paw gui: does not expose cancel for pidless running metadata" {
+  local port=18760
+  mkdir -p "$REPO/.agent/gui-task/runs"
+  git config --file "$REPO/.agent/gui-task/runs/running.gitconfig" paw.status running
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/pidless-running.html"
+  stop_gui
+
+  grep -q "Next: Wait for run" "$BATS_TEST_TMPDIR/pidless-running.html"
+  grep -q "running metadata without a live cancellable PID" "$BATS_TEST_TMPDIR/pidless-running.html"
+  ! grep -q "/task/gui-task/cancel" "$BATS_TEST_TMPDIR/pidless-running.html"
+}
+
 @test "paw gui: task detail exposes review prototype and archive actions" {
   local port=18786 path
   path="$(real_path "$REPO/.agent/gui-task")"
@@ -737,6 +783,7 @@ MD
   grep -q "/task/gui-task/review" "$BATS_TEST_TMPDIR/actions.html"
   grep -q "/task/gui-task/prototype" "$BATS_TEST_TMPDIR/actions.html"
   grep -q "/task/gui-task/archive" "$BATS_TEST_TMPDIR/actions.html"
+  ! grep -q ">Open<" "$BATS_TEST_TMPDIR/actions.html"
   grep -q ">Review<" "$BATS_TEST_TMPDIR/actions.html"
   grep -q ">Prototype<" "$BATS_TEST_TMPDIR/actions.html"
   grep -q ">Archive<" "$BATS_TEST_TMPDIR/actions.html"
@@ -769,7 +816,7 @@ MD
   grep -q "Use the review as source" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 
-@test "paw gui: blocks review prototype and archive while task is running" {
+@test "paw gui: blocks review prototype archive delete and batch while task is running" {
   local port=18788 path
   path="$(real_path "$REPO/.agent/gui-task")"
   mkdir -p "$REPO/.agent/gui-task/runs"
@@ -779,11 +826,15 @@ MD
   post_gui "$port" "/task/gui-task/review" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/review-running.html"
   post_gui "$port" "/task/gui-task/prototype" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/prototype-running.html"
   post_gui "$port" "/task/gui-task/archive" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/archive-running.html"
+  post_gui "$port" "/task/gui-task/delete" "$(form_encode "path=$path" "confirm=yes")" "$BATS_TEST_TMPDIR/delete-running.html"
+  post_gui "$port" "/actions/implement-batch" "$(form_encode "task=$path")" "$BATS_TEST_TMPDIR/batch-running.html"
   stop_gui
 
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/review-running.html"
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/prototype-running.html"
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/archive-running.html"
+  grep -q "delete blocked while a PAW subprocess is running" "$BATS_TEST_TMPDIR/delete-running.html"
+  grep -q "batch implement blocked: gui-task is already running" "$BATS_TEST_TMPDIR/batch-running.html"
 }
 
 @test "paw gui: batch implement starts every selected eligible task" {
@@ -870,6 +921,61 @@ MD
   [[ ! -d "$central" ]]
   find "$PAW_TASK_HOME" -path "*/.archive/archive-me" -type d -print -quit | grep -q "archive-me"
   ! grep -q "archive-me" "$BATS_TEST_TMPDIR/archive-index.html"
+}
+
+@test "paw gui: archived dashboard lists central archives and unarchives safely" {
+  git -C "$REPO" init -q
+  local central archived port=18766
+  central="$(bash -c 'source "$1"; paw_task_create_dir "$2" archived-task' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
+  archived="$(bash -c 'source "$1"; paw_task_archive_dir "$2" archived-task' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
+  mkdir -p "$archived"
+  cat > "$archived/plan.md" <<'MD'
+# Archived Task
+
+## Current Status
+
+- Plan position: Archived.
+- Estimated completion: 25%
+- Next work: Restore.
+MD
+  bash -c 'source "$1"; paw_task_write_metadata "$2" "$3" archived-task created ""; git config --file "$2/metadata.gitconfig" paw.archived-at "2026-01-01T00:00:00Z"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$archived" "$REPO"
+  archived="$(real_path "$archived")"
+  start_gui "$port"
+
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/archive-active-index.html"
+  fetch_gui "$port" "/archive" "$BATS_TEST_TMPDIR/archive-dashboard.html"
+  post_gui "$port" "/archive/archived-task/unarchive" "$(form_encode "path=$archived")" "$BATS_TEST_TMPDIR/unarchive-post.html"
+  stop_gui
+
+  grep -q "Archived" "$BATS_TEST_TMPDIR/archive-active-index.html"
+  ! grep -q "archived-task" "$BATS_TEST_TMPDIR/archive-active-index.html"
+  grep -q "Archived Tasks" "$BATS_TEST_TMPDIR/archive-dashboard.html"
+  grep -q "archived-task" "$BATS_TEST_TMPDIR/archive-dashboard.html"
+  grep -q "/archive/archived-task/unarchive" "$BATS_TEST_TMPDIR/archive-dashboard.html"
+  grep -q ">Unarchive<" "$BATS_TEST_TMPDIR/archive-dashboard.html"
+  grep -q "unarchived task archived-task" "$BATS_TEST_TMPDIR/unarchive-post.html"
+  [[ -d "$central" ]]
+  [[ ! -d "$archived" ]]
+}
+
+@test "paw gui: archived dashboard empty state and unarchive conflict are clear" {
+  git -C "$REPO" init -q
+  local archived active port=18759
+  archived="$(bash -c 'source "$1"; paw_task_archive_dir "$2" conflict-task' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
+  active="$(bash -c 'source "$1"; paw_task_create_dir "$2" conflict-task' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
+  mkdir -p "$archived" "$active"
+  printf '# Archived\n' > "$archived/plan.md"
+  bash -c 'source "$1"; paw_task_write_metadata "$2" "$3" conflict-task created ""; paw_task_write_metadata "$4" "$3" conflict-task created ""' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$archived" "$REPO" "$active"
+  archived="$(real_path "$archived")"
+  start_gui "$port"
+
+  post_gui "$port" "/archive/conflict-task/unarchive" "$(form_encode "path=$archived")" "$BATS_TEST_TMPDIR/unarchive-conflict.html"
+  rm -rf "$archived"
+  fetch_gui "$port" "/archive" "$BATS_TEST_TMPDIR/archive-empty.html"
+  stop_gui
+
+  grep -q "unarchive blocked: active task already exists for conflict-task" "$BATS_TEST_TMPDIR/unarchive-conflict.html"
+  grep -q "No archived task packages found." "$BATS_TEST_TMPDIR/archive-empty.html"
 }
 
 @test "paw gui: shows prototype lineage marker in index and detail" {
