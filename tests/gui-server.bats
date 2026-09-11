@@ -2023,3 +2023,7 @@ for all_repos in (False, True):
         thread.join()
 PY
 }
+
+@test "paw gui: request work bounds and freshness regressions" {
+  python3 "$REPO_ROOT/tests/gui-performance.py"
+}

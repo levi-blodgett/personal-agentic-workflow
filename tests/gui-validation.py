@@ -86,7 +86,9 @@ class Validation(unittest.TestCase):
             handler.all_repos = False
             detail = handler.task_detail(task, 'plan')
             index = handler.index_task_list({}, repo)
-            self.assertIn("id='validation'", detail)
+            self.assertIn("<details id='validation'", detail)
+            self.assertNotRegex(detail, r"<details id='validation'[^>]*\bopen\b")
+            self.assertIn("<summary id='validation-heading'>Validation details", detail)
             self.assertIn("id='validation-source'", detail)
             self.assertIn('lint', index)
             self.assertIn('bad indent', index)

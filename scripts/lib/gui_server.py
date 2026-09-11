@@ -15,7 +15,8 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
-from functools import cached_property
+from functools import cached_property, wraps
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -36,6 +37,32 @@ def queue_lock():
     """Serialize queue reads and mutations within the threaded GUI server."""
     with QUEUE_LOCK:
         yield
+
+
+# Only GET/render entrypoints establish a snapshot; POST guards always read live.
+_READ_SNAPSHOT: ContextVar[dict | None] = ContextVar("gui_read_snapshot", default=None)
+
+
+def read_snapshot(function):
+    @wraps(function)
+    def render(*args, **kwargs):
+        if _READ_SNAPSHOT.get() is not None:
+            return function(*args, **kwargs)
+        token = _READ_SNAPSHOT.set({})
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _READ_SNAPSHOT.reset(token)
+    return render
+
+
+def snapshot_value(key, read):
+    snapshot = _READ_SNAPSHOT.get()
+    if snapshot is None:
+        return read()
+    if key not in snapshot:
+        snapshot[key] = read()
+    return snapshot[key]
 
 
 def git_value(repo: Path, *args: str) -> str:
@@ -145,16 +172,33 @@ def normalize_git_repo(raw_path: str) -> tuple[Path | None, str]:
 
 
 def metadata_value(file: Path, key: str) -> str:
+    if _READ_SNAPSHOT.get() is not None:
+        values = snapshot_value(("metadata", file), lambda: metadata_values(file))
+        return values.get(f"paw.{key}", "")
     if not file.exists():
         return ""
     try:
         return subprocess.check_output(
             ["git", "config", "--file", str(file), "--get", f"paw.{key}"],
-            text=True,
-            stderr=subprocess.DEVNULL,
+            text=True, stderr=subprocess.DEVNULL,
         ).strip()
     except Exception:
         return ""
+
+
+def metadata_values(file: Path) -> dict[str, str]:
+    if not file.exists():
+        return {}
+    try:
+        output = subprocess.check_output(
+            ["git", "config", "--null", "--file", str(file), "--list"],
+            text=True, stderr=subprocess.DEVNULL,
+        )
+        # Git emits key/newline/value/NUL; last duplicate wins, as with --get.
+        return {key: value.strip() for record in output.split("\0") if record
+                for key, _, value in [record.partition("\n")]}
+    except Exception:
+        return {}
 
 
 def parse_timestamp(value: str) -> float:
@@ -490,9 +534,9 @@ def validation_details(task: Task) -> str:
         }[entry["outcome"]]
         records.append(f"<li><strong>{label}</strong><pre class='validation-evidence'>{html.escape(entry['source'])}</pre></li>")
     return (
-        "<section id='validation' aria-labelledby='validation-heading'>"
-        "<h2 id='validation-heading'>Validation details</h2>"
-        f"{validation_chip(summary['state'])}<p>{html.escape(validation_reason(summary))}</p>"
+        "<details id='validation' aria-labelledby='validation-heading'>"
+        "<summary id='validation-heading'>Validation details "
+        f"{validation_chip(summary['state'])}</summary><p>{html.escape(validation_reason(summary))}</p>"
         "<p>Recorded from plan.md → Validation Performed. These records do not prove "
         "current-run freshness or that all required checks ran. Planning-only checks do not establish implementation success.</p>"
         "<p>Original records below retain check names and diagnostics where supplied. "
@@ -500,7 +544,7 @@ def validation_details(task: Task) -> str:
         f"<p><a href='{html_attr(source_href)}'>Open plan.md source</a></p>"
         f"<ul>{''.join(records)}</ul>"
         + ("" if records else "<p>No validation evidence has been recorded.</p>")
-        + "</section>"
+        + "</details>"
     )
 
 
@@ -1210,6 +1254,11 @@ def list_all_central_tasks(task_home: Path) -> list[Task]:
 
 
 def list_tasks(repo: Path, task_home: Path, all_repos: bool) -> list[Task]:
+    return snapshot_value(("tasks", repo, task_home, all_repos),
+                          lambda: discover_tasks(repo, task_home, all_repos))
+
+
+def discover_tasks(repo: Path, task_home: Path, all_repos: bool) -> list[Task]:
     if all_repos:
         return sort_tasks_by_recent_activity(list_all_central_tasks(task_home))
     return sort_tasks_by_recent_activity(list_repo_tasks(repo, task_home))
@@ -1267,6 +1316,16 @@ th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical
 SCRIPT = """
 <script>
 document.addEventListener("DOMContentLoaded", () => {
+  function revealValidation() {
+    if (location.hash !== '#validation') return;
+    const details = document.getElementById('validation');
+    if (details) {
+      details.open = true;
+      details.scrollIntoView();
+    }
+  }
+  revealValidation();
+  window.addEventListener('hashchange', revealValidation);
   const pollers = new Map();
   let generation = 0;
   let submitting = false;
@@ -1633,6 +1692,7 @@ class Handler(BaseHTTPRequestHandler):
                 return Task(name, "legacy", task_path, repo, task_home=self.task_home)
         return None
 
+    @read_snapshot
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/":
@@ -2003,6 +2063,7 @@ class Handler(BaseHTTPRequestHandler):
         shutil.rmtree(task.path)
         self.redirect(f"/?{self.flash_query(f'deleted task {task.name}', 'notice')}")
 
+    @read_snapshot
     def index(self) -> None:
         query = parse_qs(urlparse(self.path).query)
         active_repo, repo_error = self.selected_repo(query)
@@ -2184,7 +2245,10 @@ class Handler(BaseHTTPRequestHandler):
         )
         answers_block = ""
         if action == "prototype":
-            replacements = [peer for peer in list_repo_tasks(task.repo, self.task_home)
+            peers = getattr(task, "_peers", None)
+            if peers is None:
+                peers = list_repo_tasks(task.repo, self.task_home)
+            replacements = [peer for peer in peers
                             if peer.name == task.name + "-prototype"]
             if replacements:
                 question_block += f"<p>Reuse existing replacement: {html.escape(replacements[0].name)}. Existing documents are retained for the planning run.</p>"
@@ -2362,6 +2426,7 @@ class Handler(BaseHTTPRequestHandler):
             "</div>"
         )
 
+    @read_snapshot
     def index_task_list(self, query: dict[str, list[str]], active_repo: Path) -> str:
         state_filter = query.get("state", [""])[0]
         repo_filter = query.get("repo", [""])[0].strip().lower()
