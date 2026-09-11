@@ -168,8 +168,10 @@ MD
   prompt_contains "PAW:IMPLEMENT"
   prompt_contains 'This is a `paw review` run'
   prompt_contains "Assign a clear grade"
+  prompt_contains "overall workflow or subsystem state"
   prompt_contains "quality threshold"
   prompt_contains "architectural and design choices"
+  prompt_contains "prototype cleanup is production-ready"
   prompt_contains "concrete recommendations"
 }
 
@@ -178,8 +180,22 @@ MD
   run "$PAW" review review-task
   [ "$status" -eq 0 ]
   [ -f "$REPO/.agent/review-task/review.md" ]
+  grep -q "Scope Reviewed" "$REPO/.agent/review-task/review.md"
+  grep -q "Overall Workflow / Subsystem Grade" "$REPO/.agent/review-task/review.md"
+  grep -q "Prototype Cleanup Production-Ready" "$REPO/.agent/review-task/review.md"
   grep -q "## Architectural / Design Choices" "$REPO/.agent/review-task/review.md"
+  grep -q "## Blocking Production-Readiness Issues" "$REPO/.agent/review-task/review.md"
   grep -q "## Recommendations" "$REPO/.agent/review-task/review.md"
+}
+
+@test "paw review: supports overall workflow grading when requested" {
+  make_task review-task
+  run "$PAW" review review-task "Rate the overall state of paw review and paw prototype, not just this task delta."
+  [ "$status" -eq 0 ]
+  prompt_contains "grade the current overall workflow or subsystem state"
+  prompt_contains 'overall current state of `paw review` and `paw prototype`'
+  prompt_contains "Human extras:"
+  prompt_contains "Rate the overall state of paw review and paw prototype"
 }
 
 @test "paw review: appends Human extras when extra arg given" {
@@ -228,22 +244,57 @@ MD
   [[ "$(git config --file "$metadata" --get paw.prototype-status)" == planned* ]]
 }
 
-@test "paw prototype: reverts tracked source work from saved task metadata after planning" {
+@test "paw prototype: blocks cleanup when tracked changes include unowned paths" {
   init_git_repo
+  printf 'notes base\n' > "$REPO/NOTES.md"
+  git -C "$REPO" add NOTES.md
+  git -C "$REPO" commit -q -m "add notes"
+
   run "$PAW" plan proto-task "Plan the source work."
   [ "$status" -eq 0 ]
   local source_dir
   source_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task" -type d -print -quit)
   printf '# Review\n' > "$source_dir/review.md"
+  git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path README.md
+  printf 'changed\n' > "$REPO/README.md"
+  printf 'unrelated change\n' > "$REPO/NOTES.md"
+
+  run "$PAW" prototype proto-task
+
+  [ "$status" -eq 0 ]
+  [ "$(cat "$REPO/README.md")" = "changed" ]
+  [ "$(cat "$REPO/NOTES.md")" = "unrelated change" ]
+  local replacement_dir
+  replacement_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task-prototype" -type d -print -quit)
+  [ -d "$replacement_dir" ]
+  [ "$(git config --file "$replacement_dir/metadata.gitconfig" --get paw.prototype-status)" = "planned-revert-blocked" ]
+  [[ "$(git config --file "$replacement_dir/metadata.gitconfig" --get paw.prototype-cleanup-message)" == *"unowned tracked changes"* ]]
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-status)" = "revert-blocked" ]
+}
+
+@test "paw prototype: reverts only proven task-owned tracked source work after planning" {
+  init_git_repo
+  printf 'notes base\n' > "$REPO/NOTES.md"
+  git -C "$REPO" add NOTES.md
+  git -C "$REPO" commit -q -m "add notes"
+
+  run "$PAW" plan proto-task "Plan the source work."
+  [ "$status" -eq 0 ]
+  local source_dir
+  source_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task" -type d -print -quit)
+  printf '# Review\n' > "$source_dir/review.md"
+  git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path README.md
   printf 'changed\n' > "$REPO/README.md"
 
   run "$PAW" prototype proto-task
 
   [ "$status" -eq 0 ]
   [ "$(cat "$REPO/README.md")" = "base" ]
+  [ "$(cat "$REPO/NOTES.md")" = "notes base" ]
   local replacement_dir
   replacement_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task-prototype" -type d -print -quit)
   [ "$(git config --file "$replacement_dir/metadata.gitconfig" --get paw.prototype-status)" = "planned-source-reverted" ]
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-status)" = "source-reverted" ]
 }
 
 @test "paw prototype: uses plan-class model defaults when PAW_MODEL is unset" {

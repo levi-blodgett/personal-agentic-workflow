@@ -333,7 +333,8 @@ paw review task-quality-pass "Use B+ as the minimum quality threshold."
 ```
 
 - `paw review` seeds `review.md` and launches an implementation-class review session against the resolved task package.
-- The review prompt asks for a grade, the quality threshold used, whether the work meets that threshold, architectural/design choices, whether those choices could be improved, and concrete recommendations.
+- The review prompt asks for the reviewed scope, a grade, the quality threshold used, whether the work meets that threshold, architectural/design choices, whether those choices could be improved, blocking production-readiness issues, and concrete recommendations.
+- When task docs or human extras request it, review should grade the current overall workflow or subsystem state rather than only the latest task delta. For review/prototype remediation, ask it to rate the overall current state of `paw review` and `paw prototype`, including prototype cleanup readiness.
 - This task-quality review is separate from GitHub PR review helpers. Use `paw pr-review` or `paw pr-address-comments` for PR comments.
 
 Use `paw prototype` after a reviewed task falls below the threshold, or when the review says the implementation should become source material for a cleaner replacement plan.
@@ -346,8 +347,8 @@ paw prototype task-quality-pass "Preserve the CLI behavior but simplify the GUI 
 - `paw prototype` now requires the source task to have `review.md`; the old throwaway `--question`, `--logic`, and `--ui` flags are rejected with compatibility guidance.
 - The command seeds or reuses a `<task-name>-prototype` task package and runs a plan-only `<!-- PAW:PLAN -->` prompt using the source task docs and `review.md`.
 - Replacement plans should include a `## Prototype Source` section with source task, review, grade/recommendation context, and revert/prototype status.
-- Metadata keys `paw.prototype-source`, `paw.prototype-review`, and `paw.prototype-status` let the GUI show lineage without parsing Markdown.
-- After successful planning, PAW tries to reverse the reviewed task's tracked non-`.agent` diff from its saved `paw.head-sha`. If Git metadata is missing, the commit is unavailable, or untracked files make cleanup ambiguous, PAW leaves a clear status/error instead of deleting work blindly.
+- Metadata keys `paw.prototype-source`, `paw.prototype-review`, `paw.prototype-status`, and `paw.prototype-cleanup-message` let the GUI show lineage and cleanup state without parsing Markdown.
+- After successful planning, PAW only reverses tracked source-task files explicitly listed in source metadata as `paw.prototype-owned-path` and only when the current tracked diff contains no other paths. If Git metadata is missing, the saved commit is unavailable, owned-file provenance is missing or invalid, tracked changes are mixed with unowned paths, or untracked non-`.agent` files make cleanup ambiguous, PAW keeps the replacement plan and records `planned-revert-unavailable` or `planned-revert-blocked` instead of deleting work blindly.
 
 ### `paw architecture`
 

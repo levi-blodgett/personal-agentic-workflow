@@ -680,9 +680,12 @@ _review_doc_seed() {
 ## Review Metadata
 
 - Task: \`$task_name\`
+- Scope Reviewed: pending
 - Grade: pending
+- Overall Workflow / Subsystem Grade: pending
 - Quality Threshold: pending
 - Threshold Result: pending
+- Prototype Cleanup Production-Ready: pending
 
 ## Summary
 
@@ -693,6 +696,10 @@ _review_doc_seed() {
 - Pending.
 
 ## Improvement Opportunities
+
+- Pending.
+
+## Blocking Production-Readiness Issues
 
 - Pending.
 
@@ -711,11 +718,15 @@ Review requirements:
 - Inspect the task docs first, especially `contract.md`, `plan.md`, the branch PR body file if present, and `review.md`.
 - Inspect the repo diff or changed files associated with the task when safely available from local Git metadata.
 - Check the task's recorded validation results and any durable docs changed by the task.
+- State the scope reviewed. When task docs or human extras ask for broader review, grade the current overall workflow or subsystem state, not only the incremental task delta.
+- When review/prototype remediation is in scope, explicitly rate the overall current state of `paw review` and `paw prototype`, including whether prototype cleanup is production-ready.
 - Assign a clear grade.
+- Assign an overall workflow/subsystem grade when broader review scope is requested.
 - State the quality threshold used or ask the user to dictate one when it is absent from task docs or extras.
 - Record whether the work meets the threshold.
 - Note the architectural and design choices made.
 - Say whether those choices could have been better and why.
+- Call out blocking production-readiness issues separately from non-blocking improvement opportunities.
 - Give concrete recommendations for improvement or for a later `paw prototype <task-name>` replacement-plan run.
 
 Update requirements:
@@ -744,49 +755,119 @@ Task-package requirements:
 EOF
 }
 
+_prototype_set_cleanup_status() {
+  local source_task_dir="$1" replacement_task_dir="$2" replacement_status="$3" source_status="$4" message="$5"
+  local source_metadata replacement_metadata
+  source_metadata="$(paw_task_metadata_file "$source_task_dir")"
+  replacement_metadata="$(paw_task_metadata_file "$replacement_task_dir")"
+
+  git config --file "$replacement_metadata" paw.prototype-status "$replacement_status" 2>/dev/null || true
+  if [[ -n "$message" ]]; then
+    git config --file "$replacement_metadata" paw.prototype-cleanup-message "$message" 2>/dev/null || true
+  fi
+  if [[ -f "$source_metadata" ]]; then
+    git config --file "$source_metadata" paw.prototype-status "$source_status" 2>/dev/null || true
+    if [[ -n "$message" ]]; then
+      git config --file "$source_metadata" paw.prototype-cleanup-message "$message" 2>/dev/null || true
+    fi
+  fi
+}
+
+_prototype_owned_path_is_valid() {
+  local path="$1"
+  [[ -n "$path" ]] || return 1
+  [[ "$path" != /* ]] || return 1
+  [[ "$path" != .agent && "$path" != .agent/* ]] || return 1
+  [[ "$path" != *$'\n'* ]] || return 1
+  case "$path" in
+    ..|../*|*/../*|*/..) return 1 ;;
+  esac
+  return 0
+}
+
+_prototype_path_in_list() {
+  local needle="$1"
+  shift
+  local path
+  for path in "$@"; do
+    [[ "$needle" == "$path" ]] && return 0
+  done
+  return 1
+}
+
 _prototype_revert_source_work() {
   local task_name="$1" source_task_dir="$2" replacement_task_dir="$3"
-  local metadata_file repo_path head_sha untracked_line
+  local metadata_file repo_path head_sha untracked_line owned_path changed_path message
+  local owned_paths=() changed_paths=() unowned_paths=()
   metadata_file="$(paw_task_metadata_file "$source_task_dir")"
   repo_path="$(paw_task_metadata_get "$source_task_dir" worktree-path)"
   head_sha="$(paw_task_metadata_get "$source_task_dir" head-sha)"
   repo_path="${repo_path:-$PWD}"
 
   if ! git -C "$repo_path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-revert-unavailable" 2>/dev/null || true
+    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-unavailable" "revert-unavailable" "source revert unavailable because $repo_path is not a Git worktree"
     echo "prototype: replacement plan created, but source revert was unavailable because $repo_path is not a Git worktree." >&2
     return 0
   fi
   if [[ -z "$head_sha" ]]; then
-    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-revert-unavailable" 2>/dev/null || true
+    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-unavailable" "revert-unavailable" "source task has no saved head-sha for automatic revert"
     echo "prototype: replacement plan created, but source task '$task_name' has no saved head-sha for automatic revert." >&2
     return 0
   fi
   if ! git -C "$repo_path" rev-parse --verify "$head_sha^{commit}" >/dev/null 2>&1; then
-    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-revert-unavailable" 2>/dev/null || true
+    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-unavailable" "revert-unavailable" "saved head-sha '$head_sha' is not available for automatic revert"
     echo "prototype: replacement plan created, but saved head-sha '$head_sha' is not available for automatic revert." >&2
     return 0
   fi
 
   untracked_line="$(git -C "$repo_path" status --porcelain --untracked-files=normal | awk '$1 == "??" && $2 !~ /^.agent(\/|$)/ { print; exit }')"
   if [[ -n "$untracked_line" ]]; then
-    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-revert-blocked" 2>/dev/null || true
+    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-blocked" "revert-blocked" "untracked non-.agent files make automatic revert unsafe"
     echo "error: prototype replacement plan was created, but source task '$task_name' has untracked non-.agent files; automatic revert is unsafe." >&2
     return 1
   fi
 
-  if ! git -C "$repo_path" diff --quiet "$head_sha" -- . ':(exclude).agent/**'; then
-    if ! git -C "$repo_path" diff "$head_sha" -- . ':(exclude).agent/**' | git -C "$repo_path" apply -R --check >/dev/null 2>&1; then
-      git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-revert-blocked" 2>/dev/null || true
+  while IFS= read -r owned_path; do
+    [[ -n "$owned_path" ]] || continue
+    if ! _prototype_owned_path_is_valid "$owned_path"; then
+      _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-blocked" "revert-blocked" "invalid prototype-owned-path '$owned_path' in source task metadata"
+      echo "error: prototype replacement plan was created, but source task '$task_name' has invalid cleanup provenance path '$owned_path'." >&2
+      return 1
+    fi
+    owned_paths+=("$owned_path")
+  done < <(git config --file "$metadata_file" --get-all paw.prototype-owned-path 2>/dev/null || true)
+
+  while IFS= read -r changed_path; do
+    [[ -n "$changed_path" ]] || continue
+    changed_paths+=("$changed_path")
+    if ! _prototype_path_in_list "$changed_path" "${owned_paths[@]}"; then
+      unowned_paths+=("$changed_path")
+    fi
+  done < <(git -C "$repo_path" diff --name-only "$head_sha" -- . ':(exclude).agent/**')
+
+  if [[ "${#changed_paths[@]}" -gt 0 && "${#owned_paths[@]}" -eq 0 ]]; then
+    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-blocked" "revert-blocked" "missing prototype-owned-path metadata for tracked source cleanup"
+    echo "error: prototype replacement plan was created, but source task '$task_name' has no task-owned file provenance for automatic revert." >&2
+    return 1
+  fi
+  if [[ "${#unowned_paths[@]}" -gt 0 ]]; then
+    message="unowned tracked changes make automatic revert unsafe: ${unowned_paths[*]}"
+    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-blocked" "revert-blocked" "$message"
+    echo "error: prototype replacement plan was created, but source task '$task_name' has unowned tracked changes; automatic revert is unsafe." >&2
+    return 1
+  fi
+
+  if [[ "${#changed_paths[@]}" -gt 0 ]]; then
+    if ! git -C "$repo_path" diff "$head_sha" -- "${changed_paths[@]}" | git -C "$repo_path" apply -R --check >/dev/null 2>&1; then
+      _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-blocked" "revert-blocked" "PAW could not safely reverse the task-owned patch from saved head-sha '$head_sha'"
       echo "error: prototype replacement plan was created, but PAW could not safely revert source task '$task_name' from saved head-sha '$head_sha'." >&2
       return 1
     fi
-    git -C "$repo_path" diff "$head_sha" -- . ':(exclude).agent/**' | git -C "$repo_path" apply -R
+    git -C "$repo_path" diff "$head_sha" -- "${changed_paths[@]}" | git -C "$repo_path" apply -R
   fi
 
-  git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-source-reverted" 2>/dev/null || true
+  _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-source-reverted" "source-reverted" "source cleanup completed from saved head-sha $head_sha"
   if [[ -f "$metadata_file" ]]; then
-    git config --file "$metadata_file" paw.prototype-status "source-reverted"
     git config --file "$metadata_file" paw.prototype-replacement "$replacement_task_dir"
   fi
   echo "prototype: source task $task_name reverted to saved head $head_sha"
@@ -2040,7 +2121,8 @@ The durable review record is $display_source_dir/review.md.
 The replacement task package files for this workflow are:
 $seeded_list
 
-Use the reviewed task's work and review as source material for a cleaner replacement plan. After this planning run succeeds, PAW will attempt to revert the source task's local implementation diff from saved task metadata and mark prototype status in metadata.$(_prototype_prompt_task_doc_requirements)
+Use the reviewed task work and review as source material for a cleaner replacement plan. After this planning run succeeds, PAW will conservatively attempt to revert only source-task-owned tracked files proven by saved task metadata and mark prototype cleanup status in metadata.
+$(_prototype_prompt_task_doc_requirements)
 EOF
 )
 

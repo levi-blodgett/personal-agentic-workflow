@@ -85,6 +85,8 @@ flowchart TD
    - **Address PR review comments with an AI plan** — `paw pr-address-comments <pr-number>` (creates plan), then `paw implement <pr-number>-review` (executes)
 5. Review the resulting task package before implementation, then review the final diff before you commit.
 
+Task-quality review can be scoped narrowly to the completed task or broadly to the current workflow/subsystem state. When asking `paw review` to evaluate remediation work, put that scope in the extras so `review.md` records both the task grade and any requested overall workflow/subsystem grade. For review/prototype remediation specifically, ask the review to rate the overall current state of `paw review` and `paw prototype`, including whether prototype cleanup is production-ready.
+
 ## What The Task Package Owns
 
 - `contract.md` captures the request, constraints, repo context, and assumptions.
@@ -104,6 +106,7 @@ flowchart TD
 ### Branch and worktree assignment
 
 - `paw plan` records the current Git context for the task in the repo's Git common dir, so later `paw edit` / `paw implement` / `paw to-issues` / `paw pr-submit` / `paw issue-submit` / `paw pr-review` runs can find the same assignment from sibling worktrees.
+- `paw prototype` creates the replacement plan before cleanup. Cleanup is conservative: it automatically reverses tracked source-task files only when saved source metadata explicitly lists those files as `paw.prototype-owned-path` and no other tracked paths have changed. Missing provenance, invalid paths, mixed tracked changes, unavailable Git metadata, or untracked non-`.agent` files leave the worktree intact and record a blocked/unavailable prototype cleanup status for manual follow-up.
 - `paw` never creates branches or worktrees. It only records the branch/worktree you were already using when the task was planned.
 - If the saved task lives in another registered worktree of the same repo, `paw` re-execs from that worktree path after confirming your current worktree is clean apart from local `.agent/` docs.
 - If switching would require clobbering dirty state, auto-detaching HEAD, inventing a branch, or hopping into another repo, `paw` stops and tells you what to fix manually.
