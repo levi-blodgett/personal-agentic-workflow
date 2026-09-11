@@ -418,13 +418,20 @@ PY
   local port=18784
   start_gui "$port"
   fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/refresh-index.html"
+  python3 - "$REPO/.agent/gui-task/plan.md" <<'PYTHON'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace("GUI smoke.", "Changed by polling fixture."))
+PYTHON
   fetch_gui "$port" "/fragments/tasks" "$BATS_TEST_TMPDIR/tasks-fragment.html"
   stop_gui
 
   grep -q 'data-paw-refresh-url="/fragments/tasks' "$BATS_TEST_TMPDIR/refresh-index.html"
   grep -q 'data-paw-refresh-interval-ms=' "$BATS_TEST_TMPDIR/refresh-index.html"
-  grep -q "fetch(refreshUrl" "$BATS_TEST_TMPDIR/refresh-index.html"
   grep -q "gui-task" "$BATS_TEST_TMPDIR/tasks-fragment.html"
+  grep -q "GUI smoke" "$BATS_TEST_TMPDIR/refresh-index.html"
+  grep -q "Changed by polling fixture" "$BATS_TEST_TMPDIR/tasks-fragment.html"
   ! grep -q "<!doctype html>" "$BATS_TEST_TMPDIR/tasks-fragment.html"
 }
 
@@ -1821,4 +1828,198 @@ PY
 
 @test "paw gui: recorded validation behavior regressions" {
   python3 "$REPO_ROOT/tests/gui-validation.py"
+}
+
+@test "paw gui: asynchronous actions return structured acceptance and errors without redirects" {
+  local port=18890
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/page.html"
+  python3 - "$port" "$REPO" <<'PY'
+import json
+import sys
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+port, repo = sys.argv[1:]
+
+def post(path, data):
+    request = Request(f'http://127.0.0.1:{port}{path}', urlencode(data).encode(),
+                      {'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'})
+    try:
+        response = urlopen(request)
+    except HTTPError as error:
+        response = error
+    assert response.headers.get_content_type() == 'application/json', response.headers
+    return response.status, json.load(response)
+
+status, result = post('/actions/plan', {'task_name': 'queued-inline', 'prompt': 'Full prompt', 'plan_action': 'queue'})
+assert status == 200 and result['ok'] is True and 'queued plan prompt' in result['message'], result
+status, result = post('/actions/plan', {'task_name': '../bad', 'prompt': 'Bad'})
+assert status == 200 and result['ok'] is False and 'invalid task name' in result['message'], result
+status, result = post('/task/missing/edit', {'path': repo + '/.agent/missing'})
+assert status == 404 and result['ok'] is False and 'Task not found' in result['message'], result
+PY
+}
+
+@test "paw gui: dashboard fallback preserves only validated local filter context" {
+  local port=18891
+  start_gui "$port"
+  fetch_gui "$port" "/?repo=needle&state=ready&completion=50%25" "$BATS_TEST_TMPDIR/page.html"
+  python3 - "$port" <<'PY'
+import sys
+from urllib.parse import urlencode, urlparse, parse_qs
+from urllib.request import Request, urlopen
+base = f'http://127.0.0.1:{sys.argv[1]}'
+for target in ('/?repo=needle&state=ready&completion=50%25', 'https://example.com/?repo=foreign', '//example.com/'):
+    data = urlencode({'task_name': '../invalid', 'prompt': 'draft', 'dashboard_return': target}).encode()
+    response = urlopen(Request(base + '/actions/plan', data))
+    url = urlparse(response.url)
+    query = parse_qs(url.query)
+    assert url.netloc == f'127.0.0.1:{sys.argv[1]}' and url.path == '/'
+    if target.startswith('/?'):
+        assert query['repo'] == ['needle'] and query['state'] == ['ready'] and query['completion'] == ['50%'], query
+    else:
+        assert 'repo' not in query, query
+    assert 'invalid task name' in query['message'][0]
+response = urlopen(Request(base + '/task/missing/edit', urlencode({'dashboard_return': '/?repo=needle'}).encode()))
+query = parse_qs(urlparse(response.url).query)
+assert query['repo'] == ['needle'] and 'Task not found' in query['message'][0], query
+PY
+}
+
+@test "paw gui: inline action protocol retains guards and task identity in scoped and all-repo modes" {
+  PYTHONDONTWRITEBYTECODE=1 python3 - "$REPO_ROOT" "$BATS_TEST_TMPDIR" <<'PY'
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+import threading
+from pathlib import Path
+from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+root, temporary = (Path(value).resolve() for value in sys.argv[1:])
+spec = importlib.util.spec_from_file_location('gui', root / 'scripts/lib/gui_server.py')
+gui = importlib.util.module_from_spec(spec)
+sys.modules['gui'] = gui
+spec.loader.exec_module(gui)
+plan = '# Plan\n## Current Status\n- Estimated completion: 0%\n- Next work: Implement.\n'
+
+for all_repos in (False, True):
+    base = temporary / str(all_repos)
+    repo, other, task_home = base / 'repo', base / 'other', base / 'tasks'
+    for directory in (repo, other):
+        directory.mkdir(parents=True)
+        subprocess.run(['git', 'init', '-q', str(directory)], check=True)
+    class Handler(gui.Handler):
+        def log_message(self, *args):
+            pass
+    Handler.repo = repo.resolve()
+    Handler.task_home = task_home.resolve()
+    Handler.all_repos = all_repos
+    Handler.repo_registry = base / 'registry.gitconfig'
+    gui.add_repo_to_registry(Handler.repo_registry, repo, other)
+    def task(name, owner=repo):
+        path = task_home / gui.repo_slug(owner) / name
+        path.mkdir(parents=True, exist_ok=True)
+        (path / 'plan.md').write_text(plan)
+        (path / 'metadata.gitconfig').write_text(f'[paw]\nrepo-root = {owner}\n')
+        return path.resolve()
+    first, second = task('same'), task('same', other)
+    server = gui.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    def post(action, data):
+        request = Request(f'http://127.0.0.1:{server.server_port}{action}', urlencode(data, doseq=True).encode(),
+                          {'Accept': 'application/json'})
+        try:
+            response = urlopen(request)
+        except HTTPError as error:
+            response = error
+        assert response.headers.get_content_type() == 'application/json'
+        return response.status, json.load(response)
+    def action(name, verb, path, **data):
+        return post(f'/task/{name}/{verb}', {'path': str(path), **data})[1]
+    try:
+        with patch.object(gui, 'launch_paw', return_value=(True, 'started paw (accepted)')) as launch:
+            for verb in ('edit', 'review', 'implement', 'archive'):
+                result = action('same', verb, first, extras='user instructions')
+                assert result['ok'], (verb, result)
+                assert launch.call_args.args[0] == repo
+                assert launch.call_args.args[2] == first
+                expected = [verb, 'same'] + (['user instructions'] if verb in ('edit', 'review') else [])
+                assert launch.call_args.args[3] == expected, launch.call_args
+            result = action('same', 'edit', second, extras='other repo')
+            assert result['ok'] and launch.call_args.args[0] == other and launch.call_args.args[2] == second
+            assert not action('same', 'prototype', first)['ok']  # missing review
+            (first / 'review.md').write_text('## Review Metadata\n- Grade: F\n')
+            assert action('same', 'prototype', first, extras='prototype instructions')['ok']
+            assert launch.call_args.args[3] == ['prototype', 'same', 'prototype instructions']
+            (first / 'review.md').write_text('## Review Metadata\n- Grade: A\n')
+            assert not action('same', 'prototype', first)['ok']
+            (first / 'plan.md').write_text(plan + '\n- USER ANSWER (UNRESOLVED):\n')
+            assert not action('same', 'implement', first)['ok']
+            assert action('same', 'edit', first, answers='answer text')['ok']
+            assert 'answer text' in launch.call_args.args[3][-1]
+            (first / 'plan.md').write_text(plan)
+            runs = first / 'runs'
+            runs.mkdir()
+            metadata = runs / f'20260911-run-{os.getpid()}.gitconfig'
+            metadata.write_text('[paw]\nstatus = running\nsubcommand = implement\n')
+            assert not action('same', 'edit', first)['ok']
+            assert not action('same', 'delete', first, confirm='yes')['ok']
+            with patch.object(gui, 'process_looks_like_paw', return_value=False):
+                assert 'verified PAW' in action('same', 'cancel', first)['message']
+            metadata.unlink()
+            assert not action('same', 'delete', first)['ok']
+            assert 'stale task path' in action('same', 'delete', first / 'stale')['message']
+            assert post('/task/missing/edit', {'path': str(first / 'missing')})[0] == 404
+            assert not post('/actions/selected', {'selected_action': 'delete', 'task': str(first)})[1]['ok']
+            selected = [str(first), str(second)]
+            result = post('/actions/selected', {'selected_action': 'delete', 'task': selected, 'confirm': 'yes'})[1]
+            assert result['ok'] == all_repos, result
+            if not all_repos:
+                assert first.exists() and second.exists()
+                assert action('same', 'delete', first, confirm='yes')['ok']
+                assert second.exists()
+            archived = task('archive-me')
+            assert post('/actions/selected', {'selected_action': 'archive', 'task': str(archived)})[1]['ok']
+            assert not archived.exists()
+            for verb, data, fragment in (
+                ('/actions/plan', {'task_name': 'queue-me', 'prompt': 'full\ntext', 'plan_action': 'queue'}, 'queued'),
+                ('/actions/queue/edit', {'original_task_name': 'queue-me', 'task_name': 'renamed', 'prompt': 'edited\ntext'}, 'updated'),
+                ('/actions/queue/trigger', {'task_name': 'renamed'}, 'triggered'),
+            ):
+                result = post(verb, data)[1]
+                assert result['ok'] and fragment in result['message'], result
+            assert launch.call_args.args[3] == ['plan', 'renamed', 'edited\ntext']
+            assert not post('/actions/queue/trigger', {'task_name': 'renamed'})[1]['ok']
+            assert post('/actions/plan', {'task_name': 'remove-me', 'prompt': 'remove', 'plan_action': 'queue'})[1]['ok']
+            assert post('/actions/queue/delete', {'task_name': 'remove-me'})[1]['ok']
+            assert not post('/actions/queue/edit', {'original_task_name': 'missing', 'task_name': 'x', 'prompt': 'y'})[1]['ok']
+            result = post('/actions/repos/add', {'repo_path': str(other)})[1]
+            assert result['ok'] and result['active_repo'] == str(other)
+            assert not post('/actions/repos/add', {'repo_path': str(base / 'missing')})[1]['ok']
+            pr_task = task('pr')
+            real_run = subprocess.run
+            gh_result = subprocess.CompletedProcess([], 0, 'https://example.test/pr/1', '')
+            def run_command(args, **kwargs):
+                return gh_result if args[0] == 'gh' else real_run(args, **kwargs)
+            with patch.object(gui, 'view_pr_branch', return_value='branch'), patch.object(gui.subprocess, 'run', side_effect=run_command):
+                result = action('pr', 'view-pr', pr_task)
+                assert result['ok'] and result['link'] == 'https://example.test/pr/1'
+                response = urlopen(Request(f'http://127.0.0.1:{server.server_port}/task/pr/view-pr',
+                                           urlencode({'path': str(pr_task), 'dashboard_return': '/?repo=needle'}).encode()))
+                assert '/?repo=needle' in response.url, response.url
+                assert "href='https://example.test/pr/1'" in response.read().decode()
+                gh_result = subprocess.CompletedProcess([], 0, 'javascript:alert(1)', '')
+                assert not action('pr', 'view-pr', pr_task)['ok']
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+PY
 }

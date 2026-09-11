@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import json
 import os
 import re
 import signal
@@ -1266,38 +1267,199 @@ th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical
 SCRIPT = """
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  const preview = document.querySelector("[data-doc-preview]");
-  if (preview) {
-    document.addEventListener("click", async (event) => {
-      const trigger = event.target.closest("[data-doc-preview-url]");
-      if (!trigger) return;
-      event.preventDefault();
-      try {
-        const response = await fetch(trigger.dataset.docPreviewUrl, {cache: "no-store"});
-        if (!response.ok) return;
-        preview.innerHTML = await response.text();
-      } catch (_error) {
-        preview.innerHTML = "<p class='flash-error'>preview failed</p>";
+  const pollers = new Map();
+  let generation = 0;
+  let submitting = false;
+
+  // Keys are local to siblings; row identity includes the resolved task path.
+  function key(node) {
+    if (node.nodeType !== Node.ELEMENT_NODE) return node.nodeName;
+    const form = node.matches('form') ? node : node.querySelector('form');
+    const identity = node.dataset.pawKey || node.dataset.pawRefreshUrl || node.id;
+    if (identity) return node.tagName + ':' + identity;
+    if (node.matches('form, details') && form) {
+      return node.tagName + ':' + form.getAttribute('action') + ':' +
+        ['path', 'active_repo', 'original_task_name', 'task_name'].map(name =>
+          form.querySelector('input[type=hidden][name="' + name + '"]')?.value || '').join(':');
+    }
+    if (node.matches('details')) return 'DETAILS:' + node.querySelector('summary')?.textContent;
+    return node.tagName + ':' + (node.getAttribute('name') || node.className || '');
+  }
+
+  function patch(current, fresh, root) {
+    if (current.nodeType !== Node.ELEMENT_NODE) {
+      if (current.nodeValue !== fresh.nodeValue) current.nodeValue = fresh.nodeValue;
+      return;
+    }
+    // A nested live target owns its content and its outstanding request.
+    if (current !== root && current.dataset.pawRefreshUrl) return;
+    const editable = current.matches('input:not([type=hidden]), textarea, select');
+    const dirty = editable && (current === document.activeElement ||
+      (current.matches('input') ? current.value !== current.defaultValue || current.checked !== current.defaultChecked :
+        current.matches('textarea') ? current.value !== current.defaultValue :
+          [...current.options].some(option => option.selected !== option.defaultSelected)));
+    for (const attribute of [...current.attributes]) {
+      if (attribute.name === 'open' || (dirty && attribute.name === 'value')) continue;
+      if (!fresh.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
+    }
+    for (const attribute of fresh.attributes) {
+      if (attribute.name === 'open' || (dirty && attribute.name === 'value')) continue;
+      if (current.getAttribute(attribute.name) !== attribute.value) current.setAttribute(attribute.name, attribute.value);
+    }
+    if (!(dirty && current.matches('textarea, select'))) reconcile(current, fresh, root);
+    if (editable && !dirty) {
+      current.value = fresh.value;
+      if (current.matches('input')) current.checked = fresh.checked;
+    }
+  }
+
+  function reconcile(target, fresh, root = target) {
+    const available = [...target.childNodes];
+    let cursor = target.firstChild;
+    for (const incoming of [...fresh.childNodes]) {
+      const index = available.findIndex(node => key(node) === key(incoming));
+      const node = index < 0 ? incoming.cloneNode(true) : available.splice(index, 1)[0];
+      if (node !== cursor) target.insertBefore(node, cursor);
+      if (index >= 0) patch(node, incoming, root);
+      cursor = node.nextSibling;
+    }
+    available.forEach(node => node.remove());
+  }
+
+  function apply(target, content) {
+    const template = document.createElement('template');
+    template.innerHTML = content;
+    const focus = document.activeElement;
+    const caret = focus && typeof focus.selectionStart === 'number' ?
+      [focus.selectionStart, focus.selectionEnd, focus.selectionDirection] : null;
+    const page = [window.scrollX, window.scrollY];
+    const scroll = [target, ...target.querySelectorAll('*')].map(node => ({
+      node, x: node.scrollLeft, y: node.scrollTop,
+      follow: node.matches('.log-panel pre') && node.scrollHeight - node.clientHeight - node.scrollTop <= 3,
+    }));
+    reconcile(target, template.content);
+    if (focus?.isConnected && !focus.disabled && document.activeElement !== focus) focus.focus({preventScroll: true});
+    if (caret && focus.isConnected) focus.setSelectionRange(...caret);
+    scroll.forEach(({node, x, y, follow}) => {
+      if (node.isConnected) { node.scrollLeft = x; node.scrollTop = follow ? node.scrollHeight : y; }
+    });
+    window.scrollTo(...page);
+    discover();
+  }
+
+  async function refresh(target, state) {
+    if (state.busy || submitting || !target.isConnected) return;
+    state.busy = true;
+    const version = generation;
+    try {
+      const response = await fetch(state.url, {cache: 'no-store'});
+      if (!response.ok) return;
+      const content = await response.text();
+      if (version !== generation || !target.isConnected || pollers.get(target) !== state) return;
+      if (content !== state.content) { apply(target, content); state.content = content; }
+    } catch (_error) {
+      // Keep the last usable view; the next scheduled read can recover.
+    } finally { state.busy = false; }
+  }
+
+  function discover() {
+    for (const [target, state] of pollers) {
+      if (!target.isConnected || target.dataset.pawRefreshUrl !== state.url) {
+        clearInterval(state.timer);
+        pollers.delete(target);
       }
+    }
+    document.querySelectorAll('[data-paw-refresh-url]').forEach(target => {
+      if (pollers.has(target)) return;
+      const state = {url: target.dataset.pawRefreshUrl, busy: false, content: null};
+      state.timer = setInterval(() => refresh(target, state), Number(target.dataset.pawRefreshIntervalMs || 2500));
+      pollers.set(target, state);
     });
   }
-  document.querySelectorAll("[data-paw-refresh-url]").forEach((target) => {
-    const interval = Number(target.dataset.pawRefreshIntervalMs || "2500");
-    const refreshUrl = target.dataset.pawRefreshUrl;
-    const refresh = async () => {
-      if (target.matches(":focus-within") || target.querySelector("details.modal-toggle[open]")) return;
-      try {
-        const response = await fetch(refreshUrl, {cache: "no-store"});
-        if (!response.ok) return;
-        const content = await response.text();
-        if (target.matches(":focus-within") || target.querySelector("details.modal-toggle[open]")) return;
-        target.innerHTML = content;
-      } catch (_error) {
-        // Keep the last good view when the local server is stopping or busy.
-      }
-    };
-    window.setInterval(refresh, interval);
+
+  const preview = document.querySelector('[data-doc-preview]');
+  let previewRequest = 0;
+  document.addEventListener('click', async event => {
+    const trigger = event.target.closest('[data-doc-preview-url]');
+    if (!trigger || !preview) return;
+    event.preventDefault();
+    const request = ++previewRequest;
+    try {
+      const response = await fetch(trigger.dataset.docPreviewUrl, {cache: 'no-store'});
+      if (!response.ok) throw new Error('Preview unavailable; try again.');
+      const content = await response.text();
+      if (request === previewRequest) { preview.innerHTML = content; discover(); }
+    } catch (error) { if (request === previewRequest) preview.textContent = error.message; }
   });
+  function feedback(message, ok, link = '') {
+    const target = document.querySelector('[data-action-feedback]');
+    target.className = ok ? 'flash' : 'flash-error';
+    target.replaceChildren(document.createTextNode(message));
+    if (link) {
+      const anchor = document.createElement('a');
+      anchor.href = link;
+      anchor.textContent = 'Open PR';
+      target.append(' ', anchor);
+    }
+  }
+
+  function switchRepo(repo) {
+    const url = new URL(location.href);
+    url.searchParams.set('active_repo', repo);
+    history.replaceState(null, '', url);
+    const archive = document.querySelector('header a[href^="/archive"]');
+    if (archive) archive.href = '/archive?active_repo=' + encodeURIComponent(repo);
+    const context = document.querySelector('.header-context');
+    if (context && context.textContent !== 'All task stores') context.textContent = (repo.split('/').pop() || 'repo') + ' repo';
+    document.querySelectorAll('[data-paw-refresh-url]').forEach(target => {
+      const refreshUrl = new URL(target.dataset.pawRefreshUrl, location.href);
+      refreshUrl.searchParams.set('active_repo', repo);
+      target.dataset.pawRefreshUrl = refreshUrl.pathname + refreshUrl.search;
+    });
+    discover();
+  }
+
+  document.addEventListener('submit', async event => {
+    const form = event.target;
+    if (!document.querySelector('[data-action-feedback]') || form.method !== 'post') return;
+    event.preventDefault();
+    if (submitting) return;
+    const button = event.submitter;
+    // FormData includes controls outside the form associated through form=.
+    const data = new FormData(form);
+    if (button?.name) data.append(button.name, button.value);
+    data.set('dashboard_return', location.pathname + location.search);
+    const body = new URLSearchParams(data);
+    const overlay = form.closest('details');
+    const inPreview = form.closest('[data-doc-preview]');
+    submitting = true;
+    generation++;
+    previewRequest++;
+    if (button) button.disabled = true;
+    feedback('Submitting…', true);
+    try {
+      const response = await fetch(form.action, {
+        method: 'POST', headers: {'Accept': 'application/json'}, body,
+      });
+      const result = await response.json();
+      if (typeof result.ok !== 'boolean' || typeof result.message !== 'string') throw new Error('Invalid action response');
+      feedback(result.message, result.ok, result.link);
+      if (result.ok) {
+        if (form.id !== 'selected-action-form') form.reset();
+        if (overlay) overlay.open = false;
+        if (inPreview) inPreview.replaceChildren();
+        if (typeof result.active_repo === 'string') switchRepo(result.active_repo);
+      }
+    } catch (_error) {
+      feedback('Could not confirm the action result. Check task state before retrying; your input has been retained.', false);
+    } finally {
+      if (button) button.disabled = false;
+      submitting = false;
+      generation++;
+      for (const [target, state] of pollers) refresh(target, state);
+    }
+  });
+  discover();
 });
 </script>
 """
@@ -1330,6 +1492,12 @@ class Handler(BaseHTTPRequestHandler):
     repo_registry: Path
 
     def send_html(self, body: str, code: int = 200) -> None:
+        if self.command == "POST" and code >= 400:
+            message = html.unescape(re.sub(r"<[^>]*>", "", body))
+            if self.asynchronous_action():
+                return self.action_result(False, message, code=code)
+            if getattr(self, "dashboard_return", ""):
+                return self.redirect("/?" + self.flash_query(message, "error"))
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -1342,7 +1510,48 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode())
 
+    def asynchronous_action(self) -> bool:
+        return self.command == "POST" and "application/json" in self.headers.get("Accept", "")
+
+    def action_result(self, ok: bool, message: str, link: str = "", code: int = 200,
+                      active_repo: str | None = None) -> None:
+        result = {"ok": ok, "message": message}
+        if link:
+            result["link"] = link
+        if active_repo is not None:
+            result["active_repo"] = active_repo
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(json.dumps(result).encode())
+
+    def dashboard_context(self, value: str) -> str:
+        parsed = urlparse(value)
+        if parsed.scheme or parsed.netloc or parsed.path != "/":
+            return ""
+        query = parse_qs(parsed.query)
+        repo, _ = self.selected_repo(query)
+        allowed = {key: query[key][0] for key in ("state", "repo", "completion") if query.get(key)}
+        allowed["active_repo"] = str(repo)
+        return "/?" + urlencode(allowed)
+
     def redirect(self, location: str) -> None:
+        result_query = parse_qs(urlparse(location).query)
+        message = result_query.get("message", [""])[0]
+        ok = result_query.get("level", ["notice"])[0] != "error"
+        added_repo = None
+        if urlparse(self.path).path == "/actions/repos/add" and ok:
+            added_repo = str(self.selected_repo(result_query)[0])
+        if self.asynchronous_action():
+            return self.action_result(ok, message, active_repo=added_repo)
+        context = getattr(self, "dashboard_return", "")
+        if context:
+            query = parse_qs(urlparse(context).query)
+            if added_repo is not None:
+                query["active_repo"] = [added_repo]
+            query.update({key: result_query[key] for key in ("message", "level", "pr_url") if key in result_query})
+            location = "/?" + urlencode(query, doseq=True)
         self.send_response(303)
         self.send_header("Location", location)
         self.end_headers()
@@ -1354,7 +1563,9 @@ class Handler(BaseHTTPRequestHandler):
     def form_values(self) -> dict[str, list[str]]:
         length = int(self.headers.get("Content-Length", "0") or "0")
         raw = self.rfile.read(length).decode("utf-8", errors="replace")
-        return parse_qs(raw, keep_blank_values=True)
+        values = parse_qs(raw, keep_blank_values=True)
+        self.dashboard_return = self.dashboard_context(values.get("dashboard_return", [""])[0])
+        return values
 
     def flash_query(self, message: str, level: str = "notice") -> str:
         return f"message={quote(message)}&level={quote(level)}"
@@ -1430,6 +1641,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.archive_index()
         if parsed.path == "/fragments/tasks":
             return self.tasks_fragment(parse_qs(parsed.query))
+        if parsed.path == "/fragments/dashboard-controls":
+            query = parse_qs(parsed.query)
+            active_repo, _ = self.selected_repo(query)
+            return self.send_fragment(self.dashboard_forms(
+                self.index_filters(query, active_repo) + self.dashboard_actions(active_repo), query))
         if parsed.path.startswith("/fragments/task-doc/"):
             query = parse_qs(parsed.query)
             return self.task_doc_fragment(
@@ -1714,6 +1930,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect(self.task_url(task, message, "error"))
         if not re.match(r"^https?://", pr_url):
             return self.redirect(self.task_url(task, f"View PR unavailable: gh returned an invalid PR URL for branch {branch}", "error"))
+        if self.asynchronous_action():
+            return self.action_result(True, f"Current PR for {task.name}", pr_url)
+        if getattr(self, "dashboard_return", ""):
+            return self.redirect("/?" + self.flash_query(f"Current PR for {task.name}") + "&pr_url=" + quote(pr_url, safe=""))
         body = (
             f"{page_header(f'Current PR for {task.name}', task.repo_name, task.repo)}<main class='shell'>"
             f"<p><a class='button' href='{html_attr(self.task_url(task))}'>Task</a></p>"
@@ -1801,16 +2021,20 @@ class Handler(BaseHTTPRequestHandler):
         refresh_url = "/fragments/tasks"
         if refresh_query:
             refresh_url += "?" + urlencode(refresh_query)
+        pr_url = query.get("pr_url", [""])[0]
+        pr_link = f"<p><a href='{html_attr(pr_url)}'>Open PR</a></p>" if re.match(r"^https?://", pr_url) else ""
         body = (
             f"{page_header('PAW Tasks', scope, active_repo)}<main class='shell'>"
-            f"{self.flash_html(message, level)}"
+            f"{self.flash_html(message, level)}{pr_link}"
+            "<p data-action-feedback role='status' aria-live='polite' aria-atomic='true'></p>"
+            f"<div id='dashboard-controls' data-paw-refresh-url='{html_attr(refresh_url.replace('/fragments/tasks', '/fragments/dashboard-controls'))}'>"
             f"{self.index_filters(query, active_repo)}"
-            f"{self.dashboard_actions(active_repo)}"
+            f"{self.dashboard_actions(active_repo)}</div>"
             f"<div id='task-list' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
             f"{self.index_task_list(query, active_repo)}"
             "</div><div class='doc-preview' data-doc-preview></div></main>"
         )
-        self.send_html(body)
+        self.send_html(self.dashboard_forms(body, query))
 
     def archive_index(self) -> None:
         query = parse_qs(urlparse(self.path).query)
@@ -1830,11 +2054,16 @@ class Handler(BaseHTTPRequestHandler):
         )
         self.send_html(body)
 
+    def dashboard_forms(self, body: str, query: dict[str, list[str]]) -> str:
+        context = self.dashboard_context("/?" + urlencode(query, doseq=True))
+        hidden = f"<input type='hidden' name='dashboard_return' value='{html_attr(context)}'>"
+        return re.sub(r"(<form\b[^>]*method=['\"]post['\"][^>]*>)", lambda match: match[0] + hidden, body)
+
     def tasks_fragment(self, query: dict[str, list[str]]) -> None:
         active_repo, error = self.selected_repo(query)
         if error:
             active_repo = self.repo
-        self.send_fragment(self.index_task_list(query, active_repo))
+        self.send_fragment(self.dashboard_forms(self.index_task_list(query, active_repo), query))
 
     def repo_selector(self, active_repo: Path) -> str:
         options = "".join(option_tag(str(repo), str(repo), str(active_repo)) for repo in self.current_repos())
@@ -1918,7 +2147,7 @@ class Handler(BaseHTTPRequestHandler):
         rows = []
         for item in items:
             rows.append(
-                "<tr>"
+                f"<tr data-paw-key='{html_attr(str(active_repo) + ':' + item.task_name)}'>"
                 f"<td><span class='task-title'>{html.escape(item.task_name)}</span></td>"
                 f"<td><pre class='queued-prompt'>{html.escape(item.prompt)}</pre></td>"
                 "<td><div class='action-row'>"
@@ -2158,7 +2387,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             workflow = task_workflow(task)
             rows.append(
-                "<tr>"
+                f"<tr data-paw-key='{html_attr(str(task.path))}'>"
                 f"<td>{selector}</td>"
                 f"<td><a class='task-title' href='{task_href}'>{html.escape(task.name)}</a>{path_disclosure('Task path', str(task.path))}</td>"
                 f"<td><div class='repo-name'>{html.escape(task.repo_name)}</div><div class='task-subtle muted'>Branch: {html.escape(branch)}</div>{repo_disclosure(task, branch)}</td>"
@@ -2242,7 +2471,7 @@ class Handler(BaseHTTPRequestHandler):
         started = metadata_value(run.metadata, "start-time") or "unknown start time"
         return (
             f"<p class='muted'>Streaming {html.escape(subcommand)} started {html.escape(started)}. Refreshes locally while the task is active.</p>"
-            "<div class='log-stream'>"
+            f"<div class='log-stream' data-paw-key='{html_attr(str(run.metadata))}'>"
             f"{self.log_panel('stdout', logs.stdout)}"
             f"{self.log_panel('stderr', logs.stderr)}"
             "</div>"
@@ -2253,7 +2482,7 @@ class Handler(BaseHTTPRequestHandler):
         title = f"{label} ({state})"
         log_path = path_disclosure(f"{label} log path", str(path)) if path else ""
         return (
-            "<section class='log-panel'>"
+            f"<section class='log-panel' data-paw-key='{html_attr(label + ':' + str(path))}'>"
             f"<h3>{html.escape(title)}</h3>"
             f"{log_path}"
             f"<pre><code>{html.escape(text)}</code></pre>"
@@ -2413,7 +2642,7 @@ class Handler(BaseHTTPRequestHandler):
             return ""
         refresh_url = (
             f"/fragments/task-stream/{quote(task.name)}?path={quote(str(task.path), safe='')}"
-            f"&active_repo={quote(str(task.repo), safe='')}"
+            f"&active_repo={quote(str(task.repo), safe='')}&run={quote(str(task.active_run.metadata), safe='')}"
         )
         return (
             "<h2>Live Run Logs</h2>"
