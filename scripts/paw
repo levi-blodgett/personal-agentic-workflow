@@ -583,6 +583,16 @@ _prompt_pr_md_usage_note() {
   fi
 }
 
+_validation_policy_prompt_note() {
+  cat <<'EOF'
+
+Validation policy reminder:
+- Run the validation decision ladder from the task plan before handoff.
+- Start with targeted changed-area validation, then escalate when the plan or risk requires it.
+- Record `Validation tier chosen: <targeted|broader|full>` and the rationale in `plan.md`.
+EOF
+}
+
 _diagnose_prompt_task_doc_requirements() {
   cat <<'EOF'
 
@@ -2062,7 +2072,7 @@ cmd_implement() {
   _require_reconciled_user_answers_for_implement "$task_dir" "$task_name"
   local extras prompt
   extras=$(_join_prompt_extras "$@")
-  prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue/complete the already in progress task in $(_task_display_path "$task_dir")/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")"
+  prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue/complete the already in progress task in $(_task_display_path "$task_dir")/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")$(_validation_policy_prompt_note)"
   prompt=$(_prompt_append_human_extras "$prompt" "$extras")
   _run_model_subcommand implement "$task_dir" "implement" "$prompt"
 }
@@ -2134,7 +2144,7 @@ cmd_diagnose() {
   _require_reconciled_user_answers_for_implement "$task_dir" "$task_name"
   local extras prompt
   extras=$(_join_prompt_extras "$@")
-  prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue/complete the already in progress debugging task in $(_task_display_path "$task_dir")/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")$(_diagnose_prompt_task_doc_requirements)"
+  prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue/complete the already in progress debugging task in $(_task_display_path "$task_dir")/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")$(_validation_policy_prompt_note)$(_diagnose_prompt_task_doc_requirements)"
   prompt=$(_prompt_append_human_extras "$prompt" "$extras")
   _run_model_subcommand diagnose "$task_dir" "diagnose" "$prompt"
 }

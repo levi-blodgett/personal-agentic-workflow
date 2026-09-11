@@ -107,7 +107,9 @@ Stop only for approval-boundary crossings or when the approved plan no longer gi
 
 When the last `- [ ]` flips to `- [x]`, run the **Post-Implementation Wrap-Up** gate:
 
-1. Re-run full validation (plan's "Validation Contract"); record in `plan.md` → "Validation Performed". Failures block wrap-up.
+1. Run the validation decision ladder from the plan's "Validation Contract"; record `Validation tier chosen: <targeted|broader|full>` and the rationale in `plan.md` → "Validation Performed". Failures block wrap-up.
+   - Start with targeted changed-area validation for the files and behavior changed.
+   - Escalate to broader or full validation for shared/high-risk changes, workflow/CI edits, security-sensitive areas, failures in targeted checks, explicit user/reviewer request, unclear blast radius, or PR-ready handoff when full validation has not otherwise been run.
 2. Walk "Durable Documentation Requirements"; update stale docs.
 3. Confirm tests exist (or waived) for every behavior change; missing tests → new `- [ ]` items.
 4. Then update `## Current Status` to 100% and write final handoff summary.
@@ -169,7 +171,7 @@ Apply before flipping any `- [ ]` to `- [x]` in `<!-- PAW:IMPLEMENT -->`/`<!-- P
 
 ## Validation Contract
 
-Prefer an existing Makefile target; add one when none exists. Run the relevant file-type checks (YAML, shell, JSON, workflow, unit, integration). Record commands run, results, unavailable tools, and the final `git status` plus diff review.
+Prefer existing reusable targets. Plans must name targeted changed-area validation first, then explicit escalation triggers for broader or full validation. Full validation remains required for shared/high-risk changes, workflow/CI edits, security-sensitive areas, targeted-check failures, explicit user/reviewer request, unclear blast radius, or PR-ready handoff when full validation has not otherwise been run. Run relevant file-type checks (YAML, shell, JSON, workflow, unit, integration). Record commands run, results, unavailable tools, validation tier chosen with rationale, and the final `git status` plus diff review.
 
 ## Acceptance Criteria
 

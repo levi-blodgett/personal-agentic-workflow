@@ -14,10 +14,10 @@ bats tests/
 # Or use the repo entrypoints
 make test
 make shellcheck
-make check   # canonical local validation: test + lint + shellcheck
+make check   # canonical full validation: test + lint + shellcheck
 ```
 
-For most task work, prefer `make check` as the reusable validation entrypoint and then add a manual `git diff` review. See [`tests/README.md`](../../tests/README.md) for fixture details and per-file coverage.
+For day-to-day implementation wrap-up, start with the task plan's targeted changed-area validation and record the validation tier plus rationale in `plan.md`. Escalate to broader or full validation when the change touches shared/high-risk code, workflow or CI files, security-sensitive behavior, targeted checks fail, the blast radius is unclear, a user or reviewer asks for it, or the task is PR-ready and full validation has not otherwise run. `make check` remains the reusable full-suite gate, followed by manual `git status` / `git diff` review. See [`tests/README.md`](../../tests/README.md) for fixture details and per-file coverage.
 
 Key implementation details:
 

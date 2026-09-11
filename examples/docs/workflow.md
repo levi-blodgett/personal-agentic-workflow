@@ -97,6 +97,7 @@ flowchart TD
   `  - USER ANSWER (UNRESOLVED):`
   When the user replies, change that line to `USER ANSWER (PROVIDED): <answer>` and run `paw edit <task>` so the plan is reconciled before implementation.
 - Completed checklist items must gain an adjacent `Progress:` line in the same edit before the agent moves on; `paw lint` enforces that for the `Implementation Phases / Checklist` section.
+- Implementation wrap-up starts with targeted changed-area validation from the plan, records the validation tier and rationale in `Validation Performed`, and escalates to broader or full validation for shared/high-risk changes, workflow/CI edits, security-sensitive areas, targeted-check failures, explicit user/reviewer request, unclear blast radius, or PR-ready handoff when full validation has not otherwise run.
 - Branch PR body files are seeded only when the repo has a pull-request template. Legacy task-level `pr.md` files remain readable as a fallback.
 - When task plans or workflow docs mention TDD, the canonical expectation is red-green-refactor: write one behavior-focused failing test, make that single test pass with one implementation step, repeat, and defer test-cleanup refactors until the implementation loop is complete. Tests should fail only when behavior changes, not when code is cleanly refactored.
 
@@ -253,7 +254,7 @@ git diff
    - the branch PR body file is usable as the PR description when present
    - durable project docs were updated if behavior, commands, workflows, reports, policy, validation, or user-facing behavior changed
    - `.agent/` files remain untracked
-   - the agent ran the Post-Implementation Wrap-Up gate after the last `- [ ]` flipped to `- [x]`
+   - the agent ran the Post-Implementation Wrap-Up gate after the last `- [ ]` flipped to `- [x]`, including a recorded validation tier and escalation rationale
    - every completed checklist item in `plan.md` has an inline `Progress:` note
    - any template-order disagreement or scope deferral is called out explicitly instead of being silently papered over
 

@@ -57,7 +57,9 @@ Stop and ask before:
 
 <!-- `paw afk` replays runnable backticked commands from this section. Prefer
      one runnable command per bullet. -->
-- <reusable validation entrypoint(s) and commands>
+- Targeted validation: `<changed-area command>` — <why this covers the changed behavior>
+- Escalate to broader/full validation when: <shared/high-risk files, workflow/CI/security changes, targeted failures, unclear blast radius, explicit user/reviewer request, or PR-ready handoff>
+- Record the validation tier chosen and rationale in Validation Performed.
 - `git status` review before handoff.
 - `git diff` review before handoff.
 
