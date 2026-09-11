@@ -34,6 +34,10 @@ MD
 
 teardown() {
   stop_gui
+  if [[ -n "${SLEEPER_PID:-}" ]]; then
+    kill "$SLEEPER_PID" 2>/dev/null || true
+    wait "$SLEEPER_PID" 2>/dev/null || true
+  fi
 }
 
 start_gui() {
@@ -950,11 +954,67 @@ MD
   git config --file "$REPO/.agent/gui-task/runs/running.gitconfig" paw.status running
   start_gui "$port"
   fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/pidless-running.html"
+  fetch_gui "$port" "/task/gui-task?path=$(url_encode "$(real_path "$REPO/.agent/gui-task")")&doc=plan" "$BATS_TEST_TMPDIR/pidless-detail.html"
   stop_gui
 
   grep -q "Next: Wait for run" "$BATS_TEST_TMPDIR/pidless-running.html"
   grep -q "running metadata without a live cancellable PID" "$BATS_TEST_TMPDIR/pidless-running.html"
   ! grep -q "/task/gui-task/cancel" "$BATS_TEST_TMPDIR/pidless-running.html"
+  ! grep -q "/task/gui-task/stream" "$BATS_TEST_TMPDIR/pidless-running.html"
+  ! grep -q "Live Run Logs" "$BATS_TEST_TMPDIR/pidless-detail.html"
+}
+
+@test "paw gui: streams active run stdout and stderr from task-local logs" {
+  local port=18754 path encoded_path meta
+  path="$(real_path "$REPO/.agent/gui-task")"
+  encoded_path="$(url_encode "$path")"
+  mkdir -p "$REPO/.agent/gui-task/runs"
+  start_paw_like_sleeper
+  meta="$REPO/.agent/gui-task/runs/20260911T010203Z-$SLEEPER_PID.gitconfig"
+  git config --file "$meta" paw.status running
+  git config --file "$meta" paw.subcommand implement
+  git config --file "$meta" paw.start-time "2026-09-11T01:02:03Z"
+  printf 'stdout <b>tag</b>\n' > "$REPO/.agent/gui-task/runs/20260911T010202Z-gui-999-implement-gui-task.stdout.log"
+  printf 'stderr & detail\n' > "$REPO/.agent/gui-task/runs/20260911T010202Z-gui-999-implement-gui-task.stderr.log"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/stream-index.html"
+  fetch_gui "$port" "/task/gui-task?path=$encoded_path&doc=plan" "$BATS_TEST_TMPDIR/stream-detail.html"
+  fetch_gui "$port" "/task/gui-task/stream?path=$encoded_path" "$BATS_TEST_TMPDIR/stream-page.html"
+  fetch_gui "$port" "/fragments/task-stream/gui-task?path=$encoded_path" "$BATS_TEST_TMPDIR/stream-fragment.html"
+  stop_gui
+  kill "$SLEEPER_PID" 2>/dev/null || true
+  wait "$SLEEPER_PID" 2>/dev/null || true
+
+  python3 - "$BATS_TEST_TMPDIR/stream-index.html" <<'PY'
+import sys
+html = open(sys.argv[1], encoding="utf-8").read()
+assert html.index(">Stream<") < html.index(">Cancel<"), html
+PY
+  grep -q "/task/gui-task/stream" "$BATS_TEST_TMPDIR/stream-index.html"
+  grep -q "Live Run Logs" "$BATS_TEST_TMPDIR/stream-detail.html"
+  grep -q 'data-paw-refresh-url="/fragments/task-stream/gui-task' "$BATS_TEST_TMPDIR/stream-detail.html"
+  grep -q 'data-paw-refresh-url="/fragments/task-stream/gui-task' "$BATS_TEST_TMPDIR/stream-page.html"
+  grep -q "stdout &lt;b&gt;tag&lt;/b&gt;" "$BATS_TEST_TMPDIR/stream-fragment.html"
+  grep -q "stderr &amp; detail" "$BATS_TEST_TMPDIR/stream-fragment.html"
+  ! grep -q "stdout <b>tag</b>" "$BATS_TEST_TMPDIR/stream-fragment.html"
+}
+
+@test "paw gui: stream route rejects stale pid metadata and missing task-local logs clearly" {
+  local port=18753 path encoded_path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  encoded_path="$(url_encode "$path")"
+  mkdir -p "$REPO/.agent/gui-task/runs"
+  git config --file "$REPO/.agent/gui-task/runs/20260911T010203Z-999999.gitconfig" paw.status running
+  git config --file "$REPO/.agent/gui-task/runs/20260911T010203Z-999999.gitconfig" paw.subcommand implement
+  printf 'not task local\n' > "$BATS_TEST_TMPDIR/outside.stdout.log"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/stale-index.html"
+  fetch_gui "$port" "/task/gui-task/stream?path=$encoded_path" "$BATS_TEST_TMPDIR/stale-stream.html"
+  stop_gui
+
+  ! grep -q "/task/gui-task/stream" "$BATS_TEST_TMPDIR/stale-index.html"
+  grep -q "No active PAW run is available for streaming." "$BATS_TEST_TMPDIR/stale-stream.html"
+  ! grep -q "not task local" "$BATS_TEST_TMPDIR/stale-stream.html"
 }
 
 @test "paw gui: task detail exposes review prototype and archive actions" {

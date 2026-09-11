@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 PAW_SCRIPT = Path(__file__).resolve().parents[1] / "paw"
 TASK_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+LOG_TAIL_BYTES = 64 * 1024
 
 
 def git_value(repo: Path, *args: str) -> str:
@@ -137,6 +138,16 @@ def parse_timestamp(value: str) -> float:
         return 0.0
 
 
+def parse_log_filename_timestamp(path: Path) -> float:
+    match = re.match(r"^([0-9]{8}T[0-9]{6}Z)-gui-", path.name)
+    if not match:
+        return 0.0
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return 0.0
+
+
 def file_mtime(path: Path) -> float:
     try:
         return path.stat().st_mtime
@@ -168,6 +179,16 @@ class ActiveRun:
         return self.active and self.pid is not None
 
 
+@dataclass(frozen=True)
+class ActiveRunLogs:
+    stdout: Path | None
+    stderr: Path | None
+
+    @property
+    def available(self) -> bool:
+        return self.stdout is not None or self.stderr is not None
+
+
 def active_run_info(task_path: Path) -> ActiveRun | None:
     runs_dir = task_path / "runs"
     if not runs_dir.exists():
@@ -185,6 +206,63 @@ def active_run_info(task_path: Path) -> ActiveRun | None:
             continue
         return ActiveRun(meta, pid, True)
     return None
+
+
+def task_local_run_file(task_path: Path, path: Path) -> Path | None:
+    try:
+        resolved_task = physical(task_path)
+        resolved_runs = resolved_task / "runs"
+        resolved_path = physical(path)
+        resolved_path.relative_to(resolved_runs)
+    except Exception:
+        return None
+    if not resolved_path.is_file():
+        return None
+    return resolved_path
+
+
+def active_run_logs(task_path: Path, run: ActiveRun | None) -> ActiveRunLogs | None:
+    if not run or not run.cancellable:
+        return None
+    runs_dir = task_path / "runs"
+    if not runs_dir.exists():
+        return ActiveRunLogs(None, None)
+    subcommand = metadata_value(run.metadata, "subcommand")
+    start_time = parse_timestamp(metadata_value(run.metadata, "start-time"))
+    patterns = []
+    if subcommand:
+        patterns.append(f"*-gui-*-{subcommand}-{task_path.name}.stdout.log")
+    patterns.append("*-gui-*.stdout.log")
+    for pattern in patterns:
+        for stdout in sorted(runs_dir.glob(pattern), key=file_mtime, reverse=True):
+            log_time = parse_log_filename_timestamp(stdout)
+            if start_time and log_time and abs(start_time - log_time) > 300:
+                continue
+            safe_stdout = task_local_run_file(task_path, stdout)
+            if not safe_stdout:
+                continue
+            stderr = stdout.with_name(stdout.name.removesuffix(".stdout.log") + ".stderr.log")
+            safe_stderr = task_local_run_file(task_path, stderr)
+            return ActiveRunLogs(safe_stdout, safe_stderr)
+    return ActiveRunLogs(None, None)
+
+
+def tail_text(path: Path | None) -> tuple[str, str]:
+    if path is None:
+        return "unavailable", ""
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as handle:
+            if size > LOG_TAIL_BYTES:
+                handle.seek(size - LOG_TAIL_BYTES)
+            data = handle.read()
+    except OSError as exc:
+        return "unavailable", f"could not read log: {exc}"
+    text = data.decode("utf-8", errors="replace")
+    if not text:
+        return "empty", "(empty)"
+    prefix = "[showing last 64 KiB]\n" if size > LOG_TAIL_BYTES else ""
+    return "available", prefix + text
 
 
 def process_command(pid: int) -> str:
@@ -842,6 +920,7 @@ th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical
 .toolbar{display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:14px 0}.toolbar-fields,.top-actions,.dashboard-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.dashboard-actions{margin:14px 0}.toolbar label,.selected-actions label{display:grid;gap:3px;font-size:12px;color:#475467}.selected-actions .checkbox-label{display:flex;align-items:center;gap:5px;padding-bottom:6px}.toolbar select,.toolbar input,.selected-actions select{font:inherit;border:1px solid #cbd5e1;border-radius:6px;padding:5px 8px;background:white}.filter-disclosure{margin:14px 0}.filter-disclosure>summary{cursor:pointer;color:#3b495c}.filter-disclosure .toolbar{margin:8px 0 0}.flash,.flash-error{border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1e3a8a;padding:8px 10px}.flash-error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.metric-chip,.validation-chip{display:inline-flex;align-items:center;justify-content:center;min-width:3.2em;border-radius:999px;border:1px solid #ccd3dd;background:#f8fafc;padding:2px 8px;font-size:12px}.validation-passed{border-color:#16a34a;color:#166534}.validation-attention{border-color:#d97706;color:#92400e}.validation-missing{border-color:#b8c0cc;color:#667085}.validation-recorded{border-color:#0b57d0;color:#1d4ed8}
 .task-title{font-weight:600}.task-subtle{margin-top:4px}.repo-name{font-weight:600}.path-disclosure{margin-top:5px;font-size:12px;color:#667085}.path-disclosure summary{cursor:pointer;color:#3b495c}.path-disclosure code{display:block;margin-top:5px;white-space:nowrap;overflow:auto;max-width:42rem}.path-disclosure dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;margin:6px 0 0}.path-disclosure dt{font-weight:600;color:#475467}.path-disclosure dd{margin:0;min-width:0}
 .tabs a{margin-right:14px}.muted{color:#667085}.document{background:white;border:1px solid #dfe3ea;border-radius:8px;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:#f6f8fa;border:1px solid #dfe3ea;padding:12px;overflow:auto}.document code{background:#eef2f7;padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid #d0d7de;color:#57606a;margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}.document table{border:1px solid #dfe3ea}.document tr:nth-child(even),.table-wrap tbody tr:nth-child(even){background:#fbfcfe}
+.log-stream{display:grid;gap:14px;margin:14px 0 24px}.log-panel{background:white;border:1px solid #dfe3ea;border-radius:8px;overflow:hidden}.log-panel h3{font-size:13px;text-transform:uppercase;color:#4b5563;background:#edf1f7;margin:0;padding:8px 12px}.log-panel pre{margin:0;max-height:45vh;overflow:auto;padding:12px;background:#0f172a;color:#e5e7eb;white-space:pre-wrap}
 .action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid #ccd3dd;border-radius:6px;padding:5px 9px;background:#f8fafc;color:#667085}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:white;color:#202124;border:1px solid #cfd7e3;border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
 @media (max-width:640px){.shell{width:min(100% - 20px,1600px)}.header-context{margin-left:0;flex-basis:100%}}
 """
@@ -1020,11 +1099,25 @@ class Handler(BaseHTTPRequestHandler):
                 query.get("active_repo", [""])[0],
                 query.get("approve", [""])[0],
             )
+        if parsed.path.startswith("/fragments/task-stream/"):
+            query = parse_qs(parsed.query)
+            return self.task_stream_fragment(
+                unquote(parsed.path.removeprefix("/fragments/task-stream/")),
+                query.get("path", [""])[0],
+                query.get("active_repo", [""])[0],
+            )
         if parsed.path.startswith("/fragments/task/"):
             query = parse_qs(parsed.query)
             return self.task_fragment(
                 unquote(parsed.path.removeprefix("/fragments/task/")),
                 query.get("doc", ["plan"])[0],
+                query.get("path", [""])[0],
+                query.get("active_repo", [""])[0],
+            )
+        if parsed.path.startswith("/task/") and parsed.path.endswith("/stream"):
+            query = parse_qs(parsed.query)
+            return self.task_stream(
+                unquote(parsed.path.removeprefix("/task/").removesuffix("/stream")),
                 query.get("path", [""])[0],
                 query.get("active_repo", [""])[0],
             )
@@ -1495,6 +1588,16 @@ class Handler(BaseHTTPRequestHandler):
             "<button class='danger' type='submit'>Cancel</button></form>"
         )
 
+    def stream_url(self, task: Task) -> str:
+        return f"/task/{quote(task.name)}/stream?path={quote(str(task.path), safe='')}&active_repo={quote(str(task.repo), safe='')}"
+
+    def task_stream_link(self, task: Task) -> str:
+        return f"<a class='button' href='{html_attr(self.stream_url(task))}'>Stream</a>"
+
+    def streamable(self, task: Task) -> bool:
+        logs = active_run_logs(task.path, task.active_run)
+        return bool(logs and logs.available)
+
     def unarchive_form(self, task: Task) -> str:
         return (
             f"<form class='inline-form' method='post' action='/archive/{quote(task.name)}/unarchive'>"
@@ -1521,6 +1624,8 @@ class Handler(BaseHTTPRequestHandler):
     def task_actions(self, task: Task, include_docs: bool = False) -> str:
         active_query = f"&active_repo={quote(str(task.repo), safe='')}"
         pieces = [self.archive_form(task)]
+        if self.streamable(task):
+            pieces.append(self.task_stream_link(task))
         if include_docs:
             for doc in ("plan",):
                 preview_url = f"/fragments/task-doc/{quote(task.name)}?path={quote(str(task.path), safe='')}&doc={doc}{active_query}"
@@ -1544,7 +1649,11 @@ class Handler(BaseHTTPRequestHandler):
         if workflow.action == "edit":
             return self.extras_modal(task, "edit", workflow.next_label)
         if workflow.action == "cancel":
-            return self.cancel_form(task)
+            pieces = []
+            if self.streamable(task):
+                pieces.append(self.task_stream_link(task))
+            pieces.append(self.cancel_form(task))
+            return f"<div class='action-row'>{''.join(pieces)}</div>"
         if workflow.action == "approve-implementation":
             return self.approve_implementation_button(task, workflow.next_label)
         if workflow.action in {"implement", "review", "prototype", "archive"}:
@@ -1654,6 +1763,61 @@ class Handler(BaseHTTPRequestHandler):
         if not task:
             return self.send_fragment("<h1>Task not found</h1>", 404)
         self.send_fragment(self.task_detail(task, doc_name(doc)))
+
+    def task_stream(self, name: str, path_value: str = "", active_repo_value: str = "") -> None:
+        active_repo, _ = self.selected_repo({"active_repo": [active_repo_value]})
+        task = self.resolve_task(name, path_value, active_repo)
+        if not task:
+            return self.send_html("<h1>Task not found</h1>", 404)
+        refresh_url = (
+            f"/fragments/task-stream/{quote(task.name)}?path={quote(str(task.path), safe='')}"
+            f"&active_repo={quote(str(task.repo), safe='')}"
+        )
+        body = (
+            f"{page_header(f'{task.name} Logs', task.repo_name, task.repo)}<main class='shell'>"
+            f"<p><a class='button' href='{html_attr(self.task_url(task))}'>Task</a></p>"
+            f"<h2>Live Run Logs</h2>"
+            f"<div data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"1500\">"
+            f"{self.task_stream_html(task)}"
+            "</div></main>"
+        )
+        self.send_html(body)
+
+    def task_stream_fragment(self, name: str, path_value: str = "", active_repo_value: str = "") -> None:
+        active_repo, _ = self.selected_repo({"active_repo": [active_repo_value]})
+        task = self.resolve_task(name, path_value, active_repo)
+        if not task:
+            return self.send_fragment("<h1>Task not found</h1>", 404)
+        self.send_fragment(self.task_stream_html(task))
+
+    def task_stream_html(self, task: Task) -> str:
+        run = task.active_run
+        if not run or not run.cancellable:
+            return "<p class='muted'>No active PAW run is available for streaming.</p>"
+        logs = active_run_logs(task.path, run)
+        if not logs or not logs.available:
+            return "<p class='muted'>The active PAW run has no GUI stdout/stderr logs available yet.</p>"
+        subcommand = metadata_value(run.metadata, "subcommand") or run.metadata.stem
+        started = metadata_value(run.metadata, "start-time") or "unknown start time"
+        return (
+            f"<p class='muted'>Streaming {html.escape(subcommand)} started {html.escape(started)}. Refreshes locally while the task is active.</p>"
+            "<div class='log-stream'>"
+            f"{self.log_panel('stdout', logs.stdout)}"
+            f"{self.log_panel('stderr', logs.stderr)}"
+            "</div>"
+        )
+
+    def log_panel(self, label: str, path: Path | None) -> str:
+        state, text = tail_text(path)
+        title = f"{label} ({state})"
+        log_path = path_disclosure(f"{label} log path", str(path)) if path else ""
+        return (
+            "<section class='log-panel'>"
+            f"<h3>{html.escape(title)}</h3>"
+            f"{log_path}"
+            f"<pre><code>{html.escape(text)}</code></pre>"
+            "</section>"
+        )
 
     def resolve_archived_task(self, name: str, path_value: str, active_repo: Path) -> Task | None:
         if not valid_task_name(name):
@@ -1780,8 +1944,24 @@ class Handler(BaseHTTPRequestHandler):
             f"<tr><th>Crash Log</th><td>{html.escape(crash_state)}</td></tr>"
             "</tbody></table></div>"
             f"<p class='tabs'>{tabs}</p><div class='document'>{render_markdown(content)}</div>"
+            f"{self.live_stream_section(task)}"
             "<h2>Run History</h2><div class='table-wrap'><table><thead><tr><th>Subcommand</th><th>Status</th><th>Backend</th><th>Model</th><th>Started</th><th>Ended</th><th>Exit</th></tr></thead>"
             f"<tbody>{run_rows(task.path)}</tbody></table></div>"
+        )
+
+    def live_stream_section(self, task: Task) -> str:
+        if not self.streamable(task):
+            return ""
+        refresh_url = (
+            f"/fragments/task-stream/{quote(task.name)}?path={quote(str(task.path), safe='')}"
+            f"&active_repo={quote(str(task.repo), safe='')}"
+        )
+        return (
+            "<h2>Live Run Logs</h2>"
+            f"<p>{self.task_stream_link(task)}</p>"
+            f"<div data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"1500\">"
+            f"{self.task_stream_html(task)}"
+            "</div>"
         )
 
 
