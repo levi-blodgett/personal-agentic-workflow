@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -456,6 +457,33 @@ class Task:
         return "ready"
 
 
+@dataclass(frozen=True)
+class TaskWorkflow:
+    stage: str
+    next_label: str
+    action: str
+    note: str = ""
+    disabled_reason: str = ""
+
+
+def task_workflow(task: Task) -> TaskWorkflow:
+    plan_position = status_field(task.plan, "Plan position") or "<missing>"
+    next_work = status_field(task.plan, "Next work") or "<missing>"
+    if task.running:
+        return TaskWorkflow("Running", "Wait for run", "", "A PAW subprocess is active.", f"{task.name} already has a running PAW subprocess")
+    if not task.plan:
+        return TaskWorkflow("Missing plan", "Edit", "edit", "plan.md is missing.", "plan.md missing")
+    if task.blocked:
+        return TaskWorkflow("Needs edit", "Edit", "edit", plan_position, "USER ANSWER placeholders remain")
+    if task.prototype_status or task.prototype_source:
+        return TaskWorkflow("Prototype", "Archive", "archive", next_work)
+    if task.review:
+        return TaskWorkflow("Reviewed", "Prototype", "prototype", next_work)
+    if task.finished:
+        return TaskWorkflow("Review", "Review", "review", next_work)
+    return TaskWorkflow("Implement", "Implement", "implement", next_work)
+
+
 def list_repo_tasks(repo: Path, task_home: Path) -> list[Task]:
     tasks: dict[str, Task] = {}
     central_root = task_home / repo_slug(repo)
@@ -502,7 +530,7 @@ table{border-collapse:collapse;width:100%;background:white;border:1px solid #dfe
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical-align:top}th{background:#edf1f7;font-size:12px;text-transform:uppercase;color:#4b5563}
 .pill{display:inline-block;border:1px solid #ccd3dd;border-radius:999px;padding:2px 8px;background:#f8fafc;font-size:12px}.blocked{border-color:#d97706;color:#92400e}.running{border-color:#2563eb;color:#1d4ed8}.ready{border-color:#15803d;color:#166534}
 .tabs a{margin-right:14px}.muted{color:#667085}.document{background:white;border:1px solid #dfe3ea;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:#f6f8fa;border:1px solid #dfe3ea;padding:12px;overflow:auto}.document code{background:#eef2f7;padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid #d0d7de;color:#57606a;margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}
-.action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:white;color:#202124;border:1px solid #cfd7e3;border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
+.action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid #ccd3dd;border-radius:6px;padding:5px 9px;background:#f8fafc;color:#667085}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:white;color:#202124;border:1px solid #cfd7e3;border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
 """
 
 SCRIPT = """
@@ -834,6 +862,13 @@ class Handler(BaseHTTPRequestHandler):
             "<button type='submit'>Implement</button></form>"
         )
 
+    def action_form(self, task: Task, action: str, label: str) -> str:
+        return (
+            f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/{action}'>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            f"<button type='submit'>{html.escape(label)}</button></form>"
+        )
+
     def archive_form(self, task: Task) -> str:
         return (
             f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/archive'>"
@@ -873,6 +908,38 @@ class Handler(BaseHTTPRequestHandler):
             pieces.extend([self.extras_modal(task, "review", "Review"), self.extras_modal(task, "prototype", "Prototype"), self.archive_form(task)])
         return f"<div class='action-row'>{''.join(pieces)}</div>"
 
+    def workflow_action_control(self, task: Task, workflow: TaskWorkflow) -> str:
+        if workflow.action == "edit":
+            return self.extras_modal(task, "edit", workflow.next_label)
+        if workflow.action in {"implement", "review", "prototype", "archive"}:
+            return self.action_form(task, workflow.action, workflow.next_label)
+        reason = workflow.disabled_reason or "Action unavailable"
+        return f"<span class='disabled-action' title='{html_attr(reason)}'>{html.escape(workflow.next_label)}</span>"
+
+    def workflow_stage_cell(self, task: Task, workflow: TaskWorkflow) -> str:
+        parts = [
+            f"<div><span class='pill {task.state}'>Stage: {html.escape(workflow.stage)}</span></div>",
+            f"<div class='workflow-note muted'>{html.escape(status_field(task.plan, 'Plan position') or '<missing>')}</div>",
+            f"<div class='workflow-note muted'>{html.escape(task.source)}</div>",
+        ]
+        if task.prototype_status or task.prototype_source:
+            label = task.prototype_status or "prototyped"
+            if task.prototype_source:
+                label = f"{label} from {task.prototype_source}"
+            parts.append(f"<div class='workflow-note'><span class='pill'>{html.escape(label)}</span></div>")
+        return f"<div class='workflow-cell'>{''.join(parts)}</div>"
+
+    def workflow_next_cell(self, task: Task, workflow: TaskWorkflow) -> str:
+        reason = f"<div class='workflow-note muted'>{html.escape(workflow.disabled_reason)}</div>" if workflow.disabled_reason else ""
+        note = f"<div class='workflow-note muted'>{html.escape(workflow.note)}</div>" if workflow.note else ""
+        return (
+            "<div class='workflow-cell'>"
+            f"<div class='workflow-label'>Next: {html.escape(workflow.next_label)}</div>"
+            f"{note}{reason}"
+            f"<div class='workflow-actions'>{self.workflow_action_control(task, workflow)}</div>"
+            "</div>"
+        )
+
     def index_task_list(self, query: dict[str, list[str]]) -> str:
         state_filter = query.get("state", [""])[0]
         repo_filter = query.get("repo", [""])[0].strip().lower()
@@ -891,26 +958,20 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             task_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}"
             branch = task.branch_context or "<none>"
-            prototype = ""
-            if task.prototype_status or task.prototype_source:
-                label = task.prototype_status or "prototyped"
-                if task.prototype_source:
-                    label = f"{label} from {task.prototype_source}"
-                prototype = f"<br><span class='pill'>{html.escape(label)}</span>"
             selector = (
                 f"<input form='batch-implement-form' type='checkbox' name='task' value='{html_attr(str(task.path))}' aria-label='Select {html_attr(task.name)}'>"
                 if task.batch_eligible
                 else ""
             )
+            workflow = task_workflow(task)
             rows.append(
                 "<tr>"
                 f"<td>{selector}</td>"
                 f"<td><a href='{task_href}'>{html.escape(task.name)}</a><br><span class='muted'>{html.escape(str(task.path))}</span></td>"
                 f"<td>{html.escape(task.repo_name)}<br><span class='muted'>{html.escape(str(task.repo))}</span><br><span class='muted'>{html.escape(task.slug)}</span><br><span class='muted'>Branch: {html.escape(branch)}</span></td>"
-                f"<td><span class='pill {task.state}'>{task.state}</span><br>{task.source}{prototype}</td>"
-                f"<td>{html.escape(status_field(task.plan, 'Plan position') or '<missing>')}</td>"
+                f"<td>{self.workflow_stage_cell(task, workflow)}</td>"
+                f"<td>{self.workflow_next_cell(task, workflow)}</td>"
                 f"<td>{html.escape(completion)}</td>"
-                f"<td>{html.escape(status_field(task.plan, 'Next work') or '<missing>')}</td>"
                 f"<td>{done}/{total}</td><td>{validation_state(task.plan)}</td>"
                 f"<td>{self.task_actions(task, include_docs=True)}</td>"
                 "</tr>"
@@ -918,8 +979,8 @@ class Handler(BaseHTTPRequestHandler):
         return (
             "<form id='batch-implement-form' method='post' action='/actions/implement-batch'></form>"
             "<p><button form='batch-implement-form' type='submit'>Implement selected</button></p>"
-            "<table><thead><tr><th>Select</th><th>Task</th><th>Repo</th><th>State</th><th>Plan Position</th><th>Completion</th><th>Next Work</th><th>Checklist</th><th>Validation</th><th>Actions</th></tr></thead>"
-            f"<tbody>{''.join(rows) or '<tr><td colspan=10>No task packages found.</td></tr>'}</tbody></table>"
+            "<table><thead><tr><th>Select</th><th>Task</th><th>Repo</th><th>Stage</th><th>Next</th><th>Completion</th><th>Checklist</th><th>Validation</th><th>Actions</th></tr></thead>"
+            f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table>"
         )
 
     def flash_html(self, message: str, level: str = "notice") -> str:

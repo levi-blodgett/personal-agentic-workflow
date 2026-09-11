@@ -112,7 +112,8 @@ wait_for_run_metadata() {
 
 post_gui() {
   local port="$1" path="$2" data="$3" out="$4"
-  python3 - "$port" "$path" "$data" > "$out" <<'PY'
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if python3 - "$port" "$path" "$data" > "$out" <<'PY'
 import sys
 from urllib.request import Request, urlopen
 data = sys.argv[3].encode()
@@ -126,6 +127,12 @@ response = urlopen(req, timeout=3)
 print(response.geturl())
 print(response.read().decode())
 PY
+    then
+      return 0
+    fi
+    sleep 0.2
+  done
+  return 1
 }
 
 @test "paw gui: serves local dashboard with legacy task details" {
@@ -179,6 +186,66 @@ MD
   grep -q "done-task" "$BATS_TEST_TMPDIR/filter-completion.html"
   ! grep -q "blocked-task" "$BATS_TEST_TMPDIR/filter-completion.html"
   grep -q "gui-task" "$BATS_TEST_TMPDIR/filter-repo.html"
+}
+
+@test "paw gui: home rows expose stage workflow and next actions" {
+  mkdir -p "$REPO/.agent/blocked-task" "$REPO/.agent/running-task/runs" "$REPO/.agent/done-task" "$REPO/.agent/reviewed-task" "$REPO/.agent/prototype-task"
+  cat > "$REPO/.agent/blocked-task/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: Blocked task.
+- Estimated completion: 10%
+- Next work: Resolve question.
+
+## Open Questions / Follow-Ups
+
+- What is needed?
+  - USER ANSWER (UNRESOLVED):
+MD
+  cp "$REPO/.agent/gui-task/plan.md" "$REPO/.agent/running-task/plan.md"
+  git config --file "$REPO/.agent/running-task/runs/running-999999.gitconfig" paw.status running
+  git config --file "$REPO/.agent/running-task/runs/running.gitconfig" paw.status running
+  cat > "$REPO/.agent/done-task/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: Done task.
+- Estimated completion: 100%
+- Next work: Review.
+MD
+  cp "$REPO/.agent/done-task/plan.md" "$REPO/.agent/reviewed-task/plan.md"
+  printf '# Review\n' > "$REPO/.agent/reviewed-task/review.md"
+  cp "$REPO/.agent/done-task/plan.md" "$REPO/.agent/prototype-task/plan.md"
+  printf '# Review\n' > "$REPO/.agent/prototype-task/review.md"
+  git config --file "$REPO/.agent/prototype-task/metadata.gitconfig" paw.prototype-status prototyped
+  local port=18764
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  stop_gui
+
+  grep -q "<th>Stage</th>" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "<th>Next</th>" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Stage: Implement" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Next: Implement" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "/task/gui-task/implement" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Stage: Needs edit" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Next: Edit" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "USER ANSWER placeholders remain" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Stage: Running" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Next: Wait for run" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Stage: Review" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Next: Review" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "/task/done-task/review" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Stage: Reviewed" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Next: Prototype" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "/task/reviewed-task/prototype" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Stage: Prototype" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Next: Archive" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "/task/prototype-task/archive" "$BATS_TEST_TMPDIR/stage-workflow.html"
 }
 
 @test "paw gui: sorts task rows by most recent activity in scoped mode" {
