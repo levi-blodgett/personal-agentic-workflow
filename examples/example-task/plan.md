@@ -46,7 +46,7 @@ Add a `--version` / `-v` flag to the `foo` CLI that prints `foo <version>` and e
 
 - Plan position: All implementation phases complete.
 - Estimated completion: 100%
-- Next work: PR review and merge.
+- Next work: Review.
 
 ## Approval Boundaries
 

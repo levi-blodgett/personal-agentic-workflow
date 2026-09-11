@@ -78,7 +78,7 @@ paw gh-actions-review --create-issue
 
 `paw completion zsh` prints a small `compdef` script for native `zsh` completion. Load it with `source <(paw completion zsh)` in the current shell, and append it to `~/.zshrc` for future shells. v1 is `zsh`-only and completes top-level subcommands only.
 
-`paw gui` starts a local task dashboard on `127.0.0.1` in the foreground. It renders task Markdown as safe HTML, can launch `paw plan`, `paw edit`, and `paw implement` through the same CLI paths, and can delete a resolved task package after exact-name confirmation. `paw gui start` runs it in the background, records PID/URL metadata under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/`, and `paw gui stop` or `paw gui kill` stops only that recorded PAW GUI process. Add `--all` to show every central task store grouped by repo identity; `--repo <path>` keeps the scoped central-plus-legacy view. The GUI never replaces `contract.md`, `plan.md`, or `pr.md` as the source of truth.
+`paw gui` starts a local task dashboard on `127.0.0.1` in the foreground. It renders task Markdown as safe HTML, filters the main table by state, repo, and completion, can launch `paw plan`, `paw edit`, and `paw implement` through the same CLI paths, and can delete a resolved task package after exact-name confirmation. `paw gui start` runs it in the background, records PID/URL metadata under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/`, and `paw gui stop` or `paw gui kill` stops only that recorded PAW GUI process. Add `--all` to show every central task store grouped by repo identity; `--repo <path>` keeps the scoped central-plus-legacy view. The GUI never replaces `contract.md`, `plan.md`, or `pr.md` as the source of truth.
 
 ## Documentation
 

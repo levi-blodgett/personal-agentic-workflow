@@ -35,9 +35,9 @@ user replies, then run `paw edit <task>` before `paw implement`. -->
 
 ## Current Status
 
-- Plan position:
-- Estimated completion:
-- Next work:
+- Plan position: <short progress summary>
+- Estimated completion: 0%
+- Next work: <next concrete step; use "Review." when Estimated completion is 100%>
 
 ## Approval Boundaries
 

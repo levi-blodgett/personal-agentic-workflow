@@ -34,7 +34,7 @@ bats tests/lint-task.bats
 | `list-tasks.bats` | `scripts/list-tasks.sh` |
 | `lint-task.bats` | `scripts/lint-task.sh` |
 | `task-store.bats` | central task-store resolution, metadata, legacy fallback, and explicit multi-repo migration helpers |
-| `gui-server.bats` | `paw gui` Markdown rendering, local plan/edit/implement actions, guarded deletion, foreground smoke, managed start/stop/kill lifecycle, stale PID protection, and multi-repo dashboard coverage |
+| `gui-server.bats` | `paw gui` Markdown rendering, main-table filters, combined repo/branch display, local plan/edit/implement actions, guarded deletion, foreground smoke, managed start/stop/kill lifecycle, stale PID protection, and multi-repo dashboard coverage |
 | `makefile.bats` | `Makefile` targets (install, uninstall, help, -n dry-runs) |
 | `paw-dispatcher.bats` | `scripts/paw` subcommand dispatch, worktree resume, and launcher behavior |
 | `paw-completion-docs.bats` | Durable docs coverage for `paw completion zsh` and the narrowed `zsh`-only scope |

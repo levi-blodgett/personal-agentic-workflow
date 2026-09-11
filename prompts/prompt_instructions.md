@@ -61,10 +61,11 @@ Capture: task summary, repo context, user constraints (exact, not paraphrased), 
 ```markdown
 ## Current Status
 
-- Plan position:
-- Estimated completion:
-- Next work:
+- Plan position: <short progress summary>
+- Estimated completion: <bare integer percentage, e.g. 25%>
+- Next work: <next step; when complete use Review.>
 ```
+- `Estimated completion` must be a bare integer percentage such as `25%`. `Next work` is free-form. When `Estimated completion` is `100%`, `Next work` must be `Review.` or `Review.` plus a genuinely important follow-up.
 - **Cost log:** `paw` appends repo-level entries to `.agent/cost-log.md`; do not hand-edit task `plan.md` for cost tracking.
 
 ### `pr.md`

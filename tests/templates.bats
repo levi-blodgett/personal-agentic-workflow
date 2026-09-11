@@ -48,6 +48,14 @@ TEMPLATES_DIR="$REPO_ROOT/templates"
   grep -qF "do not batch several completed items before updating the plan" "$REPO_ROOT/prompts/prompt_instructions.md"
 }
 
+@test "templates: status contract standardizes completion and completed next work" {
+  grep -qF "Estimated completion" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "bare integer percentage" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "25%" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF 'When `Estimated completion` is `100%`' "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF '`Next work` must be `Review.`' "$REPO_ROOT/prompts/prompt_instructions.md"
+}
+
 @test "templates: prompt_instructions.md defines context-pressure guidance and lean updates" {
   grep -qF "context pressure" "$REPO_ROOT/prompts/prompt_instructions.md"
   grep -qF "meaningful pressure changes" "$REPO_ROOT/prompts/prompt_instructions.md"
@@ -92,6 +100,11 @@ TEMPLATES_DIR="$REPO_ROOT/templates"
 @test "templates: plan template includes the user-answer placeholder convention" {
   grep -qF "USER ANSWER (UNRESOLVED):" "$TEMPLATES_DIR/plan.md"
   grep -qF "USER ANSWER (PROVIDED):" "$TEMPLATES_DIR/plan.md"
+}
+
+@test "templates: plan template seeds percent-only completion and review next work convention" {
+  grep -qF -- "- Estimated completion: 0%" "$TEMPLATES_DIR/plan.md"
+  grep -qF -- "- Next work: <next concrete step; use \"Review.\" when Estimated completion is 100%>" "$TEMPLATES_DIR/plan.md"
 }
 
 @test "templates: legacy extra sections still pass lint when plan.md has required sections" {

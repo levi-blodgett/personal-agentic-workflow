@@ -111,6 +111,11 @@ def html_attr(value: str) -> str:
     return html.escape(value, quote=True)
 
 
+def option_tag(value: str, label: str, selected: str) -> str:
+    selected_attr = " selected" if value == selected else ""
+    return f"<option value='{html_attr(value)}'{selected_attr}>{html.escape(label)}</option>"
+
+
 def render_inline(text: str) -> str:
     placeholders: list[str] = []
 
@@ -345,6 +350,12 @@ class Task:
         return self.repo.name or self.slug
 
     @property
+    def branch_context(self) -> str:
+        return metadata_value(self.path / "metadata.gitconfig", "branch-name") or metadata_value(
+            self.path / "metadata.gitconfig", "head-state"
+        )
+
+    @property
     def blocked(self) -> bool:
         return bool(re.search(r"USER ANSWER \((UNRESOLVED|PROVIDED)\):", self.plan))
 
@@ -527,36 +538,62 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(urlparse(self.path).query)
         message = query.get("message", [""])[0]
         level = query.get("level", ["notice"])[0]
+        state_filter = query.get("state", [""])[0]
+        repo_filter = query.get("repo", [""])[0].strip().lower()
+        completion_filter = query.get("completion", [""])[0]
+        all_tasks = list_tasks(self.repo, self.task_home, self.all_repos)
+        state_options = sorted({task.state for task in all_tasks})
+        completion_options = sorted(
+            {status_field(task.plan, "Estimated completion") for task in all_tasks if status_field(task.plan, "Estimated completion")}
+        )
         rows = []
-        for task in list_tasks(self.repo, self.task_home, self.all_repos):
+        for task in all_tasks:
             done, total = checklist_counts(task.plan)
+            completion = status_field(task.plan, "Estimated completion") or "<missing>"
+            repo_text = " ".join((task.repo_name, str(task.repo), task.slug)).lower()
+            if state_filter and task.state != state_filter:
+                continue
+            if repo_filter and repo_filter not in repo_text:
+                continue
+            if completion_filter and completion != completion_filter:
+                continue
             task_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}"
+            branch = task.branch_context or "<none>"
             rows.append(
                 "<tr>"
                 f"<td><a href='{task_href}'>{html.escape(task.name)}</a><br><span class='muted'>{html.escape(str(task.path))}</span></td>"
-                f"<td>{html.escape(task.repo_name)}<br><span class='muted'>{html.escape(str(task.repo))}</span><br><span class='muted'>{html.escape(task.slug)}</span></td>"
+                f"<td>{html.escape(task.repo_name)}<br><span class='muted'>{html.escape(str(task.repo))}</span><br><span class='muted'>{html.escape(task.slug)}</span><br><span class='muted'>Branch: {html.escape(branch)}</span></td>"
                 f"<td><span class='pill {task.state}'>{task.state}</span><br>{task.source}</td>"
                 f"<td>{html.escape(status_field(task.plan, 'Plan position') or '<missing>')}</td>"
-                f"<td>{html.escape(status_field(task.plan, 'Estimated completion') or '<missing>')}</td>"
+                f"<td>{html.escape(completion)}</td>"
                 f"<td>{html.escape(status_field(task.plan, 'Next work') or '<missing>')}</td>"
-                f"<td>{html.escape(metadata_value(task.path / 'metadata.gitconfig', 'branch-name') or metadata_value(task.path / 'metadata.gitconfig', 'head-state') or '<none>')}</td>"
                 f"<td>{done}/{total}</td><td>{validation_state(task.plan)}</td>"
                 "</tr>"
             )
+        state_select = "".join([option_tag("", "Any state", state_filter), *(option_tag(state, state, state_filter) for state in state_options)])
+        completion_select = "".join(
+            [option_tag("", "Any completion", completion_filter), *(option_tag(value, value, completion_filter) for value in completion_options)]
+        )
         scope = "All central task stores" if self.all_repos else str(self.repo)
         central_note = str(self.task_home) if self.all_repos else str(self.task_home / repo_slug(self.repo))
         body = (
             f"<header><h1>PAW Tasks</h1><div>{html.escape(scope)}</div></header><main>"
             f"{self.flash_html(message, level)}"
             f"<p class='muted'>Central store: {html.escape(central_note)}</p>"
+            "<form method='get'>"
+            f"<p><label>State <select name=\"state\">{state_select}</select></label> "
+            f"<label>Repo <input name=\"repo\" value=\"{html_attr(query.get('repo', [''])[0])}\"></label> "
+            f"<label>Completion <select name=\"completion\">{completion_select}</select></label> "
+            "<button type='submit'>Filter</button> <a href='/'>Clear</a></p>"
+            "</form>"
             "<form method='post' action='/actions/plan'>"
             "<h2>New Plan</h2>"
             "<p><label>Task name <input name='task_name' required pattern='[A-Za-z0-9._-]+'></label></p>"
             "<p><label>Prompt<br><textarea name='prompt' required rows='4'></textarea></label></p>"
             "<p><button type='submit'>Start plan</button></p>"
             "</form>"
-            "<table><thead><tr><th>Task</th><th>Repo</th><th>State</th><th>Plan Position</th><th>Completion</th><th>Next Work</th><th>Branch</th><th>Checklist</th><th>Validation</th></tr></thead>"
-            f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table></main>"
+            "<table><thead><tr><th>Task</th><th>Repo</th><th>State</th><th>Plan Position</th><th>Completion</th><th>Next Work</th><th>Checklist</th><th>Validation</th></tr></thead>"
+            f"<tbody>{''.join(rows) or '<tr><td colspan=8>No task packages found.</td></tr>'}</tbody></table></main>"
         )
         self.send_html(body)
 

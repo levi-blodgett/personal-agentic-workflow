@@ -106,7 +106,7 @@ flowchart TD
 
 `paw gui [--host 127.0.0.1] [--port 0|<port>] [--repo <path>] [--all]` starts a browser dashboard in the foreground and prints its URL. `paw gui start` uses the same options but runs in the background and records lifecycle metadata under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/`. Stop it with `paw gui stop`; use `paw gui kill` only as the force-stop fallback. All GUI modes bind only to `127.0.0.1` or `localhost`; non-local hosts are rejected.
 
-The GUI is observational. Scoped mode lists the chosen repo's central tasks plus legacy `.agent/<task>/` packages. `--all` lists every central task store and shows repo name, repo path, branch/head state, slug, source, task path, checklist progress, validation, and run metadata. Use CLI flows such as `paw edit`, `paw implement`, `paw crash-log`, and `paw pr-submit` to change task state.
+The GUI is observational. Scoped mode lists the chosen repo's central tasks plus legacy `.agent/<task>/` packages. `--all` lists every central task store and shows repo name, repo path, slug, branch/head state, source, task path, checklist progress, validation, and run metadata. The main table filters by state, repo text, and completion. Use CLI flows such as `paw edit`, `paw implement`, `paw crash-log`, and `paw pr-submit` to change task state.
 
 ### A `paw implement` run in detail
 

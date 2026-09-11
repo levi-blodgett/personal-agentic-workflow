@@ -130,6 +130,60 @@ PY
   grep -q "1/2" "$BATS_TEST_TMPDIR/page.html"
 }
 
+@test "paw gui: main table filters by state repo and completion" {
+  mkdir -p "$REPO/.agent/blocked-task" "$REPO/.agent/done-task"
+  cat > "$REPO/.agent/blocked-task/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: Blocked task.
+- Estimated completion: 10%
+- Next work: Resolve question.
+
+## Open Questions / Follow-Ups
+
+- What is needed?
+  - USER ANSWER (UNRESOLVED):
+MD
+  cat > "$REPO/.agent/done-task/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: Done task.
+- Estimated completion: 100%
+- Next work: Review.
+MD
+  local port=18774
+  start_gui "$port"
+  fetch_gui "$port" "/?state=blocked" "$BATS_TEST_TMPDIR/filter-state.html"
+  fetch_gui "$port" "/?completion=100%25" "$BATS_TEST_TMPDIR/filter-completion.html"
+  fetch_gui "$port" "/?repo=repo" "$BATS_TEST_TMPDIR/filter-repo.html"
+  stop_gui
+
+  grep -q 'name="state"' "$BATS_TEST_TMPDIR/filter-state.html"
+  grep -q 'name="repo"' "$BATS_TEST_TMPDIR/filter-state.html"
+  grep -q 'name="completion"' "$BATS_TEST_TMPDIR/filter-state.html"
+  grep -q "blocked-task" "$BATS_TEST_TMPDIR/filter-state.html"
+  ! grep -q "gui-task" "$BATS_TEST_TMPDIR/filter-state.html"
+  grep -q "done-task" "$BATS_TEST_TMPDIR/filter-completion.html"
+  ! grep -q "blocked-task" "$BATS_TEST_TMPDIR/filter-completion.html"
+  grep -q "gui-task" "$BATS_TEST_TMPDIR/filter-repo.html"
+}
+
+@test "paw gui: repo column includes branch context and branch column is removed" {
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.branch-name feature/gui-context
+  local port=18763
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/branch-context.html"
+  stop_gui
+
+  grep -q "feature/gui-context" "$BATS_TEST_TMPDIR/branch-context.html"
+  grep -q "<th>Repo</th>" "$BATS_TEST_TMPDIR/branch-context.html"
+  ! grep -q "<th>Branch</th>" "$BATS_TEST_TMPDIR/branch-context.html"
+}
+
 @test "paw gui: renders task markdown as safe semantic HTML" {
   cat > "$REPO/.agent/gui-task/plan.md" <<'MD'
 # Markdown Plan
