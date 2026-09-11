@@ -186,11 +186,24 @@ MD
   grep -q 'name="state"' "$BATS_TEST_TMPDIR/filter-state.html"
   grep -q 'name="repo"' "$BATS_TEST_TMPDIR/filter-state.html"
   grep -q 'name="completion"' "$BATS_TEST_TMPDIR/filter-state.html"
+  grep -q "<details class='filter-disclosure' open>" "$BATS_TEST_TMPDIR/filter-state.html"
   grep -q "blocked-task" "$BATS_TEST_TMPDIR/filter-state.html"
   ! grep -q "gui-task" "$BATS_TEST_TMPDIR/filter-state.html"
   grep -q "done-task" "$BATS_TEST_TMPDIR/filter-completion.html"
   ! grep -q "blocked-task" "$BATS_TEST_TMPDIR/filter-completion.html"
   grep -q "gui-task" "$BATS_TEST_TMPDIR/filter-repo.html"
+}
+
+@test "paw gui: hides filters by default while keeping repo selector visible" {
+  local port=18758
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/filter-default.html"
+  stop_gui
+
+  grep -q "<details class='filter-disclosure'>" "$BATS_TEST_TMPDIR/filter-default.html"
+  ! grep -q "<details class='filter-disclosure' open>" "$BATS_TEST_TMPDIR/filter-default.html"
+  grep -q "Active repo" "$BATS_TEST_TMPDIR/filter-default.html"
+  grep -q "Filter tasks" "$BATS_TEST_TMPDIR/filter-default.html"
 }
 
 @test "paw gui: home rows expose stage workflow and next actions" {
@@ -271,6 +284,7 @@ MD
   grep -q "Stage: Review" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Next: Review" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "/task/done-task/review" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  ! grep -q "Review\\.</div>" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Stage: Reviewed" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Next: Use as Prototype" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Review grade: B-" "$BATS_TEST_TMPDIR/stage-workflow.html"
@@ -282,6 +296,63 @@ MD
   grep -q "Stage: Prototype" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Next: Archive" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "/task/prototype-task/archive" "$BATS_TEST_TMPDIR/stage-workflow.html"
+}
+
+@test "paw gui: disables prototype for A- or higher reviewed tasks" {
+  mkdir -p "$REPO/.agent/grade-a" "$REPO/.agent/grade-a-minus" "$REPO/.agent/grade-b-plus" "$REPO/.agent/grade-pending" "$REPO/.agent/grade-missing"
+  for task in grade-a grade-a-minus grade-b-plus grade-pending grade-missing; do
+    cat > "$REPO/.agent/$task/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: Reviewed task.
+- Estimated completion: 100%
+- Next work: Review.
+MD
+  done
+  cat > "$REPO/.agent/grade-a/review.md" <<'MD'
+# Review
+
+## Review Metadata
+- Grade: A
+MD
+  cat > "$REPO/.agent/grade-a-minus/review.md" <<'MD'
+# Review
+
+## Review Metadata
+- Grade: A-
+MD
+  cat > "$REPO/.agent/grade-b-plus/review.md" <<'MD'
+# Review
+
+## Review Metadata
+- Grade: B+
+MD
+  cat > "$REPO/.agent/grade-pending/review.md" <<'MD'
+# Review
+
+## Review Metadata
+- Grade: pending
+MD
+  printf '# Review\n' > "$REPO/.agent/grade-missing/review.md"
+  local port=18757 a_path b_path
+  a_path="$(real_path "$REPO/.agent/grade-a")"
+  b_path="$(real_path "$REPO/.agent/grade-b-plus")"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  post_gui "$port" "/task/grade-a/prototype" "$(form_encode "path=$a_path")" "$BATS_TEST_TMPDIR/prototype-a-post.html"
+  post_gui "$port" "/task/grade-b-plus/prototype" "$(form_encode "path=$b_path")" "$BATS_TEST_TMPDIR/prototype-b-post.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  stop_gui
+
+  grep -q "Prototype disabled for review grade A" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  grep -q "Prototype disabled for review grade A-" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  grep -q "/task/grade-b-plus/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  grep -q "/task/grade-pending/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  grep -q "/task/grade-missing/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  grep -q "prototype blocked: review grade A is A- or higher" "$BATS_TEST_TMPDIR/prototype-a-post.html"
+  grep -q "grade-b-plus-prototype" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 
 @test "paw gui: sorts task rows by most recent activity in scoped mode" {
@@ -396,7 +467,7 @@ PY
   grep -q "Branch: feature/gui-context" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
   grep -q "<dt>Repo path</dt><dd><code>$repo_path</code></dd>" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
   grep -q "<dt>Task store</dt><dd><code>" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
-  grep -q "<details class='path-disclosure'><summary>Central store</summary><code>" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
+  ! grep -q "Central store <details" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
   grep -q "<details class='path-disclosure'><summary>Task path</summary><code>$path</code></details>" "$BATS_TEST_TMPDIR/path-disclosure-detail.html"
   grep -q "<details class='path-disclosure'><summary>Repo path</summary><code>$repo_path</code></details>" "$BATS_TEST_TMPDIR/path-disclosure-detail.html"
   ! grep -q "<br><span class='muted'>$path</span>" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
@@ -479,7 +550,7 @@ MD
   ! grep -q "<!doctype html>" "$BATS_TEST_TMPDIR/detail-fragment.html"
 }
 
-@test "paw gui: unfinished eligible tasks can be selected for batch implement" {
+@test "paw gui: unfinished eligible tasks can be selected for archive or delete" {
   mkdir -p "$REPO/.agent/blocked-task" "$REPO/.agent/done-task"
   cat > "$REPO/.agent/blocked-task/plan.md" <<'MD'
 # Plan
@@ -512,7 +583,11 @@ MD
   fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/batch-select.html"
   stop_gui
 
-  grep -q "Implement selected" "$BATS_TEST_TMPDIR/batch-select.html"
+  grep -q "name='selected_action'" "$BATS_TEST_TMPDIR/batch-select.html"
+  grep -q ">Archive selected<" "$BATS_TEST_TMPDIR/batch-select.html"
+  grep -q ">Delete selected<" "$BATS_TEST_TMPDIR/batch-select.html"
+  ! grep -q "Implement selected" "$BATS_TEST_TMPDIR/batch-select.html"
+  ! grep -q "/actions/implement-batch" "$BATS_TEST_TMPDIR/batch-select.html"
   grep -q "name='task' value='$gui_path'" "$BATS_TEST_TMPDIR/batch-select.html"
   ! grep -q "name='task' value='$blocked_path'" "$BATS_TEST_TMPDIR/batch-select.html"
   ! grep -q "name='task' value='$done_path'" "$BATS_TEST_TMPDIR/batch-select.html"
@@ -580,6 +655,46 @@ MD
   grep -q "Build from the browser" "$BATS_TEST_TMPDIR/backend.prompt"
   find "$PAW_TASK_HOME" -path "*/gui-created/plan.md" -print -quit | grep -q "gui-created/plan.md"
   grep -q "gui-created" "$BATS_TEST_TMPDIR/plan-index.html"
+}
+
+@test "paw gui: queues a plan prompt without launching paw" {
+  git -C "$REPO" init -q
+  local port=18756
+  start_gui "$port"
+
+  post_gui "$port" "/actions/plan" "$(form_encode "plan_action=queue" "task_name=queued-plan" "prompt=Save this prompt for later")" "$BATS_TEST_TMPDIR/queue-post.html"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/queue-index.html"
+  stop_gui
+
+  grep -q "queued plan prompt queued-plan" "$BATS_TEST_TMPDIR/queue-post.html"
+  grep -q "queued-plan" "$BATS_TEST_TMPDIR/queue-index.html"
+  grep -q "Save this prompt for later" "$BATS_TEST_TMPDIR/queue-index.html"
+  grep -q "title='Save this prompt locally so planning can be started later'" "$BATS_TEST_TMPDIR/queue-index.html"
+  [[ ! -f "$BATS_TEST_TMPDIR/backend.prompt" ]]
+  find "$PAW_TASK_HOME" -path "*/.queue/queued-plan/metadata.gitconfig" -print -quit | grep -q "queued-plan"
+}
+
+@test "paw gui: triggers and removes queued plan prompts" {
+  git -C "$REPO" init -q
+  local queue_dir port=18755
+  queue_dir="$PAW_TASK_HOME/$(bash -c 'source "$1"; paw_repo_slug "$2"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")/.queue/queued-plan"
+  mkdir -p "$queue_dir"
+  printf 'Queued prompt body\n' > "$queue_dir/prompt.txt"
+  git config --file "$queue_dir/metadata.gitconfig" paw.task-name queued-plan
+  git config --file "$queue_dir/metadata.gitconfig" paw.repo-root "$(real_path "$REPO")"
+  start_gui "$port"
+
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/queue-trigger-index.html"
+  post_gui "$port" "/actions/queue/trigger" "$(form_encode "active_repo=$(real_path "$REPO")" "task_name=queued-plan")" "$BATS_TEST_TMPDIR/queue-trigger-post.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  stop_gui
+
+  grep -q "Queued Plans" "$BATS_TEST_TMPDIR/queue-trigger-index.html"
+  grep -q "queued-plan" "$BATS_TEST_TMPDIR/queue-trigger-index.html"
+  grep -q "Queued prompt body" "$BATS_TEST_TMPDIR/queue-trigger-index.html"
+  grep -q "triggered queued plan queued-plan" "$BATS_TEST_TMPDIR/queue-trigger-post.html"
+  grep -q "Queued prompt body" "$BATS_TEST_TMPDIR/backend.prompt"
+  [[ ! -d "$queue_dir" ]]
 }
 
 @test "paw gui: adds a second local Git repo to the selector" {
@@ -678,7 +793,7 @@ MD
 
   grep -q "data-doc-preview" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "data-doc-preview-url='/fragments/task-doc/gui-task" "$BATS_TEST_TMPDIR/index-actions.html"
-  grep -q "contract.md" "$BATS_TEST_TMPDIR/index-actions.html"
+  ! grep -q ">contract.md<" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "plan.md" "$BATS_TEST_TMPDIR/index-actions.html"
   ! grep -q "pr.md" "$BATS_TEST_TMPDIR/index-actions.html"
   ! grep -q ">Open<" "$BATS_TEST_TMPDIR/index-actions.html"
@@ -862,7 +977,7 @@ MD
   grep -q "Use the review as source" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 
-@test "paw gui: blocks review prototype archive delete and batch while task is running" {
+@test "paw gui: blocks review prototype archive delete and selected actions while task is running" {
   local port=18788 path
   path="$(real_path "$REPO/.agent/gui-task")"
   mkdir -p "$REPO/.agent/gui-task/runs"
@@ -873,30 +988,40 @@ MD
   post_gui "$port" "/task/gui-task/prototype" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/prototype-running.html"
   post_gui "$port" "/task/gui-task/archive" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/archive-running.html"
   post_gui "$port" "/task/gui-task/delete" "$(form_encode "path=$path" "confirm=yes")" "$BATS_TEST_TMPDIR/delete-running.html"
-  post_gui "$port" "/actions/implement-batch" "$(form_encode "task=$path")" "$BATS_TEST_TMPDIR/batch-running.html"
+  post_gui "$port" "/actions/selected" "$(form_encode "task=$path" "selected_action=archive")" "$BATS_TEST_TMPDIR/selected-running.html"
   stop_gui
 
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/review-running.html"
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/prototype-running.html"
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/archive-running.html"
   grep -q "delete blocked while a PAW subprocess is running" "$BATS_TEST_TMPDIR/delete-running.html"
-  grep -q "batch implement blocked: gui-task is already running" "$BATS_TEST_TMPDIR/batch-running.html"
+  grep -q "selected action blocked: gui-task is already running" "$BATS_TEST_TMPDIR/selected-running.html"
 }
 
-@test "paw gui: batch implement starts every selected eligible task" {
+@test "paw gui: selected archive and delete mutate all selected eligible tasks" {
+  git -C "$REPO" init -q
   mkdir -p "$REPO/.agent/gui-task-two"
   cp "$REPO/.agent/gui-task/plan.md" "$REPO/.agent/gui-task-two/plan.md"
-  local port=18781 path_one path_two
+  local central port=18781 path_one path_two
+  central="$(bash -c 'source "$1"; paw_task_create_dir "$2" selected-archive' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
+  mkdir -p "$central"
+  cp "$REPO/.agent/gui-task/plan.md" "$central/plan.md"
+  bash -c 'source "$1"; paw_task_write_metadata "$2" "$3" selected-archive created ""' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$central" "$REPO"
+  central="$(real_path "$central")"
   path_one="$(real_path "$REPO/.agent/gui-task")"
   path_two="$(real_path "$REPO/.agent/gui-task-two")"
   start_gui "$port"
 
-  post_gui "$port" "/actions/implement-batch" "$(form_encode "task=$path_one" "task=$path_two")" "$BATS_TEST_TMPDIR/batch-post.html"
-  wait_for_run_metadata gui-task
-  wait_for_run_metadata gui-task-two
+  post_gui "$port" "/actions/selected" "$(form_encode "task=$central" "selected_action=archive")" "$BATS_TEST_TMPDIR/selected-archive-post.html"
+  post_gui "$port" "/actions/selected" "$(form_encode "task=$path_one" "selected_action=delete" "confirm=yes")" "$BATS_TEST_TMPDIR/selected-delete-post.html"
   stop_gui
 
-  grep -q "batch implement started 2 task" "$BATS_TEST_TMPDIR/batch-post.html"
+  grep -q "archived 1 selected task" "$BATS_TEST_TMPDIR/selected-archive-post.html"
+  [[ ! -d "$central" ]]
+  find "$PAW_TASK_HOME" -path "*/.archive/selected-archive" -type d -print -quit | grep -q "selected-archive"
+  grep -q "deleted 1 selected task" "$BATS_TEST_TMPDIR/selected-delete-post.html"
+  [[ ! -d "$path_one" ]]
+  [[ -d "$path_two" ]]
 }
 
 @test "paw gui: blocks implement when follow-up placeholders remain" {

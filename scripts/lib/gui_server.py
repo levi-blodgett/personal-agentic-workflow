@@ -303,6 +303,29 @@ def review_grade_class(grade: str) -> str:
     return f"grade-{match.group(1).lower()}"
 
 
+def grade_rank(grade: str) -> int | None:
+    match = re.match(r"^\s*([A-Fa-f])\s*([+-]?)", grade)
+    if not match:
+        return None
+    base = {"A": 12, "B": 9, "C": 6, "D": 3, "F": 0}.get(match.group(1).upper())
+    if base is None:
+        return None
+    suffix = match.group(2)
+    if suffix == "+" and match.group(1).upper() != "A":
+        base += 1
+    elif suffix == "-":
+        base -= 1
+    return base
+
+
+def prototype_disabled_reason(task: "Task") -> str:
+    grade = review_grade(task.review)
+    rank = grade_rank(grade)
+    if rank is not None and rank >= 11:
+        return f"Prototype disabled for review grade {grade}; A- or higher does not need a prototype."
+    return ""
+
+
 def pending_answer_questions(plan: str) -> list[str]:
     questions: list[str] = []
     lines = plan.splitlines()
@@ -593,6 +616,46 @@ def launch_paw(repo: Path, task_home: Path, task_path: Path, args: list[str]) ->
     return True, f"started paw {' '.join(args)}; logs: {stdout_log}, {stderr_log}"
 
 
+def queue_root(task_home: Path, repo: Path) -> Path:
+    return task_home / repo_slug(repo) / ".queue"
+
+
+def queue_item_dir(task_home: Path, repo: Path, task_name: str) -> Path:
+    return queue_root(task_home, repo) / task_name
+
+
+@dataclass(frozen=True)
+class QueuedPlan:
+    task_name: str
+    path: Path
+    prompt: str
+    created_at: str
+
+
+def list_queued_plans(task_home: Path, repo: Path) -> list[QueuedPlan]:
+    root = queue_root(task_home, repo)
+    if not root.exists():
+        return []
+    items: list[QueuedPlan] = []
+    for path in sorted(p for p in root.iterdir() if p.is_dir()):
+        task_name = metadata_value(path / "metadata.gitconfig", "task-name") or path.name
+        if not valid_task_name(task_name):
+            continue
+        prompt = (path / "prompt.txt").read_text(errors="replace") if (path / "prompt.txt").exists() else ""
+        items.append(QueuedPlan(task_name, path, prompt, metadata_value(path / "metadata.gitconfig", "created-at")))
+    return items
+
+
+def write_queued_plan(task_home: Path, repo: Path, task_name: str, prompt: str) -> None:
+    item = queue_item_dir(task_home, repo, task_name)
+    item.mkdir(parents=True, exist_ok=False)
+    (item / "prompt.txt").write_text(prompt + "\n")
+    meta = item / "metadata.gitconfig"
+    subprocess.run(["git", "config", "--file", str(meta), "paw.task-name", task_name], check=True)
+    subprocess.run(["git", "config", "--file", str(meta), "paw.repo-root", str(repo)], check=True)
+    subprocess.run(["git", "config", "--file", str(meta), "paw.created-at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())], check=True)
+
+
 class Task:
     def __init__(self, name: str, source: str, path: Path, repo: Path, slug: str = ""):
         self.name = name
@@ -688,6 +751,9 @@ def task_workflow(task: Task) -> TaskWorkflow:
     if task.prototype_status or task.prototype_source:
         return TaskWorkflow("Prototype", "Archive", "archive", next_work)
     if task.review:
+        reason = prototype_disabled_reason(task)
+        if reason:
+            return TaskWorkflow("Reviewed", "Use as Prototype", "", next_work, reason)
         return TaskWorkflow("Reviewed", "Use as Prototype", "prototype", next_work)
     if task.finished:
         return TaskWorkflow("Review", "Review", "review", next_work)
@@ -699,7 +765,7 @@ def list_repo_tasks(repo: Path, task_home: Path) -> list[Task]:
     central_root = task_home / repo_slug(repo)
     if central_root.exists():
         for path in sorted(p for p in central_root.iterdir() if p.is_dir()):
-            if path.name == ".archive":
+            if path.name in {".archive", ".queue"}:
                 continue
             metadata_repo = metadata_value(path / "metadata.gitconfig", "repo-root")
             if metadata_repo and physical(Path(metadata_repo)) != repo:
@@ -718,7 +784,7 @@ def list_all_central_tasks(task_home: Path) -> list[Task]:
         return tasks
     for repo_dir in sorted(p for p in task_home.iterdir() if p.is_dir()):
         for path in sorted(p for p in repo_dir.iterdir() if p.is_dir()):
-            if path.name == ".archive":
+            if path.name in {".archive", ".queue"}:
                 continue
             metadata_repo = metadata_value(path / "metadata.gitconfig", "repo-root")
             repo = physical(Path(metadata_repo)) if metadata_repo else Path(repo_dir.name)
@@ -773,7 +839,7 @@ table{border-collapse:collapse;width:100%;background:white;border:1px solid #dfe
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical-align:top}th{background:#edf1f7;font-size:12px;text-transform:uppercase;color:#4b5563}
 .pill{display:inline-block;border:1px solid #ccd3dd;border-radius:999px;padding:2px 8px;background:#f8fafc;font-size:12px}.blocked{border-color:#d97706;color:#92400e}.running{border-color:#2563eb;color:#1d4ed8}.ready{border-color:#15803d;color:#166534}.complete{border-color:#6d28d9;color:#5b21b6}
 .review-grade{display:inline-block;border:1px solid #ccd3dd;border-radius:999px;background:#f8fafc;padding:2px 8px;font-size:12px;font-weight:600}.grade-a{border-color:#15803d;color:#166534;background:#f0fdf4}.grade-b{border-color:#0b57d0;color:#1d4ed8;background:#eff6ff}.grade-c{border-color:#d97706;color:#92400e;background:#fffbeb}.grade-d{border-color:#ea580c;color:#9a3412;background:#fff7ed}.grade-f{border-color:#dc2626;color:#991b1b;background:#fef2f2}.grade-unknown{border-color:#6b7280;color:#374151;background:#f9fafb}
-.toolbar{display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:14px 0}.toolbar-fields,.top-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.toolbar label{display:grid;gap:3px;font-size:12px;color:#475467}.toolbar select,.toolbar input{font:inherit;border:1px solid #cbd5e1;border-radius:6px;padding:5px 8px;background:white}.flash,.flash-error{border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1e3a8a;padding:8px 10px}.flash-error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.metric-chip,.validation-chip{display:inline-flex;align-items:center;justify-content:center;min-width:3.2em;border-radius:999px;border:1px solid #ccd3dd;background:#f8fafc;padding:2px 8px;font-size:12px}.validation-passed{border-color:#16a34a;color:#166534}.validation-attention{border-color:#d97706;color:#92400e}.validation-missing{border-color:#b8c0cc;color:#667085}.validation-recorded{border-color:#0b57d0;color:#1d4ed8}
+.toolbar{display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:14px 0}.toolbar-fields,.top-actions,.dashboard-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.dashboard-actions{margin:14px 0}.toolbar label,.selected-actions label{display:grid;gap:3px;font-size:12px;color:#475467}.selected-actions .checkbox-label{display:flex;align-items:center;gap:5px;padding-bottom:6px}.toolbar select,.toolbar input,.selected-actions select{font:inherit;border:1px solid #cbd5e1;border-radius:6px;padding:5px 8px;background:white}.filter-disclosure{margin:14px 0}.filter-disclosure>summary{cursor:pointer;color:#3b495c}.filter-disclosure .toolbar{margin:8px 0 0}.flash,.flash-error{border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1e3a8a;padding:8px 10px}.flash-error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.metric-chip,.validation-chip{display:inline-flex;align-items:center;justify-content:center;min-width:3.2em;border-radius:999px;border:1px solid #ccd3dd;background:#f8fafc;padding:2px 8px;font-size:12px}.validation-passed{border-color:#16a34a;color:#166534}.validation-attention{border-color:#d97706;color:#92400e}.validation-missing{border-color:#b8c0cc;color:#667085}.validation-recorded{border-color:#0b57d0;color:#1d4ed8}
 .task-title{font-weight:600}.task-subtle{margin-top:4px}.repo-name{font-weight:600}.path-disclosure{margin-top:5px;font-size:12px;color:#667085}.path-disclosure summary{cursor:pointer;color:#3b495c}.path-disclosure code{display:block;margin-top:5px;white-space:nowrap;overflow:auto;max-width:42rem}.path-disclosure dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;margin:6px 0 0}.path-disclosure dt{font-weight:600;color:#475467}.path-disclosure dd{margin:0;min-width:0}
 .tabs a{margin-right:14px}.muted{color:#667085}.document{background:white;border:1px solid #dfe3ea;border-radius:8px;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:#f6f8fa;border:1px solid #dfe3ea;padding:12px;overflow:auto}.document code{background:#eef2f7;padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid #d0d7de;color:#57606a;margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}.document table{border:1px solid #dfe3ea}.document tr:nth-child(even),.table-wrap tbody tr:nth-child(even){background:#fbfcfe}
 .action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid #ccd3dd;border-radius:6px;padding:5px 9px;background:#f8fafc;color:#667085}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:white;color:#202124;border:1px solid #cfd7e3;border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
@@ -979,8 +1045,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.post_plan()
         if parsed.path == "/actions/repos/add":
             return self.post_add_repo()
-        if parsed.path == "/actions/implement-batch":
-            return self.post_implement_batch()
+        if parsed.path == "/actions/selected":
+            return self.post_selected_action()
+        if parsed.path == "/actions/queue/trigger":
+            return self.post_queue_trigger()
+        if parsed.path == "/actions/queue/delete":
+            return self.post_queue_delete()
         if parsed.path.startswith("/task/") and parsed.path.endswith("/edit"):
             name = unquote(parsed.path.removeprefix("/task/").removesuffix("/edit"))
             return self.post_task_action(name, "edit")
@@ -1012,11 +1082,18 @@ class Handler(BaseHTTPRequestHandler):
         active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
         task_name = form.get("task_name", "").strip()
         prompt = form.get("prompt", "").strip()
+        action = form.get("plan_action", "plan")
         if not valid_task_name(task_name):
             return self.redirect(self.with_active_repo(active_repo, self.flash_query("invalid task name", "error")))
         if not prompt:
             return self.redirect(self.with_active_repo(active_repo, self.flash_query("prompt is required", "error")))
         task_path = self.task_home / repo_slug(active_repo) / task_name
+        if action == "queue":
+            try:
+                write_queued_plan(self.task_home, active_repo, task_name, prompt)
+            except FileExistsError:
+                return self.redirect(self.with_active_repo(active_repo, self.flash_query(f"queued plan prompt already exists for {task_name}", "error")))
+            return self.redirect(self.with_active_repo(active_repo, self.flash_query(f"queued plan prompt {task_name}", "notice")))
         ok, message = launch_paw(active_repo, self.task_home, task_path, ["plan", task_name, prompt])
         self.redirect(self.with_active_repo(active_repo, self.flash_query(message, "notice" if ok else "error")))
 
@@ -1028,12 +1105,9 @@ class Handler(BaseHTTPRequestHandler):
         add_repo_to_registry(self.repo_registry, self.repo, repo)
         self.redirect(self.with_active_repo(repo, self.flash_query(f"added repo {repo}", "notice")))
 
-    def post_implement_batch(self) -> None:
-        form = self.form_values()
-        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", [""])[0]]})
-        selected_paths = [value for value in form.get("task", []) if value]
+    def selected_tasks(self, active_repo: Path, selected_paths: list[str]) -> tuple[list[Task], list[str]]:
         if not selected_paths:
-            return self.redirect(self.with_active_repo(active_repo, self.flash_query("select at least one unfinished task", "error")))
+            return [], ["select at least one task"]
         tasks_by_path = {str(task.path): task for task in list_tasks(active_repo, self.task_home, self.all_repos)}
         selected: list[Task] = []
         errors: list[str] = []
@@ -1047,28 +1121,76 @@ class Handler(BaseHTTPRequestHandler):
             if not task:
                 errors.append(f"{path_value} is not a current task")
                 continue
-            if task.blocked:
-                errors.append(f"{task.name} has USER ANSWER placeholders")
+            if str(task.path) != path_value:
+                errors.append(f"{task.name} path did not match listed task")
             elif task.running:
                 errors.append(f"{task.name} is already running")
-            elif task.finished:
-                errors.append(f"{task.name} is already complete")
-            elif not task.plan:
-                errors.append(f"{task.name} has no plan.md")
+            elif task.blocked:
+                errors.append(f"{task.name} has USER ANSWER placeholders")
             else:
                 selected.append(task)
-        if errors:
-            return self.redirect(self.with_active_repo(active_repo, self.flash_query("batch implement blocked: " + "; ".join(errors), "error")))
+        return selected, errors
 
-        messages: list[str] = []
-        ok_all = True
+    def post_selected_action(self) -> None:
+        form = self.form_values()
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", [""])[0]]})
+        action = form.get("selected_action", [""])[0]
+        selected_paths = [value for value in form.get("task", []) if value]
+        if action not in {"archive", "delete"}:
+            return self.redirect(self.with_active_repo(active_repo, self.flash_query("selected action is required", "error")))
+        selected, errors = self.selected_tasks(active_repo, selected_paths)
+        if action == "archive":
+            errors.extend(f"{task.name} is not a central task" for task in selected if task.source != "central")
+            errors.extend(
+                f"archive already exists for {task.name}"
+                for task in selected
+                if (self.task_home / task.slug / ".archive" / task.name).exists()
+            )
+        if action == "delete" and form.get("confirm", [""])[0] != "yes":
+            errors.append("delete confirmation is required")
+        if errors:
+            return self.redirect(self.with_active_repo(active_repo, self.flash_query("selected action blocked: " + "; ".join(errors), "error")))
+
+        if action == "delete":
+            for task in selected:
+                shutil.rmtree(task.path)
+            return self.redirect(self.with_active_repo(active_repo, self.flash_query(f"deleted {len(selected)} selected task(s)", "notice")))
+
         for task in selected:
-            ok, message = launch_paw(task.repo, self.task_home, task.path, ["implement", task.name])
-            ok_all = ok_all and ok
-            messages.append(f"{task.name}: {message}")
-        level = "notice" if ok_all else "error"
-        prefix = f"batch implement started {len(selected)} task(s)"
-        self.redirect(self.with_active_repo(active_repo, self.flash_query(prefix + ": " + "; ".join(messages), level)))
+            archive_root = self.task_home / task.slug / ".archive"
+            archive_root.mkdir(parents=True, exist_ok=True)
+            destination = archive_root / task.name
+            shutil.move(str(task.path), str(destination))
+            meta = destination / "metadata.gitconfig"
+            if meta.exists():
+                subprocess.run(["git", "config", "--file", str(meta), "paw.archived-at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())], check=False)
+        self.redirect(self.with_active_repo(active_repo, self.flash_query(f"archived {len(selected)} selected task(s)", "notice")))
+
+    def post_queue_trigger(self) -> None:
+        form = self.form_data()
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
+        task_name = form.get("task_name", "").strip()
+        item = queue_item_dir(self.task_home, active_repo, task_name)
+        prompt_file = item / "prompt.txt"
+        if not valid_task_name(task_name) or not prompt_file.exists():
+            return self.redirect(self.with_active_repo(active_repo, self.flash_query("queued plan prompt not found", "error")))
+        prompt = prompt_file.read_text(errors="replace").strip()
+        task_path = self.task_home / repo_slug(active_repo) / task_name
+        ok, message = launch_paw(active_repo, self.task_home, task_path, ["plan", task_name, prompt])
+        if ok:
+            shutil.rmtree(item)
+            message = f"triggered queued plan {task_name}: {message}"
+        self.redirect(self.with_active_repo(active_repo, self.flash_query(message, "notice" if ok else "error")))
+
+    def post_queue_delete(self) -> None:
+        form = self.form_data()
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
+        task_name = form.get("task_name", "").strip()
+        item = queue_item_dir(self.task_home, active_repo, task_name)
+        if not valid_task_name(task_name) or not item.exists():
+            return self.redirect(self.with_active_repo(active_repo, self.flash_query("queued plan prompt not found", "error")))
+        shutil.rmtree(item)
+        self.redirect(self.with_active_repo(active_repo, self.flash_query(f"removed queued plan {task_name}", "notice")))
 
     def post_task_action(self, name: str, subcommand: str) -> None:
         form = self.form_data()
@@ -1078,6 +1200,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_html("<h1>Task not found</h1>", 404)
         if subcommand == "implement" and task.blocked:
             return self.redirect(self.task_url(task, "implement blocked: reconcile USER ANSWER placeholders first", "error"))
+        if subcommand == "prototype":
+            reason = prototype_disabled_reason(task)
+            if reason:
+                grade = review_grade(task.review)
+                return self.redirect(self.task_url(task, f"prototype blocked: review grade {grade} is A- or higher", "error"))
         if task.running:
             return self.redirect(self.task_url(task, f"{task.name} already has a running PAW subprocess", "error"))
         args = [subcommand, task.name]
@@ -1172,9 +1299,8 @@ class Handler(BaseHTTPRequestHandler):
         body = (
             f"{page_header('PAW Tasks', scope, active_repo)}<main class='shell'>"
             f"{self.flash_html(message, level)}"
-            f"<p class='muted'>Central store {path_disclosure('Central store', central_note)}</p>"
             f"{self.index_filters(query, active_repo)}"
-            f"{self.new_plan_modal(active_repo)}"
+            f"{self.dashboard_actions(active_repo)}"
             f"<div id='task-list' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
             f"{self.index_task_list(query, active_repo)}"
             "</div><div class='doc-preview' data-doc-preview></div></main>"
@@ -1234,20 +1360,24 @@ class Handler(BaseHTTPRequestHandler):
         completion_select = "".join(
             [option_tag("", "Any completion", completion_filter), *(option_tag(value, value, completion_filter) for value in completion_options)]
         )
+        repo_filter = query.get("repo", [""])[0]
+        open_attr = " open" if state_filter or completion_filter or repo_filter else ""
         return (
             f"{self.repo_selector(active_repo)}"
+            f"<details class='filter-disclosure'{open_attr}><summary>Filter tasks</summary>"
             "<form class='toolbar' method='get'>"
             "<div class='toolbar-fields'>"
             f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
             f"<label>State <select name=\"state\">{state_select}</select></label>"
-            f"<label>Repo filter <input name=\"repo\" value=\"{html_attr(query.get('repo', [''])[0])}\"></label>"
+            f"<label>Repo filter <input name=\"repo\" value=\"{html_attr(repo_filter)}\"></label>"
             f"<label>Completion <select name=\"completion\">{completion_select}</select></label>"
             "</div><div class='top-actions'>"
             "<button type='submit'>Filter</button><a class='button' href='/'>Clear</a>"
-            "</div></form>"
+            "</div></form></details>"
         )
 
     def new_plan_modal(self, active_repo: Path) -> str:
+        queued = self.queued_plan_list(active_repo)
         return (
             "<details class='modal-toggle'><summary><span class='button primary'>Plan</span></summary>"
             "<div class='modal-panel'><div class='modal-body'>"
@@ -1256,8 +1386,51 @@ class Handler(BaseHTTPRequestHandler):
             f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
             "<p><label>Task name <input name='task_name' required pattern='[A-Za-z0-9._-]+'></label></p>"
             "<p><label>Prompt<br><textarea name='prompt' required rows='4'></textarea></label></p>"
-            "<p class='action-row'><button type='submit'>Plan</button><button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Close</button></p>"
-            "</form></div></div></details>"
+            "<p class='action-row'><button type='submit' name='plan_action' value='plan'>Plan</button>"
+            "<button type='submit' name='plan_action' value='queue' title='Save this prompt locally so planning can be started later'>Queue</button>"
+            "<button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Close</button></p>"
+            f"</form>{queued}</div></div></details>"
+        )
+
+    def dashboard_actions(self, active_repo: Path) -> str:
+        return (
+            "<div class='dashboard-actions'>"
+            f"{self.new_plan_modal(active_repo)}"
+            "<form id='selected-action-form' class='selected-actions' method='post' action='/actions/selected'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
+            "<label>Selected action <select name='selected_action' required>"
+            "<option value=''>Choose action</option><option value='archive'>Archive selected</option><option value='delete'>Delete selected</option>"
+            "</select></label>"
+            "<label class='checkbox-label'><input type='checkbox' name='confirm' value='yes'> Confirm delete</label>"
+            "<button type='submit'>Apply</button></form>"
+            "</div>"
+        )
+
+    def queued_plan_list(self, active_repo: Path) -> str:
+        items = list_queued_plans(self.task_home, active_repo)
+        if not items:
+            return ""
+        rows = []
+        for item in items:
+            preview = " ".join(item.prompt.split())[:160]
+            rows.append(
+                "<tr>"
+                f"<td><span class='task-title'>{html.escape(item.task_name)}</span></td>"
+                f"<td>{html.escape(preview)}</td>"
+                "<td><div class='action-row'>"
+                "<form class='inline-form' method='post' action='/actions/queue/trigger'>"
+                f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
+                f"<input type='hidden' name='task_name' value='{html_attr(item.task_name)}'>"
+                "<button type='submit'>Plan</button></form>"
+                "<form class='inline-form' method='post' action='/actions/queue/delete'>"
+                f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
+                f"<input type='hidden' name='task_name' value='{html_attr(item.task_name)}'>"
+                "<button type='submit'>Remove</button></form>"
+                "</div></td></tr>"
+            )
+        return (
+            "<h3>Queued Plans</h3><div class='table-wrap'><table><thead><tr><th>Task</th><th>Prompt</th><th>Actions</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></div>"
         )
 
     def extras_modal(self, task: Task, action: str, label: str) -> str:
@@ -1349,7 +1522,7 @@ class Handler(BaseHTTPRequestHandler):
         active_query = f"&active_repo={quote(str(task.repo), safe='')}"
         pieces = [self.archive_form(task)]
         if include_docs:
-            for doc in ("contract", "plan"):
+            for doc in ("plan",):
                 preview_url = f"/fragments/task-doc/{quote(task.name)}?path={quote(str(task.path), safe='')}&doc={doc}{active_query}"
                 pieces.append(f"<button type='button' data-doc-preview-url='{html_attr(preview_url)}'>{doc}.md</button>")
         edit_label = "Answer Questions" if task.blocked else "Edit"
@@ -1361,7 +1534,13 @@ class Handler(BaseHTTPRequestHandler):
             ]
         )
         if not include_docs:
-            pieces.extend([self.extras_modal(task, "review", "Review"), self.extras_modal(task, "prototype", "Use as Prototype"), self.archive_form(task)])
+            prototype_reason = prototype_disabled_reason(task)
+            prototype_control = (
+                f"<span class='disabled-action' title='{html_attr(prototype_reason)}'>Use as Prototype</span>"
+                if prototype_reason
+                else self.extras_modal(task, "prototype", "Use as Prototype")
+            )
+            pieces.extend([self.extras_modal(task, "review", "Review"), prototype_control, self.archive_form(task)])
         return f"<div class='action-row'>{''.join(pieces)}</div>"
 
     def workflow_action_control(self, task: Task, workflow: TaskWorkflow) -> str:
@@ -1389,7 +1568,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def workflow_next_cell(self, task: Task, workflow: TaskWorkflow) -> str:
         reason = f"<div class='workflow-note muted'>{html.escape(workflow.disabled_reason)}</div>" if workflow.disabled_reason else ""
-        note = f"<div class='workflow-note muted'>{html.escape(workflow.note)}</div>" if workflow.note else ""
+        note_text = "" if workflow.note == "Review." and workflow.stage in {"Review", "Reviewed", "Prototype"} else workflow.note
+        note = f"<div class='workflow-note muted'>{html.escape(note_text)}</div>" if note_text else ""
         grade = review_grade(task.review) if workflow.stage == "Reviewed" else ""
         grade_badge = (
             f"<div class='workflow-note'><span class='review-grade {review_grade_class(grade)}'>Review grade: {html.escape(grade)}</span></div>"
@@ -1423,7 +1603,7 @@ class Handler(BaseHTTPRequestHandler):
             task_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}&active_repo={quote(str(task.repo), safe='')}"
             branch = task.branch_context or "<none>"
             selector = (
-                f"<input form='batch-implement-form' type='checkbox' name='task' value='{html_attr(str(task.path))}' aria-label='Select {html_attr(task.name)}'>"
+                f"<input form='selected-action-form' type='checkbox' name='task' value='{html_attr(str(task.path))}' aria-label='Select {html_attr(task.name)}'>"
                 if task.batch_eligible
                 else ""
             )
@@ -1441,9 +1621,6 @@ class Handler(BaseHTTPRequestHandler):
                 "</tr>"
             )
         return (
-            "<form id='batch-implement-form' method='post' action='/actions/implement-batch'>"
-            f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'></form>"
-            "<div class='top-actions'><button form='batch-implement-form' type='submit'>Implement selected</button></div>"
             "<div class='table-wrap'><table><thead><tr><th>Select</th><th>Task</th><th>Repo</th><th>Stage</th><th>Next</th><th>Completion</th><th>Checklist</th><th>Validation</th><th>Actions</th></tr></thead>"
             f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table></div>"
         )

@@ -72,6 +72,14 @@ TEMPLATES_DIR="$REPO_ROOT/templates"
   grep -qF "must not run while any \`USER ANSWER (UNRESOLVED):\` or \`USER ANSWER (PROVIDED):\` line remains in \`plan.md\`" "$REPO_ROOT/prompts/prompt_instructions.md"
 }
 
+@test "templates: prompt_instructions.md documents targeted-first validation and escalation" {
+  grep -qF "Run the validation decision ladder" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "targeted changed-area validation" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Validation tier chosen" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Escalate to broader or full validation" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "explicit user/reviewer request" "$REPO_ROOT/prompts/prompt_instructions.md"
+}
+
 @test "templates: prompt_instructions.md working surface <= 300 lines" {
   local count
   count=$(awk '
@@ -105,6 +113,12 @@ TEMPLATES_DIR="$REPO_ROOT/templates"
 @test "templates: plan template seeds percent-only completion and review next work convention" {
   grep -qF -- "- Estimated completion: 0%" "$TEMPLATES_DIR/plan.md"
   grep -qF -- "- Next work: <next concrete step; use \"Review.\" when Estimated completion is 100%>" "$TEMPLATES_DIR/plan.md"
+}
+
+@test "templates: plan template seeds targeted validation contract shape" {
+  grep -qF "Targeted validation:" "$TEMPLATES_DIR/plan.md"
+  grep -qF "Escalate to broader/full validation when:" "$TEMPLATES_DIR/plan.md"
+  grep -qF "Record the validation tier chosen and rationale in Validation Performed." "$TEMPLATES_DIR/plan.md"
 }
 
 @test "templates: legacy extra sections still pass lint when plan.md has required sections" {

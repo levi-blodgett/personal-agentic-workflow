@@ -279,6 +279,15 @@ MD
   prompt_contains "my-task"
 }
 
+@test "paw implement: prompt surfaces targeted-first validation policy" {
+  make_task my-task
+  run "$PAW" implement my-task
+  [ "$status" -eq 0 ]
+  prompt_contains "Run the validation decision ladder"
+  prompt_contains "targeted changed-area validation"
+  prompt_contains "Validation tier chosen"
+}
+
 @test "paw implement: defaults to sonnet when PAW_MODEL is unset" {
   make_task my-task
   run "$PAW" implement my-task
@@ -383,6 +392,15 @@ MD
   prompt_contains "Lock or confirm a deterministic feedback loop first."
   prompt_contains "## Diagnose Loop"
   prompt_contains "### Ranked Hypotheses"
+}
+
+@test "paw diagnose: prompt surfaces targeted-first validation policy" {
+  make_task diagnose-task
+  run "$PAW" diagnose diagnose-task
+  [ "$status" -eq 0 ]
+  prompt_contains "Run the validation decision ladder"
+  prompt_contains "targeted changed-area validation"
+  prompt_contains "Validation tier chosen"
 }
 
 @test "paw diagnose: haiku is rejected by quality guardrail on claude backend" {
