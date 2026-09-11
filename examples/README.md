@@ -1,6 +1,7 @@
 # `examples/`
 
-Committed reference task packages showing what a real `.agent/<task-name>/` directory looks like after a task has actually been executed end-to-end.
+Committed examples, including the [external backend installer](backend-plugin/README.md) and
+[backend author guide](docs/backends.md), plus reference task packages showing what a real `.agent/<task-name>/` directory looks like after a task has actually been executed end-to-end.
 
 ## Contents
 

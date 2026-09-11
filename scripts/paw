@@ -6,7 +6,7 @@
 # dispatch, and completion generation stay aligned.
 #
 # Environment overrides:
-#   PAW_HOME            path to this repo (default: resolved from the launcher
+#   PAW_HOME            template/instruction root (default: resolved from the launcher
 #                       location; override when you want a different checkout)
 #   PAW_MODEL           model override for all model-resolved subcommands
 #                       (`paw plan`, `paw architecture`, `paw teach`,
@@ -94,7 +94,11 @@ _backend_plugin_executable_name() {
 }
 
 _backend_plugin_path() {
-  command -v "$(_backend_plugin_executable_name)" 2>/dev/null || true
+  local candidate
+  candidate=$(command -v "$(_backend_plugin_executable_name)" 2>/dev/null) || return 0
+  if [[ -f "$candidate" && -x "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+  fi
 }
 
 _load_external_backend_plugin() {
@@ -240,7 +244,7 @@ EOF
   cat <<'EOF'
 
 Environment overrides:
-  PAW_HOME            path to this repo (default: derived from the installed
+  PAW_HOME            template/instruction root (default: derived from the installed
                       launcher path; override when you want a different
                       checkout)
   PAW_MODEL           model override for all model-resolved subcommands

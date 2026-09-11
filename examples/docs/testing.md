@@ -28,3 +28,15 @@ Key implementation details:
 - `paw-prompt-body.bats` uses `PAW_BACKEND=stub` so prompt-body assertions never need a real backend binary.
 - Dedicated `paw-codex.bats` coverage stays in this repo, while backend-specific compatibility checks for separately distributed plugins should live with each plugin repo; PAW itself keeps seam-level external-plugin coverage in `paw-dispatcher.bats`.
 - Every `*.bats` file sources `tests/helpers/hermetic.bash`, which sets `LC_ALL=C`, `LANG=C`, and `TZ=UTC` and unsets all `PAW_*` env vars so tests behave identically on macOS and Linux CI runners.
+
+Installer/plugin changed-area validation:
+
+```bash
+bats tests/makefile.bats tests/plugin-install.bats tests/paw-dispatcher.bats
+```
+
+The plugin suite copies the [published Makefile](../backend-plugin/Makefile) into
+a temporary external checkout, supplies a harmless adapter, and runs installed
+PAW from a third directory with isolated HOME/PREFIX/PATH/task storage. It checks
+capture and streaming separately; model discovery alone is insufficient. Full
+`make check` is required for installer changes before handoff.

@@ -35,7 +35,8 @@ bats tests/lint-task.bats
 | `lint-task.bats` | `scripts/lint-task.sh` |
 | `task-store.bats` | central task-store resolution, archive moves/filtering, metadata, legacy fallback, eligibility/running-state predicates, and explicit multi-repo migration helpers |
 | `gui-server.bats` | `paw gui` Markdown rendering, newest-first task sorting, auto-refresh fragment plumbing, main-table filters, active repo registry/selector behavior, combined repo/branch display, home navigation, concise action labels, overlay prompts/previews, no-extra GUI implementation, local plan/edit/implement/review/prototype/archive actions, click-time View PR lookup for saved live branches (success, missing branch/tool, no PR, auth guidance, escaped generic diagnostics, silent failure, and invalid/empty URLs), selected-task archive/delete, prototype markers and cleanup messages, guarded deletion, foreground smoke, managed start/stop/restart/kill lifecycle, stable default-port coverage, stale PID protection, and multi-repo dashboard coverage |
-| `makefile.bats` | `Makefile` targets (install, uninstall, help, -n dry-runs) |
+| `makefile.bats` | Make targets, conservative install ownership, spaces, launcher chains, source checks and relocation recovery |
+| `plugin-install.bats` | Real copied external-plugin Makefile; install lifecycle, conflicts, overrides, source resources, capture/stream, failures, optional hooks and executable discovery |
 | `paw-dispatcher.bats` | `scripts/paw` subcommand dispatch, review/prototype/archive command surfaces, `implement-batch`, worktree resume, and launcher behavior |
 | `paw-completion-docs.bats` | Durable docs coverage for `paw completion zsh` and the narrowed `zsh`-only scope |
 | `paw-codex.bats` | Default codex backend wiring, auth banner, sandbox flags, and usage parsing |

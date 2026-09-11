@@ -492,7 +492,7 @@ The repo ships a top-level `Makefile` that consolidates the central operator com
 |--------|---------|
 | `help` | List all targets (default) |
 | `install` | Symlink `scripts/paw` into `$(PREFIX)` (default: `~/bin`); external `paw-backend-<name>` plugins stay separately installed on `PATH` |
-| `uninstall` | Remove the `$(PREFIX)/paw` symlink |
+| `uninstall` | Remove only this checkout’s exact owned `$(PREFIX)/paw` symlink |
 | `test` | Run the full bats test suite |
 | `lint` | Lint all `.agent/` task packages in this repo |
 | `shellcheck` | Run shellcheck over all shell scripts |
@@ -505,7 +505,15 @@ make check   # run all validation locally
 make install # put paw on your PATH via ~/bin
 ```
 
-`make install` only creates the launcher symlink. By default, the installed launcher derives `PAW_HOME` from its resolved path back to the checkout it points at, so built-ins keep working even when the repo lives somewhere other than `$HOME/git/personal-agentic-workflow`. Set `PAW_HOME` explicitly only when you want the launcher to use a different checkout.
+`make install` only creates the launcher symlink. By default, the installed launcher derives `PAW_HOME` from its resolved path back to the checkout it points at, so built-ins keep working even when the repo lives somewhere other than `$HOME/git/personal-agentic-workflow`. `PAW_HOME` overrides templates/instructions and resource paths passed to backends; built-ins and helpers still load from the resolved launcher checkout.
+
+Installation uses PREFIX directly (no appended `bin`), creates missing directories,
+and refuses files, directories, and foreign links. Repeated install and absent
+uninstall succeed. Only an exact absolute link to this checkout’s launcher is
+owned, including a dangling link at uninstall. Inspect collisions or stale links
+before manually removing them and reinstalling. Run make in the checkout or with
+`make -C`; keep that checkout available. See the [installation journey](../../README.md#install)
+for prerequisites, PATH persistence, upgrades, and recovery.
 
 ## Model And Backend Behavior
 

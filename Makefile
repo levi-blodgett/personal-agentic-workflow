@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 PREFIX     ?= $(HOME)/bin
-REPO_ROOT  := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+REPO_ROOT  := $(CURDIR)
 
 .PHONY: help install uninstall test lint shellcheck check list ci-deps
 
@@ -9,8 +9,8 @@ help:
 	@printf '%s\n' \
 	  'Targets:' \
 	  '  help       — show this help' \
-	  '  install    — symlink scripts/paw into PREFIX/bin (default: ~/bin)' \
-	  '  uninstall  — remove the symlink from PREFIX/bin' \
+	  '  install    — symlink scripts/paw into PREFIX (default: ~/bin)' \
+	  '  uninstall  — remove the symlink from PREFIX' \
 	  '  test       — run the full bats test suite' \
 	  '  lint       — lint all central/legacy task packages in this repo' \
 	  '  shellcheck — run shellcheck over all shell scripts' \
@@ -19,11 +19,10 @@ help:
 	  '  ci-deps    — install CI dependencies (bats, jq, shellcheck)'
 
 install:
-	mkdir -p "$(PREFIX)"
-	ln -sf "$(REPO_ROOT)scripts/paw" "$(PREFIX)/paw"
+	@bash "$(REPO_ROOT)/scripts/install-paw.sh" install "$(PREFIX)"
 
 uninstall:
-	rm -f "$(PREFIX)/paw"
+	@bash "$(REPO_ROOT)/scripts/install-paw.sh" uninstall "$(PREFIX)"
 
 test:
 	bats tests/

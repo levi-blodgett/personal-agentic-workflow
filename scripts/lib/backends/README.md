@@ -21,3 +21,9 @@ Built-in AI backend modules for `paw`. Each module is a self-contained bash file
 ## External plugins
 
 When a backend should live outside this repo, install an executable named `paw-backend-<name>` on `PATH` instead of adding a new built-in file here. The executable protocol is documented in [`_iface.md`](_iface.md). Keep backend-specific compatibility coverage with the plugin's own repo; this repo only carries the generic dispatcher and protocol seam tests.
+
+For naming, PATH setup, source-relative resources and troubleshooting, follow the
+[author guide](../../../examples/docs/backends.md#external-plugin-backend-example)
+and [standalone installer template](../../../examples/backend-plugin/README.md).
+Built-ins/helpers load from the resolved launcher checkout, independently of the
+PAW_HOME template/instruction override.
