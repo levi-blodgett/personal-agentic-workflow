@@ -114,6 +114,15 @@ wait_for_run_metadata() {
   return 1
 }
 
+init_repo_with_commit() {
+  git -C "$REPO" init -q
+  git -C "$REPO" config user.email "test@example.test"
+  git -C "$REPO" config user.name "PAW Test"
+  touch "$REPO/README.md"
+  git -C "$REPO" add README.md
+  git -C "$REPO" commit -qm "initial"
+}
+
 start_paw_like_sleeper() {
   bash -c 'exec -a paw-test sleep 60' &
   SLEEPER_PID="$!"
@@ -607,6 +616,107 @@ MD
   grep -q "feature/gui-context" "$BATS_TEST_TMPDIR/branch-context.html"
   grep -q "<th>Repo</th>" "$BATS_TEST_TMPDIR/branch-context.html"
   ! grep -q "<th>Branch</th>" "$BATS_TEST_TMPDIR/branch-context.html"
+}
+
+@test "paw gui: exposes View PR for PAW branch metadata with an existing local branch" {
+  init_repo_with_commit
+  git -C "$REPO" branch feature/gui-pr
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.branch-name feature/gui-pr
+  mkdir -p "$REPO/.agent/no-branch-task" "$REPO/.agent/deleted-branch-task"
+  cp "$REPO/.agent/gui-task/plan.md" "$REPO/.agent/no-branch-task/plan.md"
+  cp "$REPO/.agent/gui-task/plan.md" "$REPO/.agent/deleted-branch-task/plan.md"
+  git config --file "$REPO/.agent/deleted-branch-task/metadata.gitconfig" paw.branch-name feature/deleted
+  local port=18757 path encoded_path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  encoded_path="$(url_encode "$path")"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/view-pr-index.html"
+  fetch_gui "$port" "/task/gui-task?path=$encoded_path&doc=plan" "$BATS_TEST_TMPDIR/view-pr-detail.html"
+  stop_gui
+
+  grep -q "/task/gui-task/view-pr" "$BATS_TEST_TMPDIR/view-pr-index.html"
+  grep -q "/task/gui-task/view-pr" "$BATS_TEST_TMPDIR/view-pr-detail.html"
+  grep -q ">View PR<" "$BATS_TEST_TMPDIR/view-pr-index.html"
+  ! grep -q "/task/no-branch-task/view-pr" "$BATS_TEST_TMPDIR/view-pr-index.html"
+  ! grep -q "/task/deleted-branch-task/view-pr" "$BATS_TEST_TMPDIR/view-pr-index.html"
+}
+
+@test "paw gui: View PR uses saved branch and returns the current PR URL without launching PAW" {
+  init_repo_with_commit
+  git -C "$REPO" branch feature/gui-pr
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.branch-name feature/gui-pr
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat > "$BATS_TEST_TMPDIR/bin/gh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" > "$BATS_TEST_TMPDIR/gh.args"
+printf 'https://github.example.test/org/repo/pull/42\n'
+SH
+  chmod +x "$BATS_TEST_TMPDIR/bin/gh"
+  local old_path="$PATH"
+  export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+  local port=18756 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+  post_gui "$port" "/task/gui-task/view-pr" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/view-pr-post.html"
+  stop_gui
+  export PATH="$old_path"
+
+  grep -q "Current PR for gui-task" "$BATS_TEST_TMPDIR/view-pr-post.html"
+  grep -q "https://github.example.test/org/repo/pull/42" "$BATS_TEST_TMPDIR/view-pr-post.html"
+  grep -Fx "pr view feature/gui-pr --json url --jq .url" "$BATS_TEST_TMPDIR/gh.args"
+  [ ! -f "$BATS_TEST_TMPDIR/backend.prompt" ]
+  [ ! -d "$REPO/.agent/gui-task/runs" ]
+}
+
+@test "paw gui: View PR rejects ineligible branches and missing PRs clearly" {
+  init_repo_with_commit
+  git -C "$REPO" branch feature/gui-pr
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.branch-name feature/deleted
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat > "$BATS_TEST_TMPDIR/bin/gh" <<'SH'
+#!/usr/bin/env bash
+printf 'no pull requests found\n' >&2
+exit 1
+SH
+  chmod +x "$BATS_TEST_TMPDIR/bin/gh"
+  local old_path="$PATH"
+  export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+  local port=18755 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+  post_gui "$port" "/task/gui-task/view-pr" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/view-pr-deleted.html"
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.branch-name feature/gui-pr
+  post_gui "$port" "/task/gui-task/view-pr" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/view-pr-missing.html"
+  stop_gui
+  export PATH="$old_path"
+
+  grep -q "View PR unavailable: saved branch is missing or no longer exists locally" "$BATS_TEST_TMPDIR/view-pr-deleted.html"
+  grep -q "No current PR found for branch feature/gui-pr" "$BATS_TEST_TMPDIR/view-pr-missing.html"
+  [ ! -f "$BATS_TEST_TMPDIR/backend.prompt" ]
+}
+
+@test "paw gui: View PR reports when gh is unavailable" {
+  init_repo_with_commit
+  git -C "$REPO" branch feature/gui-pr
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.branch-name feature/gui-pr
+  local no_gh_path="$BATS_TEST_TMPDIR/no-gh-bin"
+  mkdir -p "$no_gh_path"
+  for tool in bash python3 git cksum dirname readlink pkill sleep mkdir date sed awk grep basename cat; do
+    local tool_path
+    tool_path="$(command -v "$tool")"
+    ln -s "$tool_path" "$no_gh_path/$tool"
+  done
+  local old_path="$PATH"
+  export PATH="$no_gh_path"
+  local port=18752 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+  post_gui "$port" "/task/gui-task/view-pr" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/view-pr-no-gh.html"
+  stop_gui
+  export PATH="$old_path"
+
+  grep -q "View PR unavailable: gh is not installed or not on PATH" "$BATS_TEST_TMPDIR/view-pr-no-gh.html"
+  [ ! -f "$BATS_TEST_TMPDIR/backend.prompt" ]
 }
 
 @test "paw gui: renders task markdown as safe semantic HTML" {

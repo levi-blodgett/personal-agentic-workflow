@@ -30,6 +30,19 @@ def git_value(repo: Path, *args: str) -> str:
         return ""
 
 
+def git_ok(repo: Path, *args: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def physical(path: Path) -> Path:
     return path.expanduser().resolve()
 
@@ -757,6 +770,10 @@ class Task:
         )
 
     @property
+    def saved_branch_name(self) -> str:
+        return metadata_value(self.path / "metadata.gitconfig", "branch-name")
+
+    @property
     def prototype_status(self) -> str:
         return metadata_value(self.path / "metadata.gitconfig", "prototype-status")
 
@@ -806,6 +823,15 @@ class TaskWorkflow:
     action: str
     note: str = ""
     disabled_reason: str = ""
+
+
+def view_pr_branch(task: Task) -> str:
+    branch = task.saved_branch_name
+    if not branch:
+        return ""
+    if git_ok(task.repo, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"):
+        return branch
+    return ""
 
 
 def task_workflow(task: Task) -> TaskWorkflow:
@@ -1163,6 +1189,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/task/") and parsed.path.endswith("/cancel"):
             name = unquote(parsed.path.removeprefix("/task/").removesuffix("/cancel"))
             return self.post_cancel(name)
+        if parsed.path.startswith("/task/") and parsed.path.endswith("/view-pr"):
+            name = unquote(parsed.path.removeprefix("/task/").removesuffix("/view-pr"))
+            return self.post_view_pr(name)
         if parsed.path.startswith("/archive/") and parsed.path.endswith("/unarchive"):
             name = unquote(parsed.path.removeprefix("/archive/").removesuffix("/unarchive"))
             return self.post_unarchive(name)
@@ -1311,6 +1340,42 @@ class Handler(BaseHTTPRequestHandler):
         if subcommand == "archive" and ok:
             return self.redirect(f"/?{self.flash_query(message, 'notice')}")
         self.redirect(self.task_url(task, message, "notice" if ok else "error"))
+
+    def post_view_pr(self, name: str) -> None:
+        form = self.form_data()
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
+        task = self.resolve_task(name, form.get("path", ""), active_repo)
+        if not task:
+            return self.send_html("<h1>Task not found</h1>", 404)
+        branch = view_pr_branch(task)
+        if not branch:
+            return self.redirect(self.task_url(task, "View PR unavailable: saved branch is missing or no longer exists locally", "error"))
+        try:
+            result = subprocess.run(
+                ["gh", "pr", "view", branch, "--json", "url", "--jq", ".url"],
+                cwd=str(task.repo),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+        except FileNotFoundError:
+            return self.redirect(self.task_url(task, "View PR unavailable: gh is not installed or not on PATH", "error"))
+        except OSError as exc:
+            return self.redirect(self.task_url(task, f"View PR unavailable: gh failed to start: {exc}", "error"))
+        pr_url = result.stdout.strip()
+        if result.returncode != 0 or not pr_url:
+            return self.redirect(self.task_url(task, f"No current PR found for branch {branch}", "error"))
+        if not re.match(r"^https?://", pr_url):
+            return self.redirect(self.task_url(task, f"View PR unavailable: gh returned an invalid PR URL for branch {branch}", "error"))
+        body = (
+            f"{page_header(f'Current PR for {task.name}', task.repo_name, task.repo)}<main class='shell'>"
+            f"<p><a class='button' href='{html_attr(self.task_url(task))}'>Task</a></p>"
+            f"<h2>Current PR for {html.escape(task.name)}</h2>"
+            f"<p><a href='{html_attr(pr_url)}'>{html.escape(pr_url)}</a></p>"
+            "</main>"
+        )
+        self.send_html(body)
 
     def post_cancel(self, name: str) -> None:
         form = self.form_data()
@@ -1572,6 +1637,9 @@ class Handler(BaseHTTPRequestHandler):
             f"<button type='submit'>{html.escape(label)}</button></form>"
         )
 
+    def view_pr_form(self, task: Task) -> str:
+        return self.action_form(task, "view-pr", "View PR")
+
     def archive_form(self, task: Task) -> str:
         return (
             f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/archive'>"
@@ -1624,6 +1692,8 @@ class Handler(BaseHTTPRequestHandler):
     def task_actions(self, task: Task, include_docs: bool = False) -> str:
         active_query = f"&active_repo={quote(str(task.repo), safe='')}"
         pieces = [self.archive_form(task)]
+        if view_pr_branch(task):
+            pieces.append(self.view_pr_form(task))
         if self.streamable(task):
             pieces.append(self.task_stream_link(task))
         if include_docs:
