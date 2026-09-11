@@ -503,7 +503,7 @@ Use `paw model` to print the resolved model for each subcommand. Add `-v` to als
 
 `paw` resolves models through the active backend:
 
-- On the default `codex` backend, an unset `PAW_MODEL` resolves to `gpt-5.4`.
+- On the default `codex` backend, an unset `PAW_MODEL` resolves to `gpt-6-astra`.
 - On the `claude` backend, an unset `PAW_MODEL` falls back to the backend's own default model family.
 - External plugins may honor `PAW_MODEL` directly or resolve models independently. When a plugin ignores `PAW_MODEL`, it should expose `display-model` so `paw model` and the launch banner report the actual effective model.
 

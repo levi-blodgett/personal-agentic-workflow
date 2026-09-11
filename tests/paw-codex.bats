@@ -106,7 +106,7 @@ args_not_contain() {
   run "$PAW" implement my-task
   [ "$status" -eq 0 ]
   args_contain "-m"
-  args_contain "gpt-5.4"
+  args_contain "gpt-6-astra"
 }
 
 @test "codex: --add-dir <paw_home> is forwarded" {
@@ -152,6 +152,9 @@ args_not_contain() {
 @test "codex: paw plan passes PAW:PLAN anchor to codex" {
   run "$PAW" plan my-plan-task "add observability"
   [ "$status" -eq 0 ]
+  args_contain "-m"
+  args_contain "gpt-6-astra"
+  [[ "$output" == *"model=gpt-6-astra"* ]]
   grep -qF "PAW:PLAN" "$BATS_TEST_TMPDIR/codex.args"
 }
 
@@ -188,7 +191,7 @@ args_not_contain() {
   make_task my-task
   PAW_MODEL_PLAN=gpt-5.5 PAW_MODEL_CONTEXT=gpt-5.5 PAW_MODEL_EDIT=gpt-5.5 PAW_MODEL_RUN=gpt-5.5 PAW_MODEL_NEW=gpt-5.5 run "$PAW" implement my-task
   [ "$status" -eq 0 ]
-  args_contain "gpt-5.4"
+  args_contain "gpt-6-astra"
   args_not_contain "gpt-5.5"
 }
 
@@ -371,6 +374,7 @@ EOF
   PAW_MODEL=sonnet run "$PAW" implement model-warn-task
   [ "$status" -eq 0 ]
   [[ "$output" == *"warn: model 'sonnet' looks like an Anthropic model name"* ]]
+  [[ "$output" == *"for example gpt-6-astra"* ]]
 }
 
 @test "codex: PAW_MODEL=o4-mini does not emit Anthropic model warning" {
@@ -468,9 +472,29 @@ EOF
 
 # ── ChatGPT auth + API-key-only model warning ─────────────────────────────────
 
-@test "codex: PAW_MODEL=o4-mini with ChatGPT auth emits GPT-5-path warning" {
+@test "codex: PAW_MODEL=o4-mini with ChatGPT auth recommends the current default" {
   make_task chatgpt-model-warn-task
   PAW_MODEL=o4-mini run "$PAW" implement chatgpt-model-warn-task
   [ "$status" -eq 0 ]
-  [[ "$output" == *"prefer gpt-5.4 by default or upgrade to gpt-5.5"* ]]
+  [[ "$output" == *"prefer gpt-6-astra by default"* ]]
+}
+
+@test "paw model: every subcommand defaults to gpt-6-astra" {
+  run "$PAW" model
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -gt 0 ]
+  local line
+  for line in "${lines[@]}"; do
+    [[ "$line" == *": "* ]]
+    [[ "${line##* }" == "gpt-6-astra" ]]
+  done
+}
+
+@test "codex: default gpt-6-astra launch supports ChatGPT auth without model warnings" {
+  make_task astra-task
+  run "$PAW" implement astra-task
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"model=gpt-6-astra"* ]]
+  [[ "$output" == *"codex: Logged in using ChatGPT (stub)"* ]]
+  [[ "$output" != *"warn: model"* ]]
 }

@@ -7,7 +7,7 @@ Built-in AI backend modules for `paw`. Each module is a self-contained bash file
 | File | `PAW_BACKEND` value | Required functions | `backend_display_model` | Purpose |
 |------|---------------------|--------------------|-------------------------|---------|
 | [`claude.sh`](claude.sh) | `claude` | ✓ | — (uses `PAW_MODEL`) | Wraps the `claude` CLI. Supports capture and streaming modes. Aggregates token counts across all session iterations. |
-| [`codex.sh`](codex.sh) | `codex` (default) | ✓ | — (uses `PAW_MODEL`, default `gpt-5.4`) | Wraps the `codex` CLI (`codex exec`). Honors `PAW_MODEL` for model selection, defaults to `gpt-5.4`, and parses current Codex JSONL usage when available. |
+| [`codex.sh`](codex.sh) | `codex` (default) | ✓ | — (uses `PAW_MODEL`, default `gpt-6-astra`) | Wraps the `codex` CLI (`codex exec`). Honors `PAW_MODEL` for model selection, defaults to `gpt-6-astra`, and parses current Codex JSONL usage when available. |
 | [`stub.sh`](stub.sh) | `stub` | ✓ | — (uses `PAW_MODEL`) | Test-only backend. Writes argv and the prompt to `$BATS_TEST_TMPDIR` without making any real API calls. Used by `tests/paw-prompt-body.bats`. |
 
 ## Adding a built-in backend

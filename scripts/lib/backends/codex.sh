@@ -11,7 +11,7 @@
 #   backend_parse_stream_tokens <json-file> [field]
 #
 # Optional capability exports:
-#   backend_default_model       — returns gpt-5.4 when PAW_MODEL is unset
+#   backend_default_model       — returns gpt-6-astra when PAW_MODEL is unset
 #   backend_usage_banner        — prints codex auth status to stderr at launch
 #   backend_auth_mode           — prints api-key | chatgpt | unknown
 #
@@ -28,7 +28,7 @@ _codex_warn_anthropic_model() {
   local model="$1"
   case "$model" in
     sonnet|haiku|opus|claude-*)
-      echo "warn: model '$model' looks like an Anthropic model name; set PAW_MODEL to an OpenAI model (for example gpt-5.4 or gpt-5.5) for the codex backend." >&2 ;;
+      echo "warn: model '$model' looks like an Anthropic model name; set PAW_MODEL to an OpenAI model (for example gpt-6-astra) for the codex backend." >&2 ;;
   esac
 }
 
@@ -47,7 +47,7 @@ _codex_auth_mode_from_status() {
 
 _codex_supported_chatgpt_model() {
   case "$1" in
-    gpt-5.4|gpt-5.5|gpt-5.4-mini|gpt-5.3-codex|gpt-5|gpt-5-mini|gpt-5-nano) return 0 ;;
+    gpt-6-astra|gpt-5.4|gpt-5.5|gpt-5.4-mini|gpt-5.3-codex|gpt-5|gpt-5-mini|gpt-5-nano) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -224,7 +224,7 @@ backend_parse_stream_tokens() {
 }
 
 backend_default_model() {
-  printf 'gpt-5.4\n'
+  printf 'gpt-6-astra\n'
 }
 
 backend_auth_mode() {
@@ -235,12 +235,12 @@ backend_auth_mode() {
 backend_usage_banner() {
   command -v codex >/dev/null 2>&1 || return 0
   local auth_line auth_mode model
-  model="${PAW_MODEL:-gpt-5.4}"
+  model="${PAW_MODEL:-gpt-6-astra}"
   _codex_warn_anthropic_model "$model"
   auth_line=$(_codex_login_status)
   auth_mode=$(_codex_auth_mode_from_status "$auth_line")
   if [[ "$auth_mode" == "chatgpt" ]] && ! _codex_supported_chatgpt_model "$model"; then
-    echo "warn: model '$model' is not part of the current GPT-5 Codex path; prefer gpt-5.4 by default or upgrade to gpt-5.5 when needed." >&2
+    echo "warn: model '$model' is not in PAW's supported ChatGPT model list; prefer gpt-6-astra by default." >&2
   fi
   echo "codex: $auth_line" >&2
 }

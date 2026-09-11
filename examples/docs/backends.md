@@ -37,7 +37,7 @@ The `codex`, `claude`, and `stub` backends ship in this repo today. `codex` is t
 
 | Backend | Default? | Typical use | Notes |
 |---|---|---|---|
-| `codex` | Yes | Day-to-day planning and implementation | Uses `codex exec`, defaults to `gpt-5.4`, prints auth status, and supports streamed output. |
+| `codex` | Yes | Day-to-day planning and implementation | Uses `codex exec`, defaults to `gpt-6-astra`, prints auth status, and supports streamed output. |
 | `claude` | No | Anthropic CLI workflow | Uses the `claude` CLI, supports capture and streaming, and enforces the no-haiku guardrail for `paw implement`. |
 | `stub` | Test-only | Bats fixtures and prompt-body tests | Never makes real API calls; records argv/prompt into `$BATS_TEST_TMPDIR`. |
 
@@ -154,19 +154,19 @@ The `codex` backend wraps the [OpenAI Codex CLI](https://github.com/openai/codex
 
 ```bash
 paw implement my-task
-PAW_MODEL=gpt-5.5 paw implement my-task
+PAW_MODEL=gpt-6-astra paw implement my-task
 ```
 
 Key properties:
 
 - **Model from `PAW_MODEL`:** `codex exec` accepts `-m <model>`, so `PAW_MODEL`
   is forwarded as-is for every model-resolved subcommand. When unset, PAW defaults
-  codex runs to `gpt-5.4`.
+  codex runs to `gpt-6-astra`.
 
 - **ChatGPT vs API-key auth:** `paw` prints `codex login status` at launch so you
   can see which access path the CLI is using before a run starts.
-  - ChatGPT login: `gpt-5.4` is the default path; `gpt-5.5` is the preferred upgrade.
-    PAW warns when you pick older `o*` / `gpt-4*` style models on this path.
+  - ChatGPT login: `gpt-6-astra` is the default and is included in PAW's supported model list.
+    PAW warns for models outside that list, including older `o*` / `gpt-4*` models.
   - OpenAI API key: named OpenAI model IDs are forwarded normally.
 
 - **Usage banner:** when the codex backend is active, `paw` prints the output of
@@ -194,8 +194,8 @@ Example invocations:
 ```bash
 # Default Codex path
 paw implement my-task
-PAW_MODEL=gpt-5.5 paw implement my-task
-PAW_MODEL=gpt-5.5 paw plan my-task "add observability"
+PAW_MODEL=gpt-6-astra paw implement my-task
+PAW_MODEL=gpt-6-astra paw plan my-task "add observability"
 PAW_BACKEND=codex PAW_CODEX_DANGEROUS=1 PAW_MODEL=o4-mini paw implement my-task  # CI
 ```
 
