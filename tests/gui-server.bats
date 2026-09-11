@@ -417,6 +417,58 @@ MD
   grep -q "finish the approved slice" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 
+@test "paw gui: task detail exposes review prototype and archive actions" {
+  local port=18786 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+  fetch_gui "$port" "/task/gui-task?path=$(url_encode "$path")&doc=plan" "$BATS_TEST_TMPDIR/actions.html"
+  stop_gui
+
+  grep -q "/task/gui-task/review" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q "/task/gui-task/prototype" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q "/task/gui-task/archive" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q "Start review" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q "Start prototype" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q "Archive task" "$BATS_TEST_TMPDIR/actions.html"
+}
+
+@test "paw gui: starts review and prototype through paw actions" {
+  local port=18787 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  printf '# Review\n' > "$REPO/.agent/gui-task/review.md"
+  start_gui "$port"
+
+  post_gui "$port" "/task/gui-task/review" "$(form_encode "path=$path" "extras=Threshold is B+")" "$BATS_TEST_TMPDIR/review-post.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -q "PAW:IMPLEMENT" "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -q "Threshold is B+" "$BATS_TEST_TMPDIR/backend.prompt"
+  rm -f "$BATS_TEST_TMPDIR/backend.prompt"
+
+  post_gui "$port" "/task/gui-task/prototype" "$(form_encode "path=$path" "extras=Use the review as source")" "$BATS_TEST_TMPDIR/prototype-post.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  stop_gui
+
+  grep -q "PAW:PLAN" "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -q "Use the review as source" "$BATS_TEST_TMPDIR/backend.prompt"
+}
+
+@test "paw gui: blocks review prototype and archive while task is running" {
+  local port=18788 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  mkdir -p "$REPO/.agent/gui-task/runs"
+  git config --file "$REPO/.agent/gui-task/runs/running.gitconfig" paw.status running
+  start_gui "$port"
+
+  post_gui "$port" "/task/gui-task/review" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/review-running.html"
+  post_gui "$port" "/task/gui-task/prototype" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/prototype-running.html"
+  post_gui "$port" "/task/gui-task/archive" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/archive-running.html"
+  stop_gui
+
+  grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/review-running.html"
+  grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/prototype-running.html"
+  grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/archive-running.html"
+}
+
 @test "paw gui: batch implement starts every selected eligible task" {
   mkdir -p "$REPO/.agent/gui-task-two"
   cp "$REPO/.agent/gui-task/plan.md" "$REPO/.agent/gui-task-two/plan.md"
@@ -475,6 +527,47 @@ MD
   grep -q "delete confirmation must match" "$BATS_TEST_TMPDIR/delete-reject.html"
   grep -q "delete rejected: stale task path" "$BATS_TEST_TMPDIR/delete-stale.html"
   [[ ! -d "$central" ]]
+}
+
+@test "paw gui: archive action moves central task out of active dashboard" {
+  git -C "$REPO" init -q
+  local central
+  central="$(bash -c 'source "$1"; paw_task_create_dir "$2" archive-me' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
+  mkdir -p "$central"
+  cat > "$central/plan.md" <<'MD'
+# Archive Me
+MD
+  bash -c 'source "$1"; paw_task_write_metadata "$2" "$3" archive-me created ""' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$central" "$REPO"
+  central="$(real_path "$central")"
+  local port=18789
+  start_gui "$port"
+
+  post_gui "$port" "/task/archive-me/archive" "$(form_encode "path=$central")" "$BATS_TEST_TMPDIR/archive-post.html"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [[ ! -d "$central" ]] && break
+    sleep 0.2
+  done
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/archive-index.html"
+  stop_gui
+
+  [[ ! -d "$central" ]]
+  find "$PAW_TASK_HOME" -path "*/.archive/archive-me" -type d -print -quit | grep -q "archive-me"
+  ! grep -q "archive-me" "$BATS_TEST_TMPDIR/archive-index.html"
+}
+
+@test "paw gui: shows prototype lineage marker in index and detail" {
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.prototype-status planned-source-reverted
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.prototype-source source-task
+  local port=18790 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/prototype-index.html"
+  fetch_gui "$port" "/task/gui-task?path=$(url_encode "$path")&doc=plan" "$BATS_TEST_TMPDIR/prototype-detail.html"
+  stop_gui
+
+  grep -q "planned-source-reverted from source-task" "$BATS_TEST_TMPDIR/prototype-index.html"
+  grep -q "<th>Prototype</th>" "$BATS_TEST_TMPDIR/prototype-detail.html"
+  grep -q "planned-source-reverted from source-task" "$BATS_TEST_TMPDIR/prototype-detail.html"
 }
 
 @test "paw gui: deletes a legacy task only with exact confirmation" {

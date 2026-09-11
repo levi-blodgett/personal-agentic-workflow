@@ -103,12 +103,16 @@ assignment_file() {
   run "$PAW" help
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *'paw prototype <task-name> [--question "<question>"] [--logic|--ui] [extras...]'* ]]
+  [[ "$output" == *'paw review <task-name> [extras...]'* ]]
+  [[ "$output" == *'paw prototype <task-name> [extras...]'* ]]
+  [[ "$output" == *'paw archive <task-name>'* ]]
   [[ "$output" == *'paw lint [task-dir|--repo p]'* ]]
   [[ "$output" == *'paw model [-v|--verbose]'* ]]
   [[ "$output" == *"paw architecture"* ]]
   [[ "$output" == *"paw teach"* ]]
   [[ "$output" == *"paw prototype"* ]]
+  [[ "$output" == *"paw review"* ]]
+  [[ "$output" == *"paw archive"* ]]
   [[ "$output" == *"paw completion zsh"* ]]
   [[ "$output" == *"paw plan"* ]]
   [[ "$output" == *"paw implement"* ]]
@@ -159,7 +163,9 @@ assignment_file() {
   [[ "$output" == *"'gh-actions-review:inspect same-day GitHub Actions failures'"* ]]
   [[ "$output" == *"'architecture:explore repo architecture candidates, then continue grilling the selected path'"* ]]
   [[ "$output" == *"'teach:map the relevant modules and callers for an unfamiliar area'"* ]]
-  [[ "$output" == *"'prototype:run a bounded throwaway prototype workflow for one concrete question'"* ]]
+  [[ "$output" == *"'review:review completed task quality and record recommendations'"* ]]
+  [[ "$output" == *"'prototype:create a replacement plan from a reviewed task prototype'"* ]]
+  [[ "$output" == *"'archive:move a central task package out of active listings'"* ]]
   [[ "$output" == *"'implement-batch:launch multiple eligible approved tasks concurrently'"* ]]
   [[ "$output" == *"'diagnose:run the feedback-loop-first debugging workflow for an approved task'"* ]]
   [[ "$output" == *"'tighten:sharpen an existing task plan one question at a time'"* ]]
@@ -168,6 +174,55 @@ assignment_file() {
   [[ "$output" == *"'gui:start, stop, or foreground the local PAW task dashboard'"* ]]
   [[ "$output" == *"'pr-address-comments:create a plan for addressing PR review comments'"* ]]
   [[ "$output" == *"'implement:resume or complete an approved task'"* ]]
+}
+
+@test "paw model: includes review and prototype as AI-backed commands" {
+  run "$PAW" model
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"review:"* ]]
+  [[ "$output" == *"prototype:"* ]]
+}
+
+@test "paw review: no longer emits deprecated PR-address-comments message" {
+  make_task review-task
+
+  run "$PAW" review review-task
+
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"has been replaced by paw pr-address-comments"* ]]
+  wait_for_run_metadata review-task
+}
+
+@test "paw review archive and prototype reject missing task names" {
+  run "$PAW" review
+  assert_exits_2
+  run "$PAW" archive
+  assert_exits_2
+  run "$PAW" prototype
+  assert_exits_2
+}
+
+@test "paw archive: moves a central task package out of active listings without AI backend" {
+  init_git_repo
+  run "$PAW" plan archive-me "create a disposable plan"
+  [ "$status" -eq 0 ]
+  local central archived
+  central=$(find "$PAW_TASK_HOME" -path "*/archive-me" -type d -print -quit)
+  rm -f "$BATS_TEST_TMPDIR/claude.args"
+
+  run "$PAW" archive archive-me
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"archived task archive-me"* ]]
+  archived=$(find "$PAW_TASK_HOME" -path "*/.archive/archive-me" -type d -print -quit)
+  [ -n "$archived" ]
+  [ ! -d "$central" ]
+  [ ! -f "$BATS_TEST_TMPDIR/claude.args" ]
+
+  run "$PAW" list "$REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"archive-me (central)"* ]]
 }
 
 @test "paw completion: rejects unsupported shells" {
@@ -517,20 +572,14 @@ MD
   [[ "$output" == *"paw issue-review accepts only <issue-number>"* ]]
 }
 
-@test "paw review: exits 2 and points callers to pr-address-comments" {
-  run "$PAW" review 42
-
-  [ "$status" -eq 2 ]
-  [ "$output" = "error: paw review has been replaced by paw pr-address-comments 42." ]
-}
-
-@test "paw model: exits 0 and prints eleven subcommand lines" {
+@test "paw model: exits 0 and prints twelve subcommand lines" {
   run "$PAW" model
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"plan:"* ]]
   [[ "$output" == *"architecture:"* ]]
   [[ "$output" == *"teach:"* ]]
+  [[ "$output" == *"review:"* ]]
   [[ "$output" == *"prototype:"* ]]
   [[ "$output" == *"edit:"* ]]
   [[ "$output" == *"implement:"* ]]
@@ -539,7 +588,7 @@ MD
   [[ "$output" == *"to-issues:"* ]]
   [[ "$output" == *"issue-review:"* ]]
   [[ "$output" == *"pr-address-comments:"* ]]
-  [ "$(echo "$output" | wc -l | tr -d ' ')" -eq 11 ]
+  [ "$(echo "$output" | wc -l | tr -d ' ')" -eq 12 ]
 }
 
 @test "paw model: respects PAW_MODEL override for every subcommand" {
@@ -549,6 +598,7 @@ MD
   [[ "$output" == *"plan:      opus"* ]]
   [[ "$output" == *"architecture: opus"* ]]
   [[ "$output" == *"teach:     opus"* ]]
+  [[ "$output" == *"review:    opus"* ]]
   [[ "$output" == *"prototype: opus"* ]]
   [[ "$output" == *"edit:      opus"* ]]
   [[ "$output" == *"implement: opus"* ]]
@@ -559,11 +609,11 @@ MD
   [[ "$output" == *"pr-address-comments: opus"* ]]
 }
 
-@test "paw model --verbose: prints fourteen lines including backend, stream, max-turns" {
+@test "paw model --verbose: prints fifteen lines including backend, stream, max-turns" {
   PAW_BACKEND=stub PAW_STREAM=0 PAW_MAX_TURNS=50 run "$PAW" model --verbose
 
   [ "$status" -eq 0 ]
-  [ "$(echo "$output" | wc -l | tr -d ' ')" -eq 14 ]
+  [ "$(echo "$output" | wc -l | tr -d ' ')" -eq 15 ]
   [[ "$output" == *"backend:"* ]]
   [[ "$output" == *"stream:"* ]]
   [[ "$output" == *"max-turns:"* ]]

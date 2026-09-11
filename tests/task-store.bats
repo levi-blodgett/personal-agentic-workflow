@@ -49,6 +49,24 @@ setup() {
   [[ "$output" == *"legacy-task"$'\t'*"legacy"* ]]
 }
 
+@test "task store: archive moves central tasks out of active listings" {
+  run bash -c 'source "$1"; central=$(paw_task_create_dir "$2" archive-me); mkdir -p "$central"; printf "# Plan\n" > "$central/plan.md"; paw_task_write_metadata "$central" "$2" archive-me created ""; archived=$(paw_task_archive "$2" archive-me); test -f "$archived/plan.md"; git config --file "$archived/metadata.gitconfig" --get paw.archived-at; paw_task_list "$2"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$PAW_TASK_HOME/"*"archive"*"/archive-me"* ]]
+  [[ "$output" != *"archive-me"$'\t'*"central"* ]]
+}
+
+@test "task store: archive rejects missing and already archived central tasks clearly" {
+  run bash -c 'source "$1"; paw_task_archive "$2" missing-task' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"task 'missing-task' not found"* ]]
+
+  run bash -c 'source "$1"; central=$(paw_task_create_dir "$2" duplicate-task); archived=$(paw_task_archive_dir "$2" duplicate-task); mkdir -p "$central" "$archived"; paw_task_archive "$2" duplicate-task' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"archived task already exists"* ]]
+}
+
 @test "task store: detects pending answers active runs and finished plans" {
   mkdir -p "$REPO/.agent/state-task/runs"
   cat > "$REPO/.agent/state-task/plan.md" <<'MD'

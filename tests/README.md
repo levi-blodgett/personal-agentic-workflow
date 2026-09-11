@@ -33,14 +33,14 @@ bats tests/lint-task.bats
 | `setup-repo.bats` | `scripts/setup-repo.sh` |
 | `list-tasks.bats` | `scripts/list-tasks.sh` status and running-state output |
 | `lint-task.bats` | `scripts/lint-task.sh` |
-| `task-store.bats` | central task-store resolution, metadata, legacy fallback, eligibility/running-state predicates, and explicit multi-repo migration helpers |
-| `gui-server.bats` | `paw gui` Markdown rendering, newest-first task sorting, auto-refresh fragment plumbing, main-table filters, combined repo/branch display, local plan/edit/implement actions, selected-task batch implementation, guarded deletion, foreground smoke, managed start/stop/kill lifecycle, stale PID protection, and multi-repo dashboard coverage |
+| `task-store.bats` | central task-store resolution, archive moves/filtering, metadata, legacy fallback, eligibility/running-state predicates, and explicit multi-repo migration helpers |
+| `gui-server.bats` | `paw gui` Markdown rendering, newest-first task sorting, auto-refresh fragment plumbing, main-table filters, combined repo/branch display, local plan/edit/implement/review/prototype/archive actions, selected-task batch implementation, prototype markers, guarded deletion, foreground smoke, managed start/stop/kill lifecycle, stale PID protection, and multi-repo dashboard coverage |
 | `makefile.bats` | `Makefile` targets (install, uninstall, help, -n dry-runs) |
-| `paw-dispatcher.bats` | `scripts/paw` subcommand dispatch, `implement-batch`, worktree resume, and launcher behavior |
+| `paw-dispatcher.bats` | `scripts/paw` subcommand dispatch, review/prototype/archive command surfaces, `implement-batch`, worktree resume, and launcher behavior |
 | `paw-completion-docs.bats` | Durable docs coverage for `paw completion zsh` and the narrowed `zsh`-only scope |
 | `paw-codex.bats` | Default codex backend wiring, auth banner, sandbox flags, and usage parsing |
 | `paw-crash.bats` | Crash classification, crash log writing, and prompt-size warnings |
-| `paw-prompt-body.bats` | Prompt body + launch banner for every subcommand (stub backend) |
+| `paw-prompt-body.bats` | Prompt body + launch banner for every subcommand, including review records and review-driven prototype planning/revert prompts (stub backend) |
 | `paw-pr-workflow.bats` | Shell-side `paw pr-submit` / `paw pr-review` workflow coverage |
 | `paw-issue-workflow.bats` | Shell-side `paw issue-submit` / `paw issue-review` / `paw to-issues --publish` workflow coverage |
 | `paw-gh-actions-workflow.bats` | Shell-side `paw gh-actions-review` dispatch and flag-forwarding coverage |

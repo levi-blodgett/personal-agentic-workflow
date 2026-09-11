@@ -405,6 +405,7 @@ class Task:
         self.plan = (path / "plan.md").read_text(errors="replace") if (path / "plan.md").exists() else ""
         self.contract = (path / "contract.md").read_text(errors="replace") if (path / "contract.md").exists() else ""
         self.pr = (path / "pr.md").read_text(errors="replace") if (path / "pr.md").exists() else ""
+        self.review = (path / "review.md").read_text(errors="replace") if (path / "review.md").exists() else ""
         self.activity_time = recent_activity(path)
 
     @property
@@ -416,6 +417,14 @@ class Task:
         return metadata_value(self.path / "metadata.gitconfig", "branch-name") or metadata_value(
             self.path / "metadata.gitconfig", "head-state"
         )
+
+    @property
+    def prototype_status(self) -> str:
+        return metadata_value(self.path / "metadata.gitconfig", "prototype-status")
+
+    @property
+    def prototype_source(self) -> str:
+        return metadata_value(self.path / "metadata.gitconfig", "prototype-source")
 
     @property
     def blocked(self) -> bool:
@@ -452,6 +461,8 @@ def list_repo_tasks(repo: Path, task_home: Path) -> list[Task]:
     central_root = task_home / repo_slug(repo)
     if central_root.exists():
         for path in sorted(p for p in central_root.iterdir() if p.is_dir()):
+            if path.name == ".archive":
+                continue
             metadata_repo = metadata_value(path / "metadata.gitconfig", "repo-root")
             if metadata_repo and physical(Path(metadata_repo)) != repo:
                 continue
@@ -469,6 +480,8 @@ def list_all_central_tasks(task_home: Path) -> list[Task]:
         return tasks
     for repo_dir in sorted(p for p in task_home.iterdir() if p.is_dir()):
         for path in sorted(p for p in repo_dir.iterdir() if p.is_dir()):
+            if path.name == ".archive":
+                continue
             metadata_repo = metadata_value(path / "metadata.gitconfig", "repo-root")
             repo = physical(Path(metadata_repo)) if metadata_repo else Path(repo_dir.name)
             tasks.append(Task(path.name, "central", path, repo, repo_dir.name))
@@ -598,6 +611,15 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/task/") and parsed.path.endswith("/implement"):
             name = unquote(parsed.path.removeprefix("/task/").removesuffix("/implement"))
             return self.post_task_action(name, "implement")
+        if parsed.path.startswith("/task/") and parsed.path.endswith("/review"):
+            name = unquote(parsed.path.removeprefix("/task/").removesuffix("/review"))
+            return self.post_task_action(name, "review")
+        if parsed.path.startswith("/task/") and parsed.path.endswith("/prototype"):
+            name = unquote(parsed.path.removeprefix("/task/").removesuffix("/prototype"))
+            return self.post_task_action(name, "prototype")
+        if parsed.path.startswith("/task/") and parsed.path.endswith("/archive"):
+            name = unquote(parsed.path.removeprefix("/task/").removesuffix("/archive"))
+            return self.post_task_action(name, "archive")
         if parsed.path.startswith("/task/") and parsed.path.endswith("/delete"):
             name = unquote(parsed.path.removeprefix("/task/").removesuffix("/delete"))
             return self.post_delete(name)
@@ -667,9 +689,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect(self.task_url(task, f"{task.name} already has a running PAW subprocess", "error"))
         extras = form.get("extras", "").strip()
         args = [subcommand, task.name]
-        if extras:
+        if extras and subcommand != "archive":
             args.append(extras)
         ok, message = launch_paw(task.repo, self.task_home, task.path, args)
+        if subcommand == "archive" and ok:
+            return self.redirect(f"/?{self.flash_query(message, 'notice')}")
         self.redirect(self.task_url(task, message, "notice" if ok else "error"))
 
     def post_delete(self, name: str) -> None:
@@ -763,6 +787,12 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             task_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}"
             branch = task.branch_context or "<none>"
+            prototype = ""
+            if task.prototype_status or task.prototype_source:
+                label = task.prototype_status or "prototyped"
+                if task.prototype_source:
+                    label = f"{label} from {task.prototype_source}"
+                prototype = f"<br><span class='pill'>{html.escape(label)}</span>"
             selector = (
                 f"<input type='checkbox' name='task' value='{html_attr(str(task.path))}' aria-label='Select {html_attr(task.name)}'>"
                 if task.batch_eligible
@@ -773,7 +803,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"<td>{selector}</td>"
                 f"<td><a href='{task_href}'>{html.escape(task.name)}</a><br><span class='muted'>{html.escape(str(task.path))}</span></td>"
                 f"<td>{html.escape(task.repo_name)}<br><span class='muted'>{html.escape(str(task.repo))}</span><br><span class='muted'>{html.escape(task.slug)}</span><br><span class='muted'>Branch: {html.escape(branch)}</span></td>"
-                f"<td><span class='pill {task.state}'>{task.state}</span><br>{task.source}</td>"
+                f"<td><span class='pill {task.state}'>{task.state}</span><br>{task.source}{prototype}</td>"
                 f"<td>{html.escape(status_field(task.plan, 'Plan position') or '<missing>')}</td>"
                 f"<td>{html.escape(completion)}</td>"
                 f"<td>{html.escape(status_field(task.plan, 'Next work') or '<missing>')}</td>"
@@ -810,6 +840,17 @@ class Handler(BaseHTTPRequestHandler):
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
             "<h2>Implement</h2><p><label>Extra instructions<br><textarea name='extras' rows='3'></textarea></label></p>"
             "<p><button type='submit'>Start implement</button></p></form>"
+            f"<form method='post' action='/task/{quote(task.name)}/review'>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            "<h2>Review</h2><p><label>Extra instructions<br><textarea name='extras' rows='3'></textarea></label></p>"
+            "<p><button type='submit'>Start review</button></p></form>"
+            f"<form method='post' action='/task/{quote(task.name)}/prototype'>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            "<h2>Prototype</h2><p><label>Extra instructions<br><textarea name='extras' rows='3'></textarea></label></p>"
+            "<p><button type='submit'>Start prototype</button></p></form>"
+            f"<form method='post' action='/task/{quote(task.name)}/archive'>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            "<h2>Archive Task</h2><p><button type='submit'>Archive task</button></p></form>"
             f"<form method='post' action='/task/{quote(task.name)}/delete'>"
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
             f"<h2>Delete Task</h2><p><label>Type {html.escape(task.name)} <input name='confirm'></label></p>"
@@ -827,13 +868,18 @@ class Handler(BaseHTTPRequestHandler):
         self.send_fragment(self.task_detail(task, doc))
 
     def task_detail(self, task: Task, doc: str) -> str:
-        content = {"contract": task.contract, "plan": task.plan, "pr": task.pr}.get(doc, task.plan)
+        content = {"contract": task.contract, "plan": task.plan, "pr": task.pr, "review": task.review}.get(doc, task.plan)
         path_query = quote(str(task.path), safe="")
-        tabs = " ".join(f"<a href='/task/{quote(task.name)}?path={path_query}&doc={tab}'>{tab}.md</a>" for tab in ("contract", "plan", "pr"))
+        doc_tabs = ["contract", "plan", "pr"]
+        if task.review:
+            doc_tabs.append("review")
+        tabs = " ".join(f"<a href='/task/{quote(task.name)}?path={path_query}&doc={tab}'>{tab}.md</a>" for tab in doc_tabs)
         done, total = checklist_counts(task.plan)
         crash_state = "available" if (task.path / "crash.log").exists() else "none"
         pr_tracking = tracking_summary(task.plan, "PR") or "none"
         issue_tracking = tracking_summary(task.plan, "Issue") or "none"
+        prototype_status = task.prototype_status or "none"
+        prototype_source = task.prototype_source or "none"
         return (
             f"<p><span class='pill {task.state}'>{task.state}</span> <span class='pill'>{task.source}</span> <span class='pill'>{done}/{total} checklist</span></p>"
             "<table><tbody>"
@@ -842,6 +888,8 @@ class Handler(BaseHTTPRequestHandler):
             f"<tr><th>Worktree</th><td>{html.escape(metadata_value(task.path / 'metadata.gitconfig', 'worktree-path') or 'legacy metadata unavailable')}</td></tr>"
             f"<tr><th>PR</th><td>{html.escape(pr_tracking)}</td></tr>"
             f"<tr><th>Issue</th><td>{html.escape(issue_tracking)}</td></tr>"
+            f"<tr><th>Prototype</th><td>{html.escape(prototype_status)}"
+            f"{' from ' + html.escape(prototype_source) if prototype_source != 'none' else ''}</td></tr>"
             f"<tr><th>Crash Log</th><td>{html.escape(crash_state)}</td></tr>"
             "</tbody></table>"
             f"<p class='tabs'>{tabs}</p><div class='document'>{render_markdown(content)}</div>"

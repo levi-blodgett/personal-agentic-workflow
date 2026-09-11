@@ -49,6 +49,13 @@ paw plan <task-name> "<prompt>"
 # Implement / resume an approved task
 paw implement <task-name>
 
+# Review completed task quality, then optionally plan a replacement
+paw review <task-name>
+paw prototype <task-name>
+
+# Hide a task from active task lists without deleting it
+paw archive <task-name>
+
 # Launch several approved, unblocked tasks at once
 paw implement-batch <task-a> <task-b>
 
@@ -81,7 +88,9 @@ paw gh-actions-review --create-issue
 
 `paw completion zsh` prints a small `compdef` script for native `zsh` completion. Load it with `source <(paw completion zsh)` in the current shell, and append it to `~/.zshrc` for future shells. v1 is `zsh`-only and completes top-level subcommands only.
 
-`paw gui` starts a local task dashboard on `127.0.0.1` in the foreground. It renders task Markdown as safe HTML, sorts tasks newest-first by recent run or task metadata, keeps the index and task detail views fresh with local polling, filters the main table by state, repo, and completion, can launch `paw plan`, `paw edit`, `paw implement`, and selected-task batch implementation through the same CLI paths, and can delete a resolved task package after exact-name confirmation. `paw gui start` runs it in the background, records PID/URL metadata under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/`, and `paw gui stop` or `paw gui kill` stops only that recorded PAW GUI process. Add `--all` to show every central task store grouped by repo identity; `--repo <path>` keeps the scoped central-plus-legacy view. The GUI never replaces `contract.md`, `plan.md`, or `pr.md` as the source of truth.
+`paw review <task-name>` launches a short task-quality review and records the grade, quality threshold comparison, architectural/design choices, improvement notes, and recommendations in `review.md`. When reviewed work should become a prototype rather than the final approach, `paw prototype <task-name>` creates a new plan-only `<task-name>-prototype` package from the task docs plus `review.md`, marks prototype lineage in metadata, and attempts to revert the reviewed task's tracked implementation diff from saved Git metadata. `paw archive <task-name>` moves a central task package under that repo store's `.archive/` folder so normal CLI and GUI listings omit it.
+
+`paw gui` starts a local task dashboard on `127.0.0.1` in the foreground. It renders task Markdown as safe HTML, sorts tasks newest-first by recent run or task metadata, keeps the index and task detail views fresh with local polling, filters the main table by state, repo, and completion, can launch `paw plan`, `paw edit`, `paw implement`, `paw review`, `paw prototype`, `paw archive`, and selected-task batch implementation through the same CLI paths, shows prototype lineage/status markers, and can delete a resolved task package after exact-name confirmation. `paw gui start` runs it in the background, records PID/URL metadata under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/`, and `paw gui stop` or `paw gui kill` stops only that recorded PAW GUI process. Add `--all` to show every central task store grouped by repo identity; `--repo <path>` keeps the scoped central-plus-legacy view. The GUI never replaces `contract.md`, `plan.md`, `pr.md`, or `review.md` as the source of truth.
 
 ## Documentation
 

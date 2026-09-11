@@ -10,7 +10,7 @@
 #                       location; override when you want a different checkout)
 #   PAW_MODEL           model override for all model-resolved subcommands
 #                       (`paw plan`, `paw architecture`, `paw teach`,
-#                       `paw prototype`,
+#                       `paw review`, `paw prototype`,
 #                       `paw edit`, `paw implement`, `paw diagnose`,
 #                       `paw to-issues`, `paw issue-review`, and
 #                       `paw pr-address-comments`);
@@ -161,7 +161,8 @@ _paw_command_table() {
 plancmd_plan<task-name> "<prompt>" [--dry-run]launch a plan-only run
 architecturecmd_architecture[--pick <candidate-number>] [focus...]explore repo architecture candidates, then continue grilling the selected path
 teachcmd_teach[focus...]map the relevant modules and callers for an unfamiliar area
-prototypecmd_prototype<task-name> [--question "<question>"] [--logic|--ui] [extras...]run a bounded throwaway prototype workflow for one concrete question
+reviewcmd_review<task-name> [extras...]review completed task quality and record recommendations
+prototypecmd_prototype<task-name> [extras...]create a replacement plan from a reviewed task prototype
 implementcmd_implement<task-name> [extras...]resume or complete an approved task
 implement-batchcmd_implement_batch<task-name>...launch multiple eligible approved tasks concurrently
 diagnosecmd_diagnose<task-name> [extras...]run the feedback-loop-first debugging workflow for an approved task
@@ -178,6 +179,7 @@ issue-reviewcmd_issue_review<issue-number>seed a plan-only task from a GitHub
 pr-address-commentscmd_pr_address_comments<pr-number>create a plan for addressing PR review comments
 gh-actions-reviewcmd_gh_actions_review[--create-issue]inspect same-day GitHub Actions failures
 compactcmd_compact<task-name>archive completed implementation checklist items
+archivecmd_archive<task-name>move a central task package out of active listings
 listcmd_list[repo-path]list .agent tasks and current status
 lintcmd_lint[task-dir|--repo p]verify task package contracts
 modelcmd_model[-v|--verbose]print resolved backend model details
@@ -200,7 +202,8 @@ _paw_model_command_table() {
 plan|plan
 architecture|architecture
 teach|architecture
-prototype|implement
+review|implement
+prototype|plan
 edit|edit
 implement|implement
 diagnose|implement
@@ -238,7 +241,7 @@ Environment overrides:
                       checkout)
   PAW_MODEL           model override for all model-resolved subcommands
                       (`paw plan`, `paw architecture`, `paw teach`,
-                      `paw prototype`,
+                      `paw review`, `paw prototype`,
                       `paw edit`, `paw implement`, `paw diagnose`,
                       `paw to-issues`, `paw issue-review`, and
                       `paw pr-address-comments`);
@@ -640,84 +643,133 @@ _architecture_grill_file() {
 
 _prototype_usage() {
   cat <<'EOF' >&2
-usage: paw prototype <task-name> [--question "<question>"] [--logic|--ui] [extra-prompt...]
+usage: paw prototype <task-name> [extra-prompt...]
 EOF
 }
 
-_prototype_doc_seed() {
-  local task_dir="$1"
-  local prototype_file="$task_dir/prototype.md"
-  if [[ -f "$prototype_file" ]]; then
+_review_doc_seed() {
+  local task_dir="$1" task_name="$2"
+  local review_file="$task_dir/review.md"
+  if [[ -f "$review_file" ]]; then
     return 0
   fi
 
-  cat > "$prototype_file" <<'EOF'
-# Prototype Record — `<task-name>`
+  cat > "$review_file" <<EOF
+# Task Quality Review — \`$task_name\`
 
-## Question
+## Review Metadata
 
-<the single concrete question this prototype is answering>
+- Task: \`$task_name\`
+- Grade: pending
+- Quality Threshold: pending
+- Threshold Result: pending
 
-## Branch
+## Summary
 
-logic | ui | auto
+- Pending.
 
-## Assumptions
+## Architectural / Design Choices
 
-- <assumption, or "None yet.">
+- Pending.
 
-## Run Command
+## Improvement Opportunities
 
-- `<command to run the prototype, or "TBD">`
+- Pending.
 
-## Prototype Files
+## Recommendations
 
-- `<path>` — <why it exists>
+- Pending.
+EOF
+}
 
-## Verdict Capture
+_review_prompt_task_doc_requirements() {
+  cat <<'EOF'
 
-- Status: pending
-- Answer:
-- Evidence:
-- Next step: delete | absorb into a follow-up implementation task | undecided
+This is a `paw review` run: a short task-quality review of completed work, not PR comment handling.
 
-## Cleanup / Absorption Plan
+Review requirements:
+- Inspect the task docs first, especially `contract.md`, `plan.md`, `pr.md` if present, and `review.md`.
+- Inspect the repo diff or changed files associated with the task when safely available from local Git metadata.
+- Check the task's recorded validation results and any durable docs changed by the task.
+- Assign a clear grade.
+- State the quality threshold used or ask the user to dictate one when it is absent from task docs or extras.
+- Record whether the work meets the threshold.
+- Note the architectural and design choices made.
+- Say whether those choices could have been better and why.
+- Give concrete recommendations for improvement or for a later `paw prototype <task-name>` replacement-plan run.
 
-- <what must be deleted, constrained, or carried into real work before handoff>
+Update requirements:
+- Keep `review.md` as the durable review record.
+- Add or update a concise task-review marker in `plan.md` so future operators can see that review happened.
+- Do not create commits.
 EOF
 }
 
 _prototype_prompt_task_doc_requirements() {
-  local mode="${1:-auto}"
-  cat <<EOF
+  cat <<'EOF'
 
-This is a \`paw prototype\` run, not a normal \`paw implement\` run.
+This is a `paw prototype` run: plan a replacement from a reviewed task that is acting as the prototype.
 
 Preserve this operator model:
-- A prototype answers exactly one concrete question fast.
-- Prototype code is throwaway from day one and must be clearly marked as such.
-- Do not present the result as production-ready implementation work.
-- Keep the prototype close to the real code or route it is informing so context stays obvious.
-
-Branch selection for this run:
-- Requested branch: $mode
-- If the requested branch is \`auto\`, inspect the question and surrounding repo context, choose logic vs UI, and record the assumption at the top of \`.agent/<task>/prototype.md\`.
-- Logic branch: build the smallest runnable terminal-style or scriptable prototype that surfaces the relevant state after each action.
-- UI branch: build multiple materially different UI directions in one route/surface, with an explicit variant switch and the relevant state visible.
+- The reviewed task's implementation is source material, not production work to continue polishing.
+- Use the reviewed task docs and `review.md` to create a new plan-only task package for replacement work.
+- Keep this run plan-only with `<!-- PAW:PLAN -->`.
+- Do not implement the replacement plan during this run.
 
 Task-package requirements:
-- Keep \`.agent/<task>/prototype.md\` current throughout the run.
-- That file is the durable record for this workflow and must capture: the exact question, chosen branch, assumptions, run command, prototype files created, verdict status, evidence, and cleanup/absorption plan.
-- Before declaring the prototype complete, update \`prototype.md\` so the answered question and verdict are durable even if the prototype code is later deleted.
-
-Implementation rules:
-- Prefer one command to run.
-- No persistence by default unless the question itself is about persistence.
-- Skip production polish, but do leave the prototype runnable enough to answer the question.
-- Surface the relevant state plainly so the operator can see what changed.
-- If the prototype should be deleted after learning, say so explicitly in \`prototype.md\`.
-- If the prototype should be absorbed into real work, say what follow-up implementation task must carry forward the validated decision.
+- Fill in the new replacement task's `contract.md`, `plan.md`, and `pr.md` when present.
+- Add a `## Prototype Source` section to the replacement task's `plan.md`.
+- Mention the source task, `review.md`, grade, recommendations, and revert/prototype status.
+- Preserve the normal PAW plan contract and leave implementation for a later `paw implement`.
 EOF
+}
+
+_prototype_revert_source_work() {
+  local task_name="$1" source_task_dir="$2" replacement_task_dir="$3"
+  local metadata_file repo_path head_sha untracked_line
+  metadata_file="$(paw_task_metadata_file "$source_task_dir")"
+  repo_path="$(paw_task_metadata_get "$source_task_dir" worktree-path)"
+  head_sha="$(paw_task_metadata_get "$source_task_dir" head-sha)"
+  repo_path="${repo_path:-$PWD}"
+
+  if ! git -C "$repo_path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-revert-unavailable" 2>/dev/null || true
+    echo "prototype: replacement plan created, but source revert was unavailable because $repo_path is not a Git worktree." >&2
+    return 0
+  fi
+  if [[ -z "$head_sha" ]]; then
+    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-revert-unavailable" 2>/dev/null || true
+    echo "prototype: replacement plan created, but source task '$task_name' has no saved head-sha for automatic revert." >&2
+    return 0
+  fi
+  if ! git -C "$repo_path" rev-parse --verify "$head_sha^{commit}" >/dev/null 2>&1; then
+    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-revert-unavailable" 2>/dev/null || true
+    echo "prototype: replacement plan created, but saved head-sha '$head_sha' is not available for automatic revert." >&2
+    return 0
+  fi
+
+  untracked_line="$(git -C "$repo_path" status --porcelain --untracked-files=normal | awk '$1 == "??" && $2 !~ /^.agent(\/|$)/ { print; exit }')"
+  if [[ -n "$untracked_line" ]]; then
+    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-revert-blocked" 2>/dev/null || true
+    echo "error: prototype replacement plan was created, but source task '$task_name' has untracked non-.agent files; automatic revert is unsafe." >&2
+    return 1
+  fi
+
+  if ! git -C "$repo_path" diff --quiet "$head_sha" -- . ':(exclude).agent/**'; then
+    if ! git -C "$repo_path" diff "$head_sha" -- . ':(exclude).agent/**' | git -C "$repo_path" apply -R --check >/dev/null 2>&1; then
+      git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-revert-blocked" 2>/dev/null || true
+      echo "error: prototype replacement plan was created, but PAW could not safely revert source task '$task_name' from saved head-sha '$head_sha'." >&2
+      return 1
+    fi
+    git -C "$repo_path" diff "$head_sha" -- . ':(exclude).agent/**' | git -C "$repo_path" apply -R
+  fi
+
+  git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned-source-reverted" 2>/dev/null || true
+  if [[ -f "$metadata_file" ]]; then
+    git config --file "$metadata_file" paw.prototype-status "source-reverted"
+    git config --file "$metadata_file" paw.prototype-replacement "$replacement_task_dir"
+  fi
+  echo "prototype: source task $task_name reverted to saved head $head_sha"
 }
 
 _tighten_doc_seed() {
@@ -1873,7 +1925,6 @@ EOF
 
 cmd_prototype() {
   ensure_instructions
-  _check_run_model_floor prototype
   require_backend
 
   local task_name="${1:-}"
@@ -1888,90 +1939,70 @@ cmd_prototype() {
   fi
   shift
 
-  local -a original_args=("$@")
-
-  local question=""
-  local mode="auto"
-  local -a extras_args=()
   local arg
-  while [[ $# -gt 0 ]]; do
-    arg="$1"
+  for arg in "$@"; do
     case "$arg" in
-      --question)
-        shift
-        if [[ $# -eq 0 ]]; then
-          echo "error: --question requires a value" >&2
-          _prototype_usage
-          exit 2
-        fi
-        question="$1"
-        ;;
-      --question=*)
-        question="${arg#--question=}"
-        ;;
-      --logic)
-        if [[ "$mode" == "ui" ]]; then
-          echo "error: choose only one prototype branch: --logic or --ui" >&2
-          exit 2
-        fi
-        mode="logic"
-        ;;
-      --ui)
-        if [[ "$mode" == "logic" ]]; then
-          echo "error: choose only one prototype branch: --logic or --ui" >&2
-          exit 2
-        fi
-        mode="ui"
-        ;;
-      *)
-        extras_args+=("$arg")
+      --question|--question=*|--logic|--ui)
+        echo "error: paw prototype now creates a replacement plan from a reviewed task; the old throwaway flags are no longer supported." >&2
+        _prototype_usage
+        exit 2
         ;;
     esac
-    shift
   done
 
-  _task_assignment_resume_or_handoff prototype "$task_name" "${original_args[@]}"
+  _task_assignment_resume_or_handoff prototype "$task_name" "$@"
 
-  local task_dir
-  task_dir="$(_task_dir_for_existing "$task_name" 2>/dev/null || true)"
-  if [[ ! -d "$task_dir" ]]; then
-    if [[ -z "$question" ]]; then
-      echo "error: first-time prototype runs require --question \"<question>\"." >&2
-      _prototype_usage
-      exit 2
-    fi
-    task_dir="$(paw_task_create_dir "$PWD" "$task_name")"
-    _seed_task_templates "$task_dir" contract plan
-    _task_assignment_record "$task_name"
-    paw_task_write_metadata "$task_dir" "$PWD" "$task_name" created ""
+  _require_task_dir "$task_name"
+  local source_task_dir source_review replacement_task_name replacement_task_dir include_pr display_source_dir display_replacement_dir extras prompt seeded_list run_status
+  source_task_dir="$(_task_dir_for_existing "$task_name")"
+  source_review="$source_task_dir/review.md"
+  if [[ ! -f "$source_review" ]]; then
+    echo "error: task '$task_name' has no review.md. Run 'paw review $task_name' before prototyping a replacement plan." >&2
+    exit 1
   fi
 
-  _prototype_doc_seed "$task_dir"
+  replacement_task_name="${task_name}-prototype"
+  replacement_task_dir="$(_task_dir_for_plan "$replacement_task_name")"
+  include_pr=0
+  if _has_pr_template "$PWD"; then
+    include_pr=1
+  fi
+  _seed_plan_task_package "$replacement_task_name" "$include_pr" "$replacement_task_dir"
+  _record_plan_task_assignment "$replacement_task_name" "$replacement_task_dir"
+  if [[ -f "$(paw_task_metadata_file "$replacement_task_dir")" ]]; then
+    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-source "$task_name"
+    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-review "$source_review"
+    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planning"
+  fi
 
-  local extras prompt seeded_list display_task_dir
-  extras=$(_join_prompt_extras "${extras_args[@]}")
-  display_task_dir="$(_task_display_path "$task_dir")"
-  seeded_list="- $display_task_dir/contract.md
-- $display_task_dir/plan.md
-- $display_task_dir/prototype.md"
+  extras=$(_join_prompt_extras "$@")
+  display_source_dir="$(_task_display_path "$source_task_dir")"
+  display_replacement_dir="$(_task_display_path "$replacement_task_dir")"
+  seeded_list="$(_plan_seeded_list_for_task "$replacement_task_name" "$include_pr" "$display_replacement_dir")"
 
   prompt=$(cat <<EOF
-Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and create or continue the bounded prototype task package in $display_task_dir/. Do not create commits.
+Follow $INSTRUCTIONS, with <!-- PAW:PLAN --> as the primary section for this run, and create or update a replacement plan-only task package in $display_replacement_dir/. Do not create commits.
 
-This is a throwaway prototype workflow for one concrete question, not normal production implementation work.
-Prototype question: ${question:-<resume from existing task docs>}
-Prototype branch request: $mode
+The source task being treated as the prototype is $display_source_dir/.
+The durable review record is $display_source_dir/review.md.
 
-The task package files for this workflow are:
+The replacement task package files for this workflow are:
 $seeded_list
-pr.md is not used for this task unless a later non-prototype follow-up explicitly needs it.
 
-Use the normal implementation rules only where they help with safe autonomous execution. Preserve the prototype-specific workflow and keep the durable verdict capture in $display_task_dir/prototype.md current during the run.$(_prototype_prompt_task_doc_requirements "$mode")
+Use the reviewed task's work and review as source material for a cleaner replacement plan. After this planning run succeeds, PAW will attempt to revert the source task's local implementation diff from saved task metadata and mark prototype status in metadata.$(_prototype_prompt_task_doc_requirements)
 EOF
 )
 
   prompt=$(_prompt_append_human_extras "$prompt" "$extras")
-  _run_model_subcommand prototype "$task_dir" "prototype" "$prompt"
+  run_status=0
+  _run_model_subcommand prototype "$replacement_task_dir" "prototype" "$prompt" || run_status=$?
+  if [[ "$run_status" -ne 0 ]]; then
+    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planning-failed" 2>/dev/null || true
+    return "$run_status"
+  fi
+  git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned" 2>/dev/null || true
+  _prototype_revert_source_work "$task_name" "$source_task_dir" "$replacement_task_dir"
+  echo "prototype: planned replacement task $replacement_task_name from $task_name"
 }
 
 cmd_implement() {
@@ -2672,12 +2703,48 @@ cmd_gui() {
 }
 
 cmd_review() {
-  if [[ -z "${1:-}" ]]; then
-    echo "error: paw review has been replaced by paw pr-address-comments <pr-number>." >&2
+  ensure_instructions
+  _check_run_model_floor review
+  require_backend
+  local task_name="${1:-}"
+  if [[ -z "$task_name" ]]; then
+    echo "usage: paw review <task-name> [extra-prompt...]" >&2
     exit 2
   fi
-  echo "error: paw review has been replaced by paw pr-address-comments $1." >&2
-  exit 2
+  shift
+  _task_assignment_resume_or_handoff review "$task_name" "$@"
+  _require_task_dir "$task_name"
+
+  local task_dir extras prompt
+  task_dir="$(_task_dir_for_existing "$task_name")"
+  _review_doc_seed "$task_dir" "$task_name"
+  extras=$(_join_prompt_extras "$@")
+  prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and review the completed task package in $(_task_display_path "$task_dir")/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")$(_review_prompt_task_doc_requirements)"
+  prompt=$(_prompt_append_human_extras "$prompt" "$extras")
+  _run_model_subcommand review "$task_dir" "review" "$prompt"
+}
+
+cmd_archive() {
+  local task_name="${1:-}"
+  if [[ -z "$task_name" ]]; then
+    echo "usage: paw archive <task-name>" >&2
+    exit 2
+  fi
+  if [[ -n "${2:-}" ]]; then
+    echo "error: paw archive accepts only one task name" >&2
+    exit 2
+  fi
+  if ! _validate_task_name "$task_name"; then
+    echo "error: invalid task name: $task_name" >&2
+    echo "task names must be simple directory names under .agent/ (no slashes, '.', or '..')" >&2
+    exit 2
+  fi
+
+  local archived
+  if ! archived="$(paw_task_archive "$PWD" "$task_name")"; then
+    exit 1
+  fi
+  printf 'archived task %s -> %s\n' "$task_name" "$archived"
 }
 
 cmd_compact() {
@@ -2813,9 +2880,6 @@ main() {
     -h|--help)
       usage
       return 0
-      ;;
-    review)
-      cmd_review "$@"
       ;;
   esac
 

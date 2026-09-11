@@ -68,6 +68,15 @@ EOF
   printf '%s\n' "$script"
 }
 
+init_git_repo() {
+  git -C "$REPO" init -q
+  git -C "$REPO" config user.name "Test User"
+  git -C "$REPO" config user.email "test@example.com"
+  echo "base" > "$REPO/README.md"
+  git -C "$REPO" add README.md
+  git -C "$REPO" commit -q -m "init"
+}
+
 # ── paw architecture ──────────────────────────────────────────────────────────
 
 @test "paw architecture: prompt contains architecture workflow guidance" {
@@ -150,82 +159,108 @@ MD
   prompt_contains "Focus on the CLI state machine."
 }
 
-# ── paw prototype ─────────────────────────────────────────────────────────────
+# ── paw review / prototype ───────────────────────────────────────────────────
 
-@test "paw prototype: prompt contains PAW:IMPLEMENT anchor" {
-  run "$PAW" prototype proto-task --question "Does this flow hold up?" --logic
+@test "paw review: prompt contains PAW:IMPLEMENT anchor and task-quality guidance" {
+  make_task review-task
+  run "$PAW" review review-task
   [ "$status" -eq 0 ]
   prompt_contains "PAW:IMPLEMENT"
+  prompt_contains 'This is a `paw review` run'
+  prompt_contains "Assign a clear grade"
+  prompt_contains "quality threshold"
+  prompt_contains "architectural and design choices"
+  prompt_contains "concrete recommendations"
 }
 
-@test "paw prototype: first run requires --question" {
-  run "$PAW" prototype proto-task --logic
+@test "paw review: seeds review.md for durable grade and recommendations" {
+  make_task review-task
+  run "$PAW" review review-task
+  [ "$status" -eq 0 ]
+  [ -f "$REPO/.agent/review-task/review.md" ]
+  grep -q "## Architectural / Design Choices" "$REPO/.agent/review-task/review.md"
+  grep -q "## Recommendations" "$REPO/.agent/review-task/review.md"
+}
+
+@test "paw review: appends Human extras when extra arg given" {
+  make_task review-task
+  run "$PAW" review review-task "Threshold is B+."
+  [ "$status" -eq 0 ]
+  prompt_contains "Human extras:"
+  prompt_contains "Threshold is B+."
+}
+
+@test "paw prototype: requires a reviewed source task" {
+  make_task proto-task
+  run "$PAW" prototype proto-task
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"has no review.md"* ]]
+  [[ "$output" == *"paw review proto-task"* ]]
+}
+
+@test "paw prototype: rejects old throwaway prototype flags with compatibility guidance" {
+  make_task proto-task
+  run "$PAW" prototype proto-task --question "Does this flow hold up?"
   [ "$status" -eq 2 ]
-  [[ "$output" == *"first-time prototype runs require --question"* ]]
+  [[ "$output" == *"now creates a replacement plan from a reviewed task"* ]]
 }
 
-@test "paw prototype: seeds prototype.md for the durable verdict record" {
-  run "$PAW" prototype proto-task --question "Does this flow hold up?"
+@test "paw prototype: prompt contains PAW:PLAN anchor and reviewed source references" {
+  make_task proto-task
+  printf '# Review\n\n## Recommendations\n- Replace the flow.\n' > "$REPO/.agent/proto-task/review.md"
+  run "$PAW" prototype proto-task
   [ "$status" -eq 0 ]
-  local matches=("$PAW_TASK_HOME"/*/proto-task/prototype.md)
+  prompt_contains "PAW:PLAN"
+  prompt_contains "proto-task/review.md"
+  prompt_contains "source task being treated as the prototype"
+  prompt_contains "replacement plan-only task package"
+}
+
+@test "paw prototype: seeds replacement plan package and records prototype metadata" {
+  make_task proto-task
+  printf '# Review\n' > "$REPO/.agent/proto-task/review.md"
+  run "$PAW" prototype proto-task
+  [ "$status" -eq 0 ]
+  local matches=("$PAW_TASK_HOME"/*/proto-task-prototype/plan.md)
   [ -f "${matches[0]}" ]
-  grep -q "## Verdict Capture" "${matches[0]}"
+  local metadata="${matches[0]%/plan.md}/metadata.gitconfig"
+  [ "$(git config --file "$metadata" --get paw.prototype-source)" = "proto-task" ]
+  [[ "$(git config --file "$metadata" --get paw.prototype-status)" == planned* ]]
 }
 
-@test "paw prototype: prompt contains task name and prototype question" {
-  run "$PAW" prototype proto-task --question "Does this flow hold up?" --logic
+@test "paw prototype: reverts tracked source work from saved task metadata after planning" {
+  init_git_repo
+  run "$PAW" plan proto-task "Plan the source work."
   [ "$status" -eq 0 ]
-  prompt_contains "proto-task"
-  prompt_contains "Prototype question: Does this flow hold up?"
-}
+  local source_dir
+  source_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task" -type d -print -quit)
+  printf '# Review\n' > "$source_dir/review.md"
+  printf 'changed\n' > "$REPO/README.md"
 
-@test "paw prototype: prompt contains requested prototype branch" {
-  run "$PAW" prototype proto-task --question "Does this flow hold up?" --ui
+  run "$PAW" prototype proto-task
+
   [ "$status" -eq 0 ]
-  prompt_contains "Prototype branch request: ui"
-  prompt_contains "Requested branch: ui"
+  [ "$(cat "$REPO/README.md")" = "base" ]
+  local replacement_dir
+  replacement_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task-prototype" -type d -print -quit)
+  [ "$(git config --file "$replacement_dir/metadata.gitconfig" --get paw.prototype-status)" = "planned-source-reverted" ]
 }
 
-@test "paw prototype: uses implement-class model defaults when PAW_MODEL is unset" {
-  run "$PAW" prototype proto-task --question "Does this flow hold up?"
+@test "paw prototype: uses plan-class model defaults when PAW_MODEL is unset" {
+  make_task proto-task
+  printf '# Review\n' > "$REPO/.agent/proto-task/review.md"
+  run "$PAW" prototype proto-task
   [ "$status" -eq 0 ]
   args_contain "sonnet"
 }
 
 @test "paw prototype: appends Human extras when extra arg given" {
-  run "$PAW" prototype proto-task --question "Does this flow hold up?" "Focus on the CLI state machine."
+  make_task proto-task
+  printf '# Review\n' > "$REPO/.agent/proto-task/review.md"
+  run "$PAW" prototype proto-task "Prefer the smallest replacement slice."
   [ "$status" -eq 0 ]
   prompt_contains "Human extras:"
-  prompt_contains "Focus on the CLI state machine."
-}
-
-@test "paw prototype: no Human extras header when no extras given" {
-  run "$PAW" prototype proto-task --question "Does this flow hold up?"
-  [ "$status" -eq 0 ]
-  ! grep -qF "Human extras" "$BATS_TEST_TMPDIR/backend.prompt"
-}
-
-@test "paw prototype: rejects conflicting branch flags" {
-  run "$PAW" prototype proto-task --question "Does this flow hold up?" --logic --ui
-  [ "$status" -eq 2 ]
-  [[ "$output" == *"choose only one prototype branch"* ]]
-}
-
-@test "paw prototype: resumes an existing task without requiring a new question" {
-  mkdir -p "$REPO/.agent/proto-task"
-  cp "$FIXTURES_DIR/sample-task-valid/contract.md" "$REPO/.agent/proto-task/contract.md"
-  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$REPO/.agent/proto-task/plan.md"
-  cat > "$REPO/.agent/proto-task/prototype.md" <<'MD'
-# Prototype Record
-
-## Question
-
-Existing question.
-MD
-
-  run "$PAW" prototype proto-task --logic
-  [ "$status" -eq 0 ]
-  prompt_contains "Prototype question: <resume from existing task docs>"
+  prompt_contains "Prefer the smallest replacement slice."
 }
 
 # ── paw implement ─────────────────────────────────────────────────────────────

@@ -50,6 +50,16 @@ paw_task_create_dir() {
   printf '%s/%s\n' "$(paw_task_repo_store "$repo_path")" "$task_name"
 }
 
+paw_task_archive_root() {
+  local repo_path="$1"
+  printf '%s/.archive\n' "$(paw_task_repo_store "$repo_path")"
+}
+
+paw_task_archive_dir() {
+  local repo_path="$1" task_name="$2"
+  printf '%s/%s\n' "$(paw_task_archive_root "$repo_path")" "$task_name"
+}
+
 paw_task_legacy_dir() {
   local repo_path="$1" task_name="$2"
   printf '%s/.agent/%s\n' "$(paw_repo_physical_path "$repo_path")" "$task_name"
@@ -124,6 +134,38 @@ paw_task_metadata_get() {
   git config --file "$(paw_task_metadata_file "$task_dir")" --get "paw.$key" 2>/dev/null || true
 }
 
+paw_task_archive() {
+  local repo_path="$1" task_name="$2" central archived now
+  central="$(paw_task_create_dir "$repo_path" "$task_name")"
+  archived="$(paw_task_archive_dir "$repo_path" "$task_name")"
+
+  if [[ ! -d "$central" ]]; then
+    if [[ -d "$(paw_task_legacy_dir "$repo_path" "$task_name")" ]]; then
+      echo "error: task '$task_name' is a legacy .agent package; migrate it before archiving." >&2
+    else
+      echo "error: task '$task_name' not found at $central" >&2
+    fi
+    return 1
+  fi
+  if [[ -e "$archived" ]]; then
+    echo "error: archived task already exists: $archived" >&2
+    return 1
+  fi
+  if paw_task_has_active_run "$central"; then
+    echo "error: task '$task_name' has a running PAW subprocess and cannot be archived." >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$archived")"
+  mv "$central" "$archived"
+  now="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  if [[ -f "$(paw_task_metadata_file "$archived")" ]]; then
+    git config --file "$(paw_task_metadata_file "$archived")" paw.archived-at "$now"
+    git config --file "$(paw_task_metadata_file "$archived")" paw.archive-source "$central"
+  fi
+  printf '%s\n' "$archived"
+}
+
 paw_task_plan_field() {
   local plan_file="$1" label="$2"
   [[ -f "$plan_file" ]] || return 1
@@ -194,6 +236,7 @@ paw_task_list() {
     for task_dir in "$repo_store"/*/; do
       [[ -d "$task_dir" ]] || continue
       task_dir="${task_dir%/}"
+      [[ "$task_dir" == "$repo_store/.archive" ]] && continue
       task_name="${task_dir##*/}"
       metadata_repo="$(paw_task_metadata_get "$task_dir" repo-root)"
       if [[ -n "$metadata_repo" && "$metadata_repo" != "$repo_root" ]]; then
