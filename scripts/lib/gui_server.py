@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
+from functools import cached_property
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -423,6 +424,10 @@ def grade_rank(grade: str) -> int | None:
 
 
 def prototype_disabled_reason(task: "Task") -> str:
+    if not (task.path / "review.md").is_file():
+        return "Run Review first: this task has no review.md."
+    if task.review_is_stale:
+        return "Run Review again: review.md predates the replacement plan."
     grade = review_grade(task.review)
     rank = grade_rank(grade)
     if rank is not None and rank >= 11:
@@ -692,8 +697,9 @@ def launch_paw(repo: Path, task_home: Path, task_path: Path, args: list[str]) ->
     runs_dir = latest_run_log_dir(task_path)
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     slug = "-".join(args[:2]) if len(args) >= 2 else "paw"
-    stdout_log = runs_dir / f"{stamp}-gui-{os.getpid()}-{slug}.stdout.log"
-    stderr_log = runs_dir / f"{stamp}-gui-{os.getpid()}-{slug}.stderr.log"
+    log_id = f"{os.getpid()}-{time.time_ns()}"
+    stdout_log = runs_dir / f"{stamp}-gui-{log_id}-{slug}.stdout.log"
+    stderr_log = runs_dir / f"{stamp}-gui-{log_id}-{slug}.stderr.log"
     env = os.environ.copy()
     env["PAW_TASK_HOME"] = str(task_home)
     stdout = None
@@ -701,7 +707,7 @@ def launch_paw(repo: Path, task_home: Path, task_path: Path, args: list[str]) ->
     try:
         stdout = stdout_log.open("w")
         stderr = stderr_log.open("w")
-        subprocess.Popen(
+        process = subprocess.Popen(
             [str(PAW_SCRIPT), *args],
             cwd=str(repo),
             env=env,
@@ -710,7 +716,23 @@ def launch_paw(repo: Path, task_home: Path, task_path: Path, args: list[str]) ->
             stderr=stderr,
             start_new_session=True,
         )
+        if args[0] == "archive":
+            threading.Thread(target=process.wait, daemon=True).start()
+            return True, f"started paw {' '.join(args)}; logs: {stdout_log}, {stderr_log}"
+        metadata = runs_dir / f"{stamp}-gui-{time.time_ns()}-{process.pid}.gitconfig"
+        for key, value in {"status": "running", "subcommand": args[0],
+                           "start-time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                           "prototype-replacement-name": args[1] + "-prototype" if args[0] == "prototype" else ""}.items():
+            subprocess.run(["git", "config", "--file", str(metadata), f"paw.{key}", value], check=True)
+        threading.Thread(target=finish_gui_run, args=(process, metadata), daemon=True).start()
     except Exception as exc:
+        if stderr:
+            stderr.write(f"Failed to start PAW: {exc}\n")
+            stderr.flush()
+        metadata = runs_dir / f"{stamp}-gui-{time.time_ns()}-failed.gitconfig"
+        for key, value in {"status": "failed", "subcommand": args[0], "exit-status": "start-failed",
+                           "prototype-replacement-name": args[1] + "-prototype" if args[0] == "prototype" else ""}.items():
+            subprocess.run(["git", "config", "--file", str(metadata), f"paw.{key}", value], check=False)
         return False, f"failed to start paw {' '.join(args)}: {exc}"
     finally:
         if stdout:
@@ -718,6 +740,15 @@ def launch_paw(repo: Path, task_home: Path, task_path: Path, args: list[str]) ->
         if stderr:
             stderr.close()
     return True, f"started paw {' '.join(args)}; logs: {stdout_log}, {stderr_log}"
+
+
+def finish_gui_run(process: subprocess.Popen, metadata: Path) -> None:
+    code = process.wait()
+    if metadata_value(metadata, "status") == "cancelled":
+        return
+    for key, value in {"status": "completed" if code == 0 else "failed", "exit-status": str(code),
+                       "end-time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}.items():
+        subprocess.run(["git", "config", "--file", str(metadata), f"paw.{key}", value], check=False)
 
 
 def queue_root(task_home: Path, repo: Path) -> Path:
@@ -795,8 +826,16 @@ def update_queued_plan(task_home: Path, repo: Path, original: str, task_name: st
         shutil.rmtree(item)
 
 
+def prototype_run_replacement_name(path: Path) -> str:
+    runs = (meta for meta in (path / "runs").glob("*-gui-*.gitconfig")
+            if metadata_value(meta, "subcommand") == "prototype")
+    latest = max(runs, key=file_mtime, default=None)
+    return metadata_value(latest, "prototype-replacement-name") if latest else ""
+
+
 class Task:
-    def __init__(self, name: str, source: str, path: Path, repo: Path, slug: str = ""):
+    def __init__(self, name: str, source: str, path: Path, repo: Path, slug: str = "", task_home: Path | None = None):
+        self.task_home = task_home
         self.name = name
         self.source = source
         self.path = path
@@ -821,17 +860,27 @@ class Task:
     def saved_branch_name(self) -> str:
         return metadata_value(self.path / "metadata.gitconfig", "branch-name")
 
-    @property
+    @cached_property
     def prototype_status(self) -> str:
         return metadata_value(self.path / "metadata.gitconfig", "prototype-status")
 
-    @property
+    @cached_property
     def prototype_source(self) -> str:
         return metadata_value(self.path / "metadata.gitconfig", "prototype-source")
 
-    @property
+    @cached_property
     def prototype_cleanup_message(self) -> str:
         return metadata_value(self.path / "metadata.gitconfig", "prototype-cleanup-message")
+
+    @cached_property
+    def review_is_stale(self) -> bool:
+        if not self.prototype_status.startswith("planned") or not (self.path / "review.md").exists():
+            return False
+        planning_runs = [file_mtime(run) for run in (self.path / "runs").glob("*.gitconfig")
+                         if metadata_value(run, "subcommand") == "prototype"
+                         and metadata_value(run, "status") == "complete"]
+        planned_at = max(planning_runs, default=file_mtime(self.path / "metadata.gitconfig"))
+        return file_mtime(self.path / "review.md") <= planned_at
 
     @property
     def blocked(self) -> bool:
@@ -841,9 +890,36 @@ class Task:
     def answer_questions(self) -> list[str]:
         return pending_answer_questions(self.plan)
 
-    @property
-    def active_run(self) -> ActiveRun | None:
+    @cached_property
+    def own_run(self) -> ActiveRun | None:
         return active_run_info(self.path)
+
+    @cached_property
+    def active_run(self) -> ActiveRun | None:
+        own = self.own_run
+        if own and ("-gui-" in own.metadata.name or metadata_value(own.metadata, "subcommand") != "prototype"):
+            return own
+        for peer in self.prototype_peers:
+            run = peer.own_run
+            if run and metadata_value(run.metadata, "subcommand") == "prototype":
+                if own is None or "-gui-" in run.metadata.name:
+                    return run
+        return own
+
+    @cached_property
+    def prototype_peers(self) -> list[Task]:
+        if self.task_home is None:
+            return []
+        peers = getattr(self, "_peers", None)
+        if peers is None:
+            peers = list_repo_tasks(self.repo, self.task_home)
+        replacement = metadata_value(self.path / "metadata.gitconfig", "prototype-replacement")
+        return [peer for peer in peers if peer.path != self.path and (
+            peer.name == self.prototype_source or peer.prototype_source == self.name
+            or (replacement and str(peer.path) == replacement)
+            or prototype_run_replacement_name(peer.path) == self.name
+            or prototype_run_replacement_name(self.path) == peer.name
+        )]
 
     @property
     def running(self) -> bool:
@@ -886,6 +962,28 @@ def view_pr_branch(task: Task) -> str:
     return ""
 
 
+def latest_gui_run(task: Task) -> Path | None:
+    return max((meta for meta in (task.path / "runs").glob("*-gui-*.gitconfig")
+                if metadata_value(meta, "subcommand") == "prototype"), key=file_mtime, default=None)
+
+
+def prototype_failure(task: Task) -> str:
+    meta = latest_gui_run(task)
+    if meta:
+        if any(peer.prototype_source == task.name and peer.prototype_status.startswith("planned")
+               and any(file_mtime(run) > file_mtime(meta)
+                       and metadata_value(run, "subcommand") == "prototype"
+                       and metadata_value(run, "status") == "complete"
+                       and metadata_value(run, "exit-status") == "0"
+                       for run in (peer.path / "runs").glob("*.gitconfig"))
+               for peer in task.prototype_peers):
+            return ""
+        status = metadata_value(meta, "status")
+        if status in {"failed", "cancelled"} or (status == "running" and not active_run_info(task.path)):
+            return "Prototype planning failed, was cancelled, or stopped. Inspect run logs and retry explicitly."
+    return ""
+
+
 def task_workflow(task: Task) -> TaskWorkflow:
     plan_position = status_field(task.plan, "Plan position") or "<missing>"
     next_work = status_field(task.plan, "Next work") or "<missing>"
@@ -904,9 +1002,21 @@ def task_workflow(task: Task) -> TaskWorkflow:
         return TaskWorkflow("Missing plan", "Edit", "edit", "plan.md is missing.", "plan.md missing")
     if task.blocked:
         return TaskWorkflow("Needs edit", "Answer Questions", "edit", plan_position, "USER ANSWER placeholders remain")
-    if task.prototype_status or task.prototype_source:
+    incomplete_origin = any(prototype_run_replacement_name(peer.path) == task.name and prototype_failure(peer)
+                            for peer in task.prototype_peers)
+    if task.prototype_status in {"planning", "planning-failed"} or incomplete_origin:
+        return TaskWorkflow("Needs edit", "Edit replacement plan", "edit",
+                            "Replacement planning has not succeeded. Inspect logs; edit/reconcile this plan or retry Use as Prototype from the source.")
+    failed_replacement = any(peer.prototype_source == task.name and peer.prototype_status in {"planning", "planning-failed"}
+                             for peer in task.prototype_peers)
+    failure = prototype_failure(task)
+    if failed_replacement or failure:
+        reason = prototype_disabled_reason(task)
+        return TaskWorkflow("Planning incomplete", "Retry Use as Prototype", "" if reason else "prototype",
+                            failure or "Replacement planning has not succeeded. Retry reuses the existing package.", reason)
+    if task.prototype_status in {"prototyped", "source-reverted", "revert-blocked", "revert-unavailable"}:
         return TaskWorkflow("Prototype", "Archive", "archive", next_work)
-    if task.review:
+    if task.review and not task.review_is_stale:
         reason = prototype_disabled_reason(task)
         if reason:
             return TaskWorkflow("Reviewed", "Use as Prototype", "", next_work, reason)
@@ -926,12 +1036,15 @@ def list_repo_tasks(repo: Path, task_home: Path) -> list[Task]:
             metadata_repo = metadata_value(path / "metadata.gitconfig", "repo-root")
             if metadata_repo and physical(Path(metadata_repo)) != repo:
                 continue
-            tasks[path.name] = Task(path.name, "central", path, repo, central_root.name)
+            tasks[path.name] = Task(path.name, "central", path, repo, central_root.name, task_home)
     legacy_root = repo / ".agent"
     if legacy_root.exists():
         for path in sorted(p for p in legacy_root.iterdir() if p.is_dir()):
-            tasks.setdefault(path.name, Task(path.name, "legacy", path, repo))
-    return list(tasks.values())
+            tasks.setdefault(path.name, Task(path.name, "legacy", path, repo, task_home=task_home))
+    result = list(tasks.values())
+    for task in result:
+        task._peers = result
+    return result
 
 
 def list_all_central_tasks(task_home: Path) -> list[Task]:
@@ -944,7 +1057,9 @@ def list_all_central_tasks(task_home: Path) -> list[Task]:
                 continue
             metadata_repo = metadata_value(path / "metadata.gitconfig", "repo-root")
             repo = physical(Path(metadata_repo)) if metadata_repo else Path(repo_dir.name)
-            tasks.append(Task(path.name, "central", path, repo, repo_dir.name))
+            tasks.append(Task(path.name, "central", path, repo, repo_dir.name, task_home))
+    for task in tasks:
+        task._peers = [peer for peer in tasks if peer.repo == task.repo]
     return tasks
 
 
@@ -1025,11 +1140,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const interval = Number(target.dataset.pawRefreshIntervalMs || "2500");
     const refreshUrl = target.dataset.pawRefreshUrl;
     const refresh = async () => {
-      if (target.matches(":focus-within")) return;
+      if (target.matches(":focus-within") || target.querySelector("details.modal-toggle[open]")) return;
       try {
         const response = await fetch(refreshUrl, {cache: "no-store"});
         if (!response.ok) return;
-        target.innerHTML = await response.text();
+        const content = await response.text();
+        if (target.matches(":focus-within") || target.querySelector("details.modal-toggle[open]")) return;
+        target.innerHTML = content;
       } catch (_error) {
         // Keep the last good view when the local server is stopping or busy.
       }
@@ -1155,9 +1272,9 @@ class Handler(BaseHTTPRequestHandler):
                 metadata_repo = metadata_value(task_path / "metadata.gitconfig", "repo-root")
                 if metadata_repo and physical(Path(metadata_repo)) != repo:
                     return None
-                return Task(name, "central", task_path, repo, central_root.name)
+                return Task(name, "central", task_path, repo, central_root.name, self.task_home)
             if task_path == repo / ".agent" / name:
-                return Task(name, "legacy", task_path, repo)
+                return Task(name, "legacy", task_path, repo, task_home=self.task_home)
         return None
 
     def do_GET(self) -> None:
@@ -1381,6 +1498,7 @@ class Handler(BaseHTTPRequestHandler):
         shutil.rmtree(item)
         self.redirect(self.with_active_repo(active_repo, self.flash_query(f"removed queued plan {task_name}", "notice")))
 
+    @queue_lock()
     def post_task_action(self, name: str, subcommand: str) -> None:
         form = self.form_data()
         active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
@@ -1389,15 +1507,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_html("<h1>Task not found</h1>", 404)
         if subcommand == "implement" and task.blocked:
             return self.redirect(self.task_url(task, "implement blocked: reconcile USER ANSWER placeholders first", "error"))
+        if task.running:
+            return self.redirect(self.task_url(task, f"{task.name} already has a running PAW subprocess", "error"))
         if subcommand == "prototype":
             reason = prototype_disabled_reason(task)
             if reason:
-                grade = review_grade(task.review)
-                return self.redirect(self.task_url(task, f"prototype blocked: review grade {grade} is A- or higher", "error"))
-        if task.running:
-            return self.redirect(self.task_url(task, f"{task.name} already has a running PAW subprocess", "error"))
+                return self.redirect(self.task_url(task, f"prototype blocked: {reason}", "error"))
+        if subcommand == "prototype":
+            replacements = [peer for peer in list_repo_tasks(task.repo, self.task_home)
+                            if peer.name == task.name + "-prototype"]
+            if any(peer.running for peer in replacements):
+                return self.redirect(self.task_url(task, "replacement already has a running PAW subprocess", "error"))
+        if subcommand == "implement" and task_workflow(task).action != "approve-implementation":
+            return self.redirect(self.task_url(task, "implement blocked: current task is not ready for approval", "error"))
         args = [subcommand, task.name]
-        extras = "" if subcommand == "implement" else form.get("extras", "").strip()
+        extras = "" if subcommand == "implement" else form.get("extras", "")
         if subcommand == "edit" and task.blocked:
             extras = answer_extras(task, form.get("answers", "").strip(), extras)
         if extras and subcommand != "archive":
@@ -1679,8 +1803,17 @@ class Handler(BaseHTTPRequestHandler):
         action_path = f"/task/{quote(task.name)}/{action}"
         questions = task.answer_questions if action == "edit" and task.blocked else []
         default_extras = ""
-        question_block = ""
+        question_block = (
+            "<p>Create or reuse a replacement plan from this review. After planning succeeds, "
+            "PAW attempts conservative source cleanup. Approve the replacement separately.</p>"
+            if action == "prototype" else ""
+        )
         answers_block = ""
+        if action == "prototype":
+            replacements = [peer for peer in list_repo_tasks(task.repo, self.task_home)
+                            if peer.name == task.name + "-prototype"]
+            if replacements:
+                question_block += f"<p>Reuse existing replacement: {html.escape(replacements[0].name)}. Existing documents are retained for the planning run.</p>"
         if action == "edit" and task.blocked:
             default_extras = (
                 "Answer/reconcile the listed USER ANSWER placeholders in plan.md as part of this edit run. "
@@ -1746,7 +1879,7 @@ class Handler(BaseHTTPRequestHandler):
         return f"<a class='button' href='{html_attr(self.stream_url(task))}'>Stream</a>"
 
     def streamable(self, task: Task) -> bool:
-        logs = active_run_logs(task.path, task.active_run)
+        logs = active_run_logs(task.active_run.metadata.parent.parent, task.active_run) if task.active_run else None
         return bool(logs and logs.available)
 
     def unarchive_form(self, task: Task) -> str:
@@ -1799,8 +1932,8 @@ class Handler(BaseHTTPRequestHandler):
         return f"<div class='action-row'>{''.join(pieces)}</div>"
 
     def workflow_action_control(self, task: Task, workflow: TaskWorkflow) -> str:
-        if workflow.action == "edit":
-            return self.extras_modal(task, "edit", workflow.next_label)
+        if workflow.action in {"edit", "prototype"}:
+            return self.extras_modal(task, workflow.action, workflow.next_label)
         if workflow.action == "cancel":
             pieces = []
             if self.streamable(task):
@@ -1827,6 +1960,14 @@ class Handler(BaseHTTPRequestHandler):
             parts.append(f"<div class='workflow-note'><span class='pill'>{html.escape(label)}</span></div>")
             if task.prototype_cleanup_message:
                 parts.append(f"<div class='workflow-note muted'>{html.escape(task.prototype_cleanup_message)}</div>")
+        peers = task.prototype_peers
+        for peer in peers:
+            label = "Open source" if peer.name == task.prototype_source else "Open replacement"
+            parts.append(f"<div class='workflow-note'><a href='{html_attr(self.task_url(peer))}'>{label}: {html.escape(peer.name)}</a></div>")
+            if label == "Open replacement" and peer.prototype_status:
+                parts.append(f"<div class='workflow-note'>{html.escape(peer.prototype_status)}: {html.escape(peer.prototype_cleanup_message)}</div>")
+        if task.prototype_source and not any(peer.name == task.prototype_source for peer in peers):
+            parts.append(f"<div class='workflow-note'>Source {html.escape(task.prototype_source)} is archived or unavailable.</div>")
         return f"<div class='workflow-cell'>{''.join(parts)}</div>"
 
     def workflow_next_cell(self, task: Task, workflow: TaskWorkflow) -> str:
@@ -1949,7 +2090,7 @@ class Handler(BaseHTTPRequestHandler):
         run = task.active_run
         if not run or not run.cancellable:
             return "<p class='muted'>No active PAW run is available for streaming.</p>"
-        logs = active_run_logs(task.path, run)
+        logs = active_run_logs(run.metadata.parent.parent, run)
         if not logs or not logs.available:
             return "<p class='muted'>The active PAW run has no GUI stdout/stderr logs available yet.</p>"
         subcommand = metadata_value(run.metadata, "subcommand") or run.metadata.stem
@@ -2026,6 +2167,8 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def approval_panel(self, task: Task) -> str:
+        if task_workflow(task).action != "approve-implementation":
+            return "<p>Implementation approval unavailable: refresh and resolve the task’s current next step.</p>"
         plan_path = task.path / "plan.md"
         edit_extras = "Review and refine plan.md before implementation approval. Do not change implementation files."
         return (
@@ -2102,9 +2245,22 @@ class Handler(BaseHTTPRequestHandler):
             "</tbody></table></div>"
             f"<p class='tabs'>{tabs}</p><div class='document'>{render_markdown(content)}</div>"
             f"{self.live_stream_section(task)}"
+            f"{self.prototype_failure_logs(task)}"
             "<h2>Run History</h2><div class='table-wrap'><table><thead><tr><th>Subcommand</th><th>Status</th><th>Backend</th><th>Model</th><th>Started</th><th>Ended</th><th>Exit</th></tr></thead>"
             f"<tbody>{run_rows(task.path)}</tbody></table></div>"
         )
+
+    def prototype_failure_logs(self, task: Task) -> str:
+        owners = [task, *task.prototype_peers]
+        for owner in owners:
+            if not prototype_failure(owner):
+                continue
+            logs = sorted((owner.path / "runs").glob("*-gui-*-prototype-*.stdout.log"), key=file_mtime, reverse=True)
+            if logs:
+                stdout = task_local_run_file(owner.path, logs[0])
+                stderr = task_local_run_file(owner.path, logs[0].with_name(logs[0].name.replace(".stdout.log", ".stderr.log")))
+                return "<h2>Prototype planning logs</h2>" + self.log_panel("stdout", stdout) + self.log_panel("stderr", stderr)
+        return ""
 
     def live_stream_section(self, task: Task) -> str:
         if not self.streamable(task):

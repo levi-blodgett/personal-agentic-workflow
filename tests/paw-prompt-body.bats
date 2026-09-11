@@ -1381,3 +1381,27 @@ MD
   [[ "$output" == *"PAW_BACKEND=stub"* ]]
   [[ "$output" == *"model=opus"* ]]
 }
+
+@test "paw prototype: failed planning preserves source and links reusable replacement" {
+  capture_prototype_source
+  run bash -c '
+    source "$1"
+    _run_model_subcommand() { return 7; }
+    cmd_prototype proto-task
+  ' _ "$PAW"
+  [ "$status" -eq 7 ]
+  [ "$(cat "$REPO/README.md")" = implemented ]
+  local replacement
+  replacement="$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-replacement)"
+  [ -f "$replacement/plan.md" ]
+  [ "$(git config --file "$replacement/metadata.gitconfig" --get paw.prototype-status)" = planning-failed ]
+  printf '\nKeep these notes.\n' >> "$replacement/contract.md"
+  run "$PAW" prototype proto-task
+  [ "$status" -eq 0 ]
+  grep -q 'Keep these notes.' "$replacement/contract.md"
+  [ "$(git config --file "$replacement/metadata.gitconfig" --get paw.prototype-status)" = planned-source-reverted ]
+  run "$PAW" archive proto-task
+  [ "$status" -eq 0 ]
+  [ -f "$replacement/plan.md" ]
+  [ ! -d "$source_dir" ]
+}

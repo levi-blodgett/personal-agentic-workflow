@@ -364,7 +364,7 @@ MD
   grep -q "/task/grade-b-plus/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
   grep -q "/task/grade-pending/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
   grep -q "/task/grade-missing/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
-  grep -q "prototype blocked: review grade A is A- or higher" "$BATS_TEST_TMPDIR/prototype-a-post.html"
+  grep -q "prototype blocked: Prototype disabled for review grade A" "$BATS_TEST_TMPDIR/prototype-a-post.html"
   grep -q "grade-b-plus-prototype" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 
@@ -1199,14 +1199,15 @@ PY
   stop_gui
 
   grep -q "/task/gui-task/review" "$BATS_TEST_TMPDIR/actions.html"
-  grep -q "/task/gui-task/prototype" "$BATS_TEST_TMPDIR/actions.html"
+  ! grep -q "/task/gui-task/prototype" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q "Run Review first: this task has no review.md" "$BATS_TEST_TMPDIR/actions.html"
   grep -q "/task/gui-task/archive" "$BATS_TEST_TMPDIR/actions.html"
   grep -q "approve=implementation" "$BATS_TEST_TMPDIR/actions.html"
   ! grep -q "/task/gui-task/implement" "$BATS_TEST_TMPDIR/actions.html"
   ! grep -q ">Open<" "$BATS_TEST_TMPDIR/actions.html"
   grep -q ">Review<" "$BATS_TEST_TMPDIR/actions.html"
   grep -q ">Use as Prototype<" "$BATS_TEST_TMPDIR/actions.html"
-  grep -q "Use as Prototype gui-task" "$BATS_TEST_TMPDIR/actions.html"
+  ! grep -q "Use as Prototype gui-task" "$BATS_TEST_TMPDIR/actions.html"
   grep -q ">Archive<" "$BATS_TEST_TMPDIR/actions.html"
   grep -q ">Approve Implementation<" "$BATS_TEST_TMPDIR/actions.html"
   ! grep -q ">Implement<" "$BATS_TEST_TMPDIR/actions.html"
@@ -1812,4 +1813,8 @@ assert gui.queue_item_dir(home, repo, 'renamed').joinpath('prompt.txt').read_tex
 from urllib.parse import parse_qs, urlparse
 assert parse_qs(urlparse(redirects[0]).query)['message'] == ['start failed']
 PY
+}
+
+@test "paw gui: prototype journey behavior regressions" {
+  python3 "$REPO_ROOT/tests/gui-prototype.py"
 }

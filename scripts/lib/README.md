@@ -23,3 +23,5 @@ paw-backend-$PAW_BACKEND                     # external executable plugin on PAT
 ```
 
 Built-ins implement four required shell functions (`backend_run_capture`, `backend_run_stream`, `backend_parse_tokens`, `backend_parse_stream_tokens`) plus optional hooks such as `backend_display_model` and `backend_usage_banner`. External plugins expose the same runtime surface through an executable subcommand protocol. The full contract is defined in [`backends/_iface.md`](backends/_iface.md); the built-ins shipped today are listed in [`backends/README.md`](backends/README.md).
+
+GUI prototype run ownership: discovery links source/replacement packages within one repo. GUI launches record immediate PID-bearing run metadata and reap terminal outcomes; the CLI records its normal backend run separately. Both package views prefer the linked source GUI operation for logs/cancel, with existing process verification and task-local log checks. The GUI run’s optional `paw.prototype-replacement-name` bridges discovery before CLI lineage is written; older runs fall back to existing lineage. Archive is exempt from launch tracking to avoid its own running guard.

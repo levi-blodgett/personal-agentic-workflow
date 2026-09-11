@@ -80,3 +80,5 @@ bats tests/lint-task.bats
 - `makefile.bats` requires `make` on `PATH` (pre-installed on `ubuntu-latest` and macOS).
 - Tests that need a real git repo create a temporary one in `$BATS_TEST_TMPDIR`
   and clean up on teardown.
+
+Prototype journey coverage in `gui-server.bats` includes `gui-prototype.py` behavior checks for replacement/source roles, instructions, immediate and linked run tracking, duplicate starts, cancellation, stale approval, failure logs, reuse and same-repo navigation. `paw-prompt-body.bats` verifies failed planning preserves source work, retry retains replacement notes, successful cleanup follows planning, and source archival preserves the replacement. Fixtures use isolated task stores and stub/local subprocesses; no model service is called.
