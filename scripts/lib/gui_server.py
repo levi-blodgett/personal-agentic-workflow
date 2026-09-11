@@ -147,6 +147,27 @@ def option_tag(value: str, label: str, selected: str) -> str:
     return f"<option value='{html_attr(value)}'{selected_attr}>{html.escape(label)}</option>"
 
 
+def path_disclosure(label: str, value: str) -> str:
+    return f"<details class='path-disclosure'><summary>{html.escape(label)}</summary><code>{html.escape(value)}</code></details>"
+
+
+def repo_disclosure(task: Task, branch: str) -> str:
+    return (
+        "<details class='path-disclosure'><summary>Repo details</summary>"
+        "<dl>"
+        f"<dt>Repo path</dt><dd><code>{html.escape(str(task.repo))}</code></dd>"
+        f"<dt>Slug</dt><dd><code>{html.escape(task.slug)}</code></dd>"
+        f"<dt>Task store</dt><dd><code>{html.escape(str(task.path.parent))}</code></dd>"
+        f"<dt>Branch</dt><dd>{html.escape(branch)}</dd>"
+        "</dl></details>"
+    )
+
+
+def validation_chip(state: str) -> str:
+    class_name = f"validation-{state}" if state in {"passed", "attention", "missing", "recorded"} else "validation-recorded"
+    return f"<span class='validation-chip {class_name}'>{html.escape(state)}</span>"
+
+
 def render_inline(text: str) -> str:
     placeholders: list[str] = []
 
@@ -524,13 +545,16 @@ def list_tasks(repo: Path, task_home: Path, all_repos: bool) -> list[Task]:
 
 STYLE = """
 body{font:14px/1.45 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;color:#202124;background:#f7f8fa}
-header{background:#243447;color:white;padding:20px 28px}header a{color:white;text-decoration:underline}main{padding:24px 28px;max-width:1180px;margin:auto}
-a{color:#0b57d0;text-decoration:none}button,.button{border:1px solid #b8c0cc;background:white;color:#1f2937;border-radius:6px;padding:5px 9px;font:inherit;cursor:pointer}.button{display:inline-block}button:hover,.button:hover{background:#f3f6fa}.danger{border-color:#dc2626;color:#991b1b}.primary{border-color:#0b57d0;color:#0b57d0}
-table{border-collapse:collapse;width:100%;background:white;border:1px solid #dfe3ea}
+.shell{width:min(100% - 32px,1600px);margin-inline:auto}.site-header{background:#243447;color:white;padding:10px 0}.header-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.site-header h1{font-size:20px;line-height:1.2;margin:0}.home-link{color:white;text-decoration:none;border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:4px 8px}.home-link:hover{background:rgba(255,255,255,.12)}.header-context{color:#cbd5e1;font-size:13px;margin-left:auto}main.shell{padding-block:20px}
+a{color:#0b57d0;text-decoration:none}button,.button{border:1px solid #b8c0cc;background:white;color:#1f2937;border-radius:6px;padding:5px 9px;font:inherit;cursor:pointer}.button{display:inline-block}button:hover,.button:hover{background:#f3f6fa}button:focus-visible,.button:focus-visible,.home-link:focus-visible{outline:3px solid #93c5fd;outline-offset:2px}.danger{border-color:#dc2626;color:#991b1b}.primary{border-color:#0b57d0;color:#0b57d0;background:#eff6ff}
+table{border-collapse:collapse;width:100%;background:white;border:1px solid #dfe3ea}.table-wrap{overflow-x:auto;margin:12px 0 20px}
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical-align:top}th{background:#edf1f7;font-size:12px;text-transform:uppercase;color:#4b5563}
-.pill{display:inline-block;border:1px solid #ccd3dd;border-radius:999px;padding:2px 8px;background:#f8fafc;font-size:12px}.blocked{border-color:#d97706;color:#92400e}.running{border-color:#2563eb;color:#1d4ed8}.ready{border-color:#15803d;color:#166534}
-.tabs a{margin-right:14px}.muted{color:#667085}.document{background:white;border:1px solid #dfe3ea;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:#f6f8fa;border:1px solid #dfe3ea;padding:12px;overflow:auto}.document code{background:#eef2f7;padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid #d0d7de;color:#57606a;margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}
+.pill{display:inline-block;border:1px solid #ccd3dd;border-radius:999px;padding:2px 8px;background:#f8fafc;font-size:12px}.blocked{border-color:#d97706;color:#92400e}.running{border-color:#2563eb;color:#1d4ed8}.ready{border-color:#15803d;color:#166534}.complete{border-color:#6d28d9;color:#5b21b6}
+.toolbar{display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:14px 0}.toolbar-fields,.top-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.toolbar label{display:grid;gap:3px;font-size:12px;color:#475467}.toolbar select,.toolbar input{font:inherit;border:1px solid #cbd5e1;border-radius:6px;padding:5px 8px;background:white}.flash,.flash-error{border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1e3a8a;padding:8px 10px}.flash-error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.metric-chip,.validation-chip{display:inline-flex;align-items:center;justify-content:center;min-width:3.2em;border-radius:999px;border:1px solid #ccd3dd;background:#f8fafc;padding:2px 8px;font-size:12px}.validation-passed{border-color:#16a34a;color:#166534}.validation-attention{border-color:#d97706;color:#92400e}.validation-missing{border-color:#b8c0cc;color:#667085}.validation-recorded{border-color:#0b57d0;color:#1d4ed8}
+.task-title{font-weight:600}.task-subtle{margin-top:4px}.repo-name{font-weight:600}.path-disclosure{margin-top:5px;font-size:12px;color:#667085}.path-disclosure summary{cursor:pointer;color:#3b495c}.path-disclosure code{display:block;margin-top:5px;white-space:nowrap;overflow:auto;max-width:42rem}.path-disclosure dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;margin:6px 0 0}.path-disclosure dt{font-weight:600;color:#475467}.path-disclosure dd{margin:0;min-width:0}
+.tabs a{margin-right:14px}.muted{color:#667085}.document{background:white;border:1px solid #dfe3ea;border-radius:8px;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:#f6f8fa;border:1px solid #dfe3ea;padding:12px;overflow:auto}.document code{background:#eef2f7;padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid #d0d7de;color:#57606a;margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}.document table{border:1px solid #dfe3ea}.document tr:nth-child(even),.table-wrap tbody tr:nth-child(even){background:#fbfcfe}
 .action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid #ccd3dd;border-radius:6px;padding:5px 9px;background:#f8fafc;color:#667085}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:white;color:#202124;border:1px solid #cfd7e3;border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
+@media (max-width:640px){.shell{width:min(100% - 20px,1600px)}.header-context{margin-left:0;flex-basis:100%}}
 """
 
 SCRIPT = """
@@ -571,9 +595,13 @@ document.addEventListener("DOMContentLoaded", () => {
 """
 
 
-def page_header(title: str, subtitle: str = "") -> str:
-    subtitle_html = f"<div>{html.escape(subtitle)}</div>" if subtitle else ""
-    return f"<header><p><a href='/'>Home</a></p><h1>{html.escape(title)}</h1>{subtitle_html}</header>"
+def page_header(title: str, context: str = "") -> str:
+    context_html = f"<span class='header-context'>{html.escape(context)}</span>" if context else ""
+    return (
+        "<header class='site-header'><div class='shell header-row'>"
+        f"<a class='home-link' href='/'>Home</a><h1>{html.escape(title)}</h1>{context_html}"
+        "</div></header>"
+    )
 
 
 def stable_id(*parts: str) -> str:
@@ -783,7 +811,7 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(urlparse(self.path).query)
         message = query.get("message", [""])[0]
         level = query.get("level", ["notice"])[0]
-        scope = "All central task stores" if self.all_repos else str(self.repo)
+        scope = "All task stores" if self.all_repos else f"{self.repo.name or 'repo'} repo"
         central_note = str(self.task_home) if self.all_repos else str(self.task_home / repo_slug(self.repo))
         refresh_query = {
             key: query.get(key, [""])[0]
@@ -794,9 +822,9 @@ class Handler(BaseHTTPRequestHandler):
         if refresh_query:
             refresh_url += "?" + urlencode(refresh_query)
         body = (
-            f"{page_header('PAW Tasks', scope)}<main>"
+            f"{page_header('PAW Tasks', scope)}<main class='shell'>"
             f"{self.flash_html(message, level)}"
-            f"<p class='muted'>Central store: {html.escape(central_note)}</p>"
+            f"<p class='muted'>Central store {path_disclosure('Central store', central_note)}</p>"
             f"{self.index_filters(query)}"
             f"{self.new_plan_modal()}"
             f"<div id='task-list' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
@@ -821,12 +849,14 @@ class Handler(BaseHTTPRequestHandler):
             [option_tag("", "Any completion", completion_filter), *(option_tag(value, value, completion_filter) for value in completion_options)]
         )
         return (
-            "<form method='get'>"
-            f"<p><label>State <select name=\"state\">{state_select}</select></label> "
-            f"<label>Repo <input name=\"repo\" value=\"{html_attr(query.get('repo', [''])[0])}\"></label> "
-            f"<label>Completion <select name=\"completion\">{completion_select}</select></label> "
-            "<button type='submit'>Filter</button> <a href='/'>Clear</a></p>"
-            "</form>"
+            "<form class='toolbar' method='get'>"
+            "<div class='toolbar-fields'>"
+            f"<label>State <select name=\"state\">{state_select}</select></label>"
+            f"<label>Repo <input name=\"repo\" value=\"{html_attr(query.get('repo', [''])[0])}\"></label>"
+            f"<label>Completion <select name=\"completion\">{completion_select}</select></label>"
+            "</div><div class='top-actions'>"
+            "<button type='submit'>Filter</button><a class='button' href='/'>Clear</a>"
+            "</div></form>"
         )
 
     def new_plan_modal(self) -> str:
@@ -967,20 +997,20 @@ class Handler(BaseHTTPRequestHandler):
             rows.append(
                 "<tr>"
                 f"<td>{selector}</td>"
-                f"<td><a href='{task_href}'>{html.escape(task.name)}</a><br><span class='muted'>{html.escape(str(task.path))}</span></td>"
-                f"<td>{html.escape(task.repo_name)}<br><span class='muted'>{html.escape(str(task.repo))}</span><br><span class='muted'>{html.escape(task.slug)}</span><br><span class='muted'>Branch: {html.escape(branch)}</span></td>"
+                f"<td><a class='task-title' href='{task_href}'>{html.escape(task.name)}</a>{path_disclosure('Task path', str(task.path))}</td>"
+                f"<td><div class='repo-name'>{html.escape(task.repo_name)}</div><div class='task-subtle muted'>Branch: {html.escape(branch)}</div>{repo_disclosure(task, branch)}</td>"
                 f"<td>{self.workflow_stage_cell(task, workflow)}</td>"
                 f"<td>{self.workflow_next_cell(task, workflow)}</td>"
-                f"<td>{html.escape(completion)}</td>"
-                f"<td>{done}/{total}</td><td>{validation_state(task.plan)}</td>"
+                f"<td><span class='metric-chip'>{html.escape(completion)}</span></td>"
+                f"<td><span class='metric-chip'>{done}/{total}</span></td><td>{validation_chip(validation_state(task.plan))}</td>"
                 f"<td>{self.task_actions(task, include_docs=True)}</td>"
                 "</tr>"
             )
         return (
             "<form id='batch-implement-form' method='post' action='/actions/implement-batch'></form>"
-            "<p><button form='batch-implement-form' type='submit'>Implement selected</button></p>"
-            "<table><thead><tr><th>Select</th><th>Task</th><th>Repo</th><th>Stage</th><th>Next</th><th>Completion</th><th>Checklist</th><th>Validation</th><th>Actions</th></tr></thead>"
-            f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table>"
+            "<div class='top-actions'><button form='batch-implement-form' type='submit'>Implement selected</button></div>"
+            "<div class='table-wrap'><table><thead><tr><th>Select</th><th>Task</th><th>Repo</th><th>Stage</th><th>Next</th><th>Completion</th><th>Checklist</th><th>Validation</th><th>Actions</th></tr></thead>"
+            f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table></div>"
         )
 
     def flash_html(self, message: str, level: str = "notice") -> str:
@@ -997,7 +1027,7 @@ class Handler(BaseHTTPRequestHandler):
         selected_doc = doc_name(doc)
         refresh_url = f"/fragments/task/{quote(task.name)}?path={path_query}&doc={quote(selected_doc)}"
         body = (
-            f"{page_header(task.name, str(task.path))}<main>"
+            f"{page_header(task.name, task.repo_name)}<main class='shell'>"
             f"{self.flash_html(message, level)}"
             f"{self.task_actions(task)}"
             f"<div id='task-detail' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
@@ -1045,19 +1075,20 @@ class Handler(BaseHTTPRequestHandler):
         prototype_source = task.prototype_source or "none"
         return (
             f"<p><span class='pill {task.state}'>{task.state}</span> <span class='pill'>{task.source}</span> <span class='pill'>{done}/{total} checklist</span></p>"
-            "<table><tbody>"
-            f"<tr><th>Repo</th><td>{html.escape(str(task.repo))}</td></tr>"
-            f"<tr><th>Repo Slug</th><td>{html.escape(task.slug)}</td></tr>"
-            f"<tr><th>Worktree</th><td>{html.escape(metadata_value(task.path / 'metadata.gitconfig', 'worktree-path') or 'legacy metadata unavailable')}</td></tr>"
+            "<div class='table-wrap'><table><tbody>"
+            f"<tr><th>Task</th><td>{path_disclosure('Task path', str(task.path))}</td></tr>"
+            f"<tr><th>Repo</th><td><strong>{html.escape(task.repo_name)}</strong>{path_disclosure('Repo path', str(task.repo))}</td></tr>"
+            f"<tr><th>Repo Slug</th><td>{path_disclosure('Repo slug', task.slug)}</td></tr>"
+            f"<tr><th>Worktree</th><td>{path_disclosure('Worktree path', metadata_value(task.path / 'metadata.gitconfig', 'worktree-path') or 'legacy metadata unavailable')}</td></tr>"
             f"<tr><th>PR</th><td>{html.escape(pr_tracking)}</td></tr>"
             f"<tr><th>Issue</th><td>{html.escape(issue_tracking)}</td></tr>"
             f"<tr><th>Prototype</th><td>{html.escape(prototype_status)}"
             f"{' from ' + html.escape(prototype_source) if prototype_source != 'none' else ''}</td></tr>"
             f"<tr><th>Crash Log</th><td>{html.escape(crash_state)}</td></tr>"
-            "</tbody></table>"
+            "</tbody></table></div>"
             f"<p class='tabs'>{tabs}</p><div class='document'>{render_markdown(content)}</div>"
-            "<h2>Run History</h2><table><thead><tr><th>Subcommand</th><th>Status</th><th>Backend</th><th>Model</th><th>Started</th><th>Ended</th><th>Exit</th></tr></thead>"
-            f"<tbody>{run_rows(task.path)}</tbody></table>"
+            "<h2>Run History</h2><div class='table-wrap'><table><thead><tr><th>Subcommand</th><th>Status</th><th>Backend</th><th>Model</th><th>Started</th><th>Ended</th><th>Exit</th></tr></thead>"
+            f"<tbody>{run_rows(task.path)}</tbody></table></div>"
         )
 
 

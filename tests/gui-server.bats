@@ -318,8 +318,84 @@ PY
   fetch_gui "$port" "/no-such-page" "$BATS_TEST_TMPDIR/home-missing.html" || true
   stop_gui
 
-  grep -q "<a href='/'>Home</a>" "$BATS_TEST_TMPDIR/home-index.html"
-  grep -q "<a href='/'>Home</a>" "$BATS_TEST_TMPDIR/home-detail.html"
+  grep -q "<a class='home-link' href='/'>Home</a>" "$BATS_TEST_TMPDIR/home-index.html"
+  grep -q "<a class='home-link' href='/'>Home</a>" "$BATS_TEST_TMPDIR/home-detail.html"
+}
+
+@test "paw gui: uses compact headers without always-visible full paths" {
+  local port=18794 path encoded_path repo_path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  repo_path="$(real_path "$REPO")"
+  encoded_path="$(url_encode "$path")"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/compact-index.html"
+  fetch_gui "$port" "/task/gui-task?path=$encoded_path&doc=plan" "$BATS_TEST_TMPDIR/compact-detail.html"
+  stop_gui
+
+  grep -q "<header class='site-header'><div class='shell header-row'>" "$BATS_TEST_TMPDIR/compact-index.html"
+  grep -q "<a class='home-link' href='/'>Home</a><h1>PAW Tasks</h1>" "$BATS_TEST_TMPDIR/compact-index.html"
+  grep -q "repo</span>" "$BATS_TEST_TMPDIR/compact-index.html"
+  ! grep -q "<div>$repo_path</div>" "$BATS_TEST_TMPDIR/compact-index.html"
+  grep -q "<a class='home-link' href='/'>Home</a><h1>gui-task</h1>" "$BATS_TEST_TMPDIR/compact-detail.html"
+  ! grep -q "<div>$path</div>" "$BATS_TEST_TMPDIR/compact-detail.html"
+}
+
+@test "paw gui: hides exact paths behind disclosure controls" {
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.branch-name feature/gui-context
+  local port=18795 path encoded_path repo_path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  repo_path="$(real_path "$REPO")"
+  encoded_path="$(url_encode "$path")"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
+  fetch_gui "$port" "/task/gui-task?path=$encoded_path&doc=plan" "$BATS_TEST_TMPDIR/path-disclosure-detail.html"
+  stop_gui
+
+  grep -q "<details class='path-disclosure'><summary>Task path</summary><code>$path</code></details>" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
+  grep -q "<details class='path-disclosure'><summary>Repo details</summary>" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
+  grep -q "Branch: feature/gui-context" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
+  grep -q "<dt>Repo path</dt><dd><code>$repo_path</code></dd>" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
+  grep -q "<dt>Task store</dt><dd><code>" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
+  grep -q "<details class='path-disclosure'><summary>Central store</summary><code>" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
+  grep -q "<details class='path-disclosure'><summary>Task path</summary><code>$path</code></details>" "$BATS_TEST_TMPDIR/path-disclosure-detail.html"
+  grep -q "<details class='path-disclosure'><summary>Repo path</summary><code>$repo_path</code></details>" "$BATS_TEST_TMPDIR/path-disclosure-detail.html"
+  ! grep -q "<br><span class='muted'>$path</span>" "$BATS_TEST_TMPDIR/path-disclosure-index.html"
+}
+
+@test "paw gui: uses a shared wide shell and scrollable table wrappers" {
+  local port=18796 path encoded_path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  encoded_path="$(url_encode "$path")"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/layout-index.html"
+  fetch_gui "$port" "/task/gui-task?path=$encoded_path&doc=plan" "$BATS_TEST_TMPDIR/layout-detail.html"
+  stop_gui
+
+  grep -q ".shell{width:min(100% - 32px,1600px);margin-inline:auto}" "$BATS_TEST_TMPDIR/layout-index.html"
+  grep -q "<header class='site-header'><div class='shell header-row'>" "$BATS_TEST_TMPDIR/layout-index.html"
+  grep -q "<main class='shell'>" "$BATS_TEST_TMPDIR/layout-index.html"
+  grep -q "<div class='table-wrap'><table>" "$BATS_TEST_TMPDIR/layout-index.html"
+  grep -q "<div class='table-wrap'><table><tbody>" "$BATS_TEST_TMPDIR/layout-detail.html"
+  ! grep -q "max-width:1180px" "$BATS_TEST_TMPDIR/layout-index.html"
+}
+
+@test "paw gui: exposes polished toolbar status and document styling hooks" {
+  local port=18797 path encoded_path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  encoded_path="$(url_encode "$path")"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/polish-index.html"
+  fetch_gui "$port" "/task/gui-task?path=$encoded_path&doc=plan" "$BATS_TEST_TMPDIR/polish-detail.html"
+  stop_gui
+
+  grep -q "<form class='toolbar' method='get'>" "$BATS_TEST_TMPDIR/polish-index.html"
+  grep -q "<div class='toolbar-fields'>" "$BATS_TEST_TMPDIR/polish-index.html"
+  grep -q "<div class='top-actions'>" "$BATS_TEST_TMPDIR/polish-index.html"
+  grep -q "<span class='metric-chip'>1/2</span>" "$BATS_TEST_TMPDIR/polish-index.html"
+  grep -q "<span class='validation-chip validation-passed'>passed</span>" "$BATS_TEST_TMPDIR/polish-index.html"
+  grep -q "button:focus-visible,.button:focus-visible,.home-link:focus-visible" "$BATS_TEST_TMPDIR/polish-index.html"
+  grep -q ".flash,.flash-error" "$BATS_TEST_TMPDIR/polish-index.html"
+  grep -q ".document table{border:1px solid #dfe3ea}" "$BATS_TEST_TMPDIR/polish-detail.html"
 }
 
 @test "paw gui: task detail fragment reflects updated plan and run metadata" {
