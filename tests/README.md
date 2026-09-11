@@ -34,13 +34,13 @@ bats tests/lint-task.bats
 | `list-tasks.bats` | `scripts/list-tasks.sh` status and running-state output |
 | `lint-task.bats` | `scripts/lint-task.sh` |
 | `task-store.bats` | central task-store resolution, archive moves/filtering, metadata, legacy fallback, eligibility/running-state predicates, and explicit multi-repo migration helpers |
-| `gui-server.bats` | `paw gui` Markdown rendering, newest-first task sorting, auto-refresh fragment plumbing, main-table filters, active repo registry/selector behavior, combined repo/branch display, home navigation, concise action labels, overlay prompts/previews, no-extra GUI implementation, local plan/edit/implement/review/prototype/archive actions, click-time View PR lookup for saved live branches, selected-task archive/delete, prototype markers, guarded deletion, foreground smoke, managed start/stop/restart/kill lifecycle, stable default-port coverage, stale PID protection, and multi-repo dashboard coverage |
+| `gui-server.bats` | `paw gui` Markdown rendering, newest-first task sorting, auto-refresh fragment plumbing, main-table filters, active repo registry/selector behavior, combined repo/branch display, home navigation, concise action labels, overlay prompts/previews, no-extra GUI implementation, local plan/edit/implement/review/prototype/archive actions, click-time View PR lookup for saved live branches, selected-task archive/delete, prototype markers and cleanup messages, guarded deletion, foreground smoke, managed start/stop/restart/kill lifecycle, stable default-port coverage, stale PID protection, and multi-repo dashboard coverage |
 | `makefile.bats` | `Makefile` targets (install, uninstall, help, -n dry-runs) |
 | `paw-dispatcher.bats` | `scripts/paw` subcommand dispatch, review/prototype/archive command surfaces, `implement-batch`, worktree resume, and launcher behavior |
 | `paw-completion-docs.bats` | Durable docs coverage for `paw completion zsh` and the narrowed `zsh`-only scope |
 | `paw-codex.bats` | Default codex backend wiring, auth banner, sandbox flags, and usage parsing |
 | `paw-crash.bats` | Crash classification, crash log writing, and prompt-size warnings |
-| `paw-prompt-body.bats` | Prompt body + launch banner for every subcommand, including broader review records and review-driven prototype planning/conservative cleanup behavior (stub backend) |
+| `paw-prompt-body.bats` | Prompt body + launch banner for every subcommand, including broader review records, implementation provenance capture, and review-driven prototype planning/conservative cleanup behavior (stub backend) |
 | `paw-pr-workflow.bats` | Shell-side `paw pr-submit` / `paw pr-review` workflow coverage |
 | `paw-issue-workflow.bats` | Shell-side `paw issue-submit` / `paw issue-review` / `paw to-issues --publish` workflow coverage |
 | `paw-gh-actions-workflow.bats` | Shell-side `paw gh-actions-review` dispatch and flag-forwarding coverage |
@@ -72,7 +72,7 @@ bats tests/lint-task.bats
 
 - `paw-dispatcher.bats` uses a PATH-shimmed `claude` fake for the dispatcher-focused tests that still exercise the Anthropic backend path.
 - `paw-prompt-body.bats` uses `PAW_BACKEND=stub`, so no real backend binary is required. The stub backend (`scripts/lib/backends/stub.sh`) writes
-  the full argv and resolved prompt body to `$BATS_TEST_TMPDIR/backend.{args,prompt,mode}`.
+  the full argv and resolved prompt body to `$BATS_TEST_TMPDIR/backend.{args,prompt,mode}`; tests may set `PAW_STUB_MUTATE_FILE` to simulate a backend-created tracked file change.
 - Task-store and GUI tests set `PAW_TASK_HOME` and, for lifecycle or repo-registry cases, `XDG_STATE_HOME` to `$BATS_TEST_TMPDIR` so central-store and GUI metadata behavior is hermetic and never writes to the operator's real local state.
 - New top-level `paw` commands should usually extend both files above: dispatcher coverage locks the public command/model surface, and prompt-body coverage locks the shared prompt/template helpers.
 - `paw-pr-workflow.bats`, `paw-issue-workflow.bats`, and `paw-gh-actions-workflow.bats` cover the shell-side GitHub workflow commands, including saved tracking metadata, issue-draft publication ordering, flag forwarding, and rerun behavior.

@@ -27,6 +27,10 @@ _stub_record() {
   done
   printf '%s' "$prompt" > "${BATS_TEST_TMPDIR}/backend.prompt"
 
+  if [[ -n "${PAW_STUB_MUTATE_FILE:-}" ]]; then
+    printf '%s\n' "${PAW_STUB_MUTATE_CONTENT:-implemented}" > "$PAW_STUB_MUTATE_FILE"
+  fi
+
   cat > "$out_path" <<'JSON'
 {"result":"stub-ok","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}
 JSON

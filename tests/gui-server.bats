@@ -1350,6 +1350,7 @@ MD
 @test "paw gui: shows prototype lineage marker in index and detail" {
   git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.prototype-status planned-source-reverted
   git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.prototype-source source-task
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.prototype-cleanup-message "source cleanup completed"
   local port=18790 path
   path="$(real_path "$REPO/.agent/gui-task")"
   start_gui "$port"
@@ -1358,8 +1359,11 @@ MD
   stop_gui
 
   grep -q "planned-source-reverted from source-task" "$BATS_TEST_TMPDIR/prototype-index.html"
+  grep -q "source cleanup completed" "$BATS_TEST_TMPDIR/prototype-index.html"
   grep -q "<th>Prototype</th>" "$BATS_TEST_TMPDIR/prototype-detail.html"
   grep -q "planned-source-reverted from source-task" "$BATS_TEST_TMPDIR/prototype-detail.html"
+  grep -q "<th>Prototype Cleanup</th>" "$BATS_TEST_TMPDIR/prototype-detail.html"
+  grep -q "source cleanup completed" "$BATS_TEST_TMPDIR/prototype-detail.html"
 }
 
 @test "paw gui: deletes a legacy task only with confirmation" {

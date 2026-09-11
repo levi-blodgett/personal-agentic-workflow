@@ -782,6 +782,10 @@ class Task:
         return metadata_value(self.path / "metadata.gitconfig", "prototype-source")
 
     @property
+    def prototype_cleanup_message(self) -> str:
+        return metadata_value(self.path / "metadata.gitconfig", "prototype-cleanup-message")
+
+    @property
     def blocked(self) -> bool:
         return bool(re.search(r"USER ANSWER(?:\s+---)?\s+\((UNRESOLVED|PROVIDED)\):", self.plan))
 
@@ -1742,6 +1746,8 @@ class Handler(BaseHTTPRequestHandler):
             if task.prototype_source:
                 label = f"{label} from {task.prototype_source}"
             parts.append(f"<div class='workflow-note'><span class='pill'>{html.escape(label)}</span></div>")
+            if task.prototype_cleanup_message:
+                parts.append(f"<div class='workflow-note muted'>{html.escape(task.prototype_cleanup_message)}</div>")
         return f"<div class='workflow-cell'>{''.join(parts)}</div>"
 
     def workflow_next_cell(self, task: Task, workflow: TaskWorkflow) -> str:
@@ -2000,6 +2006,7 @@ class Handler(BaseHTTPRequestHandler):
         issue_tracking = tracking_summary(task.plan, "Issue") or "none"
         prototype_status = task.prototype_status or "none"
         prototype_source = task.prototype_source or "none"
+        prototype_cleanup_message = task.prototype_cleanup_message or "none"
         return (
             f"<p><span class='pill {task.state}'>{task.state}</span> <span class='pill'>{task.source}</span> <span class='pill'>{done}/{total} checklist</span></p>"
             "<div class='table-wrap'><table><tbody>"
@@ -2011,6 +2018,7 @@ class Handler(BaseHTTPRequestHandler):
             f"<tr><th>Issue</th><td>{html.escape(issue_tracking)}</td></tr>"
             f"<tr><th>Prototype</th><td>{html.escape(prototype_status)}"
             f"{' from ' + html.escape(prototype_source) if prototype_source != 'none' else ''}</td></tr>"
+            f"<tr><th>Prototype Cleanup</th><td>{html.escape(prototype_cleanup_message)}</td></tr>"
             f"<tr><th>Crash Log</th><td>{html.escape(crash_state)}</td></tr>"
             "</tbody></table></div>"
             f"<p class='tabs'>{tabs}</p><div class='document'>{render_markdown(content)}</div>"

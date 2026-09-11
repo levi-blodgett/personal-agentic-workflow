@@ -788,6 +788,7 @@ _prototype_owned_path_is_valid() {
 _prototype_path_in_list() {
   local needle="$1"
   shift
+  [[ "$#" -gt 0 ]] || return 1
   local path
   for path in "$@"; do
     [[ "$needle" == "$path" ]] && return 0
@@ -840,7 +841,7 @@ _prototype_revert_source_work() {
   while IFS= read -r changed_path; do
     [[ -n "$changed_path" ]] || continue
     changed_paths+=("$changed_path")
-    if ! _prototype_path_in_list "$changed_path" "${owned_paths[@]}"; then
+    if [[ "${#owned_paths[@]}" -eq 0 ]] || ! _prototype_path_in_list "$changed_path" "${owned_paths[@]}"; then
       unowned_paths+=("$changed_path")
     fi
   done < <(git -C "$repo_path" diff --name-only "$head_sha" -- . ':(exclude).agent/**')
@@ -871,6 +872,122 @@ _prototype_revert_source_work() {
     git config --file "$metadata_file" paw.prototype-replacement "$replacement_task_dir"
   fi
   echo "prototype: source task $task_name reverted to saved head $head_sha"
+}
+
+_path_list_contains_line() {
+  local needle="$1" list_file="$2"
+  [[ -f "$list_file" ]] || return 1
+  grep -Fxq -- "$needle" "$list_file"
+}
+
+_implement_set_provenance_status() {
+  local task_dir="$1" status="$2" message="$3"
+  local metadata_file
+  metadata_file="$(paw_task_metadata_file "$task_dir")"
+  mkdir -p "$task_dir"
+  git config --file "$metadata_file" paw.prototype-provenance-status "$status" 2>/dev/null || true
+  if [[ -n "$message" ]]; then
+    git config --file "$metadata_file" paw.prototype-provenance-message "$message" 2>/dev/null || true
+  fi
+}
+
+_implement_tracked_paths_from_saved_head() {
+  local task_dir="$1" out_file="$2"
+  local repo_path head_sha
+  : > "$out_file"
+  repo_path="$(paw_task_metadata_get "$task_dir" worktree-path)"
+  head_sha="$(paw_task_metadata_get "$task_dir" head-sha)"
+  [[ -n "$repo_path" && -n "$head_sha" ]] || return 0
+  git -C "$repo_path" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  git -C "$repo_path" rev-parse --verify "$head_sha^{commit}" >/dev/null 2>&1 || return 0
+  # Include index-only dirt and pre-existing untracked files: either can become
+  # a tracked worktree change during the run without belonging to this task.
+  if ! git -C "$repo_path" diff --name-only "$head_sha" -- . ':(exclude).agent/**' > "$out_file" 2>/dev/null ||
+     ! git -C "$repo_path" diff --cached --name-only "$head_sha" -- . ':(exclude).agent/**' >> "$out_file" 2>/dev/null ||
+     ! git -C "$repo_path" ls-files --others --exclude-standard -- . ':(exclude).agent/**' >> "$out_file" 2>/dev/null; then
+    rm -f "$out_file"
+  fi
+}
+
+_implement_record_prototype_provenance() {
+  local task_name="$1" task_dir="$2" before_file="$3"
+  local metadata_file repo_path head_sha untracked_line changed_path message
+  local owned_paths=() preexisting_paths=()
+  metadata_file="$(paw_task_metadata_file "$task_dir")"
+  repo_path="$(paw_task_metadata_get "$task_dir" worktree-path)"
+  head_sha="$(paw_task_metadata_get "$task_dir" head-sha)"
+
+  git config --file "$metadata_file" --unset-all paw.prototype-owned-path 2>/dev/null || true
+  git config --file "$metadata_file" --unset paw.prototype-provenance-message 2>/dev/null || true
+
+  if [[ -z "$repo_path" ]]; then
+    _implement_set_provenance_status "$task_dir" "unavailable" "prototype provenance unavailable because task '$task_name' has no saved worktree-path"
+    return 0
+  fi
+  if ! git -C "$repo_path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    _implement_set_provenance_status "$task_dir" "unavailable" "prototype provenance unavailable because $repo_path is not a Git worktree"
+    return 0
+  fi
+  if [[ -z "$head_sha" ]]; then
+    _implement_set_provenance_status "$task_dir" "unavailable" "prototype provenance unavailable because task '$task_name' has no saved head-sha"
+    return 0
+  fi
+  if ! git -C "$repo_path" rev-parse --verify "$head_sha^{commit}" >/dev/null 2>&1; then
+    _implement_set_provenance_status "$task_dir" "unavailable" "prototype provenance unavailable because saved head-sha '$head_sha' is not available"
+    return 0
+  fi
+
+  if [[ ! -f "$before_file" ]]; then
+    _implement_set_provenance_status "$task_dir" "unavailable" "prototype provenance unavailable because the pre-run Git snapshot failed"
+    return 0
+  fi
+
+  untracked_line=""
+  while IFS= read -r changed_path; do
+    [[ -n "$changed_path" ]] || continue
+    [[ "${changed_path:0:2}" == "??" ]] || continue
+    changed_path="${changed_path:3}"
+    case "$changed_path" in
+      .agent|.agent/*) continue ;;
+    esac
+    untracked_line="$changed_path"
+    break
+  done < <(git -C "$repo_path" status --porcelain --untracked-files=normal)
+  if [[ -n "$untracked_line" ]]; then
+    _implement_set_provenance_status "$task_dir" "blocked" "prototype provenance blocked because untracked non-.agent file '$untracked_line' makes ownership ambiguous"
+    return 0
+  fi
+
+  while IFS= read -r changed_path; do
+    [[ -n "$changed_path" ]] || continue
+    if ! _prototype_owned_path_is_valid "$changed_path"; then
+      _implement_set_provenance_status "$task_dir" "blocked" "prototype provenance blocked by invalid repo path '$changed_path'"
+      return 0
+    fi
+    if _path_list_contains_line "$changed_path" "$before_file"; then
+      preexisting_paths+=("$changed_path")
+      continue
+    fi
+    owned_paths+=("$changed_path")
+  done < <(git -C "$repo_path" diff --name-only "$head_sha" -- . ':(exclude).agent/**')
+
+  if [[ "${#owned_paths[@]}" -eq 0 ]]; then
+    message="prototype provenance recorded no newly changed tracked paths"
+    if [[ "${#preexisting_paths[@]}" -gt 0 ]]; then
+      message="$message; ignored pre-existing tracked changes: ${preexisting_paths[*]}"
+    fi
+    _implement_set_provenance_status "$task_dir" "no-owned-paths" "$message"
+    return 0
+  fi
+
+  for changed_path in "${owned_paths[@]}"; do
+    git config --file "$metadata_file" --add paw.prototype-owned-path "$changed_path" 2>/dev/null || true
+  done
+  message="recorded task-owned tracked paths for prototype cleanup: ${owned_paths[*]}"
+  if [[ "${#preexisting_paths[@]}" -gt 0 ]]; then
+    message="$message; ignored pre-existing tracked changes: ${preexisting_paths[*]}"
+  fi
+  _implement_set_provenance_status "$task_dir" "recorded" "$message"
 }
 
 _tighten_doc_seed() {
@@ -2153,11 +2270,19 @@ cmd_implement() {
   local task_dir
   task_dir="$(_task_dir_for_existing "$task_name")"
   _require_reconciled_user_answers_for_implement "$task_dir" "$task_name"
-  local extras prompt
+  local extras prompt provenance_before_file run_status
+  provenance_before_file="$(mktemp)"
+  _implement_tracked_paths_from_saved_head "$task_dir" "$provenance_before_file"
   extras=$(_join_prompt_extras "$@")
   prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and continue/complete the already in progress task in $(_task_display_path "$task_dir")/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")$(_validation_policy_prompt_note)"
   prompt=$(_prompt_append_human_extras "$prompt" "$extras")
-  _run_model_subcommand implement "$task_dir" "implement" "$prompt"
+  run_status=0
+  _run_model_subcommand implement "$task_dir" "implement" "$prompt" || run_status=$?
+  if [[ "$run_status" -eq 0 ]]; then
+    _implement_record_prototype_provenance "$task_name" "$task_dir" "$provenance_before_file"
+  fi
+  rm -f "$provenance_before_file"
+  return "$run_status"
 }
 
 cmd_implement_batch() {
