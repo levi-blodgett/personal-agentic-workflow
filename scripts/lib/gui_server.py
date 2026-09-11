@@ -168,6 +168,25 @@ def validation_chip(state: str) -> str:
     return f"<span class='validation-chip {class_name}'>{html.escape(state)}</span>"
 
 
+def review_grade(review: str) -> str:
+    body = section_body(review, "Review Metadata")
+    if not body:
+        return ""
+    for line in body.splitlines():
+        match = re.match(r"^\s*[-*]\s+Grade:\s*(.*?)\s*$", line, re.IGNORECASE)
+        if match:
+            grade = match.group(1).strip()
+            return "" if not grade or grade.lower() == "pending" else grade
+    return ""
+
+
+def review_grade_class(grade: str) -> str:
+    match = re.match(r"^\s*([A-Fa-f])(?:\b|[-+]|/|$)", grade)
+    if not match:
+        return "grade-unknown"
+    return f"grade-{match.group(1).lower()}"
+
+
 def render_inline(text: str) -> str:
     placeholders: list[str] = []
 
@@ -550,6 +569,7 @@ a{color:#0b57d0;text-decoration:none}button,.button{border:1px solid #b8c0cc;bac
 table{border-collapse:collapse;width:100%;background:white;border:1px solid #dfe3ea}.table-wrap{overflow-x:auto;margin:12px 0 20px}
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical-align:top}th{background:#edf1f7;font-size:12px;text-transform:uppercase;color:#4b5563}
 .pill{display:inline-block;border:1px solid #ccd3dd;border-radius:999px;padding:2px 8px;background:#f8fafc;font-size:12px}.blocked{border-color:#d97706;color:#92400e}.running{border-color:#2563eb;color:#1d4ed8}.ready{border-color:#15803d;color:#166534}.complete{border-color:#6d28d9;color:#5b21b6}
+.review-grade{display:inline-block;border:1px solid #ccd3dd;border-radius:999px;background:#f8fafc;padding:2px 8px;font-size:12px;font-weight:600}.grade-a{border-color:#15803d;color:#166534;background:#f0fdf4}.grade-b{border-color:#0b57d0;color:#1d4ed8;background:#eff6ff}.grade-c{border-color:#d97706;color:#92400e;background:#fffbeb}.grade-d{border-color:#ea580c;color:#9a3412;background:#fff7ed}.grade-f{border-color:#dc2626;color:#991b1b;background:#fef2f2}.grade-unknown{border-color:#6b7280;color:#374151;background:#f9fafb}
 .toolbar{display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:14px 0}.toolbar-fields,.top-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.toolbar label{display:grid;gap:3px;font-size:12px;color:#475467}.toolbar select,.toolbar input{font:inherit;border:1px solid #cbd5e1;border-radius:6px;padding:5px 8px;background:white}.flash,.flash-error{border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1e3a8a;padding:8px 10px}.flash-error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.metric-chip,.validation-chip{display:inline-flex;align-items:center;justify-content:center;min-width:3.2em;border-radius:999px;border:1px solid #ccd3dd;background:#f8fafc;padding:2px 8px;font-size:12px}.validation-passed{border-color:#16a34a;color:#166534}.validation-attention{border-color:#d97706;color:#92400e}.validation-missing{border-color:#b8c0cc;color:#667085}.validation-recorded{border-color:#0b57d0;color:#1d4ed8}
 .task-title{font-weight:600}.task-subtle{margin-top:4px}.repo-name{font-weight:600}.path-disclosure{margin-top:5px;font-size:12px;color:#667085}.path-disclosure summary{cursor:pointer;color:#3b495c}.path-disclosure code{display:block;margin-top:5px;white-space:nowrap;overflow:auto;max-width:42rem}.path-disclosure dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;margin:6px 0 0}.path-disclosure dt{font-weight:600;color:#475467}.path-disclosure dd{margin:0;min-width:0}
 .tabs a{margin-right:14px}.muted{color:#667085}.document{background:white;border:1px solid #dfe3ea;border-radius:8px;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:#f6f8fa;border:1px solid #dfe3ea;padding:12px;overflow:auto}.document code{background:#eef2f7;padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid #d0d7de;color:#57606a;margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}.document table{border:1px solid #dfe3ea}.document tr:nth-child(even),.table-wrap tbody tr:nth-child(even){background:#fbfcfe}
@@ -962,10 +982,16 @@ class Handler(BaseHTTPRequestHandler):
     def workflow_next_cell(self, task: Task, workflow: TaskWorkflow) -> str:
         reason = f"<div class='workflow-note muted'>{html.escape(workflow.disabled_reason)}</div>" if workflow.disabled_reason else ""
         note = f"<div class='workflow-note muted'>{html.escape(workflow.note)}</div>" if workflow.note else ""
+        grade = review_grade(task.review) if workflow.stage == "Reviewed" else ""
+        grade_badge = (
+            f"<div class='workflow-note'><span class='review-grade {review_grade_class(grade)}'>Review grade: {html.escape(grade)}</span></div>"
+            if grade
+            else ""
+        )
         return (
             "<div class='workflow-cell'>"
             f"<div class='workflow-label'>Next: {html.escape(workflow.next_label)}</div>"
-            f"{note}{reason}"
+            f"{grade_badge}{note}{reason}"
             f"<div class='workflow-actions'>{self.workflow_action_control(task, workflow)}</div>"
             "</div>"
         )

@@ -189,7 +189,7 @@ MD
 }
 
 @test "paw gui: home rows expose stage workflow and next actions" {
-  mkdir -p "$REPO/.agent/blocked-task" "$REPO/.agent/running-task/runs" "$REPO/.agent/done-task" "$REPO/.agent/reviewed-task" "$REPO/.agent/prototype-task"
+  mkdir -p "$REPO/.agent/blocked-task" "$REPO/.agent/running-task/runs" "$REPO/.agent/done-task" "$REPO/.agent/reviewed-task" "$REPO/.agent/pending-review-task" "$REPO/.agent/empty-review-task" "$REPO/.agent/missing-grade-task" "$REPO/.agent/prototype-task"
   cat > "$REPO/.agent/blocked-task/plan.md" <<'MD'
 # Plan
 
@@ -217,7 +217,28 @@ MD
 - Next work: Review.
 MD
   cp "$REPO/.agent/done-task/plan.md" "$REPO/.agent/reviewed-task/plan.md"
-  printf '# Review\n' > "$REPO/.agent/reviewed-task/review.md"
+  cat > "$REPO/.agent/reviewed-task/review.md" <<'MD'
+# Review
+
+## Review Metadata
+- Grade: B-
+MD
+  cp "$REPO/.agent/done-task/plan.md" "$REPO/.agent/pending-review-task/plan.md"
+  cat > "$REPO/.agent/pending-review-task/review.md" <<'MD'
+# Review
+
+## Review Metadata
+- Grade: pending
+MD
+  cp "$REPO/.agent/done-task/plan.md" "$REPO/.agent/empty-review-task/plan.md"
+  cat > "$REPO/.agent/empty-review-task/review.md" <<'MD'
+# Review
+
+## Review Metadata
+- Grade:
+MD
+  cp "$REPO/.agent/done-task/plan.md" "$REPO/.agent/missing-grade-task/plan.md"
+  printf '# Review\n' > "$REPO/.agent/missing-grade-task/review.md"
   cp "$REPO/.agent/done-task/plan.md" "$REPO/.agent/prototype-task/plan.md"
   printf '# Review\n' > "$REPO/.agent/prototype-task/review.md"
   git config --file "$REPO/.agent/prototype-task/metadata.gitconfig" paw.prototype-status prototyped
@@ -242,7 +263,12 @@ MD
   grep -q "/task/done-task/review" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Stage: Reviewed" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Next: Prototype" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Review grade: B-" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "grade-b" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "/task/reviewed-task/prototype" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  ! grep -q "Review grade: pending" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  ! grep -q "grade-pending" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  ! grep -q "Review grade:</span>" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Stage: Prototype" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Next: Archive" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "/task/prototype-task/archive" "$BATS_TEST_TMPDIR/stage-workflow.html"
