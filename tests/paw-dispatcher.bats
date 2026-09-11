@@ -122,7 +122,7 @@ assignment_file() {
   [[ "$output" == *"paw tighten"* ]]
   [[ "$output" == *"paw to-issues"* ]]
   [[ "$output" == *"paw task-migrate"* ]]
-  [[ "$output" == *"paw gui [start|stop|kill]"* ]]
+  [[ "$output" == *"paw gui [start|stop|restart|kill]"* ]]
   [[ "$output" == *"paw pr-submit"* ]]
   [[ "$output" == *"paw pr-review"* ]]
   [[ "$output" == *"paw pr-address-comments"* ]]
@@ -132,19 +132,22 @@ assignment_file() {
   [[ "$output" == *"PAW_STREAM"* ]]
 }
 
-@test "paw gui: rejects unknown lifecycle subcommands clearly" {
-  run "$PAW" gui restart
+@test "paw gui: accepts restart lifecycle subcommand" {
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
 
-  [ "$status" -eq 2 ]
-  [[ "$output" == *"unknown paw gui subcommand: restart"* ]]
-  [[ "$output" == *"supported subcommands: start, stop, kill"* ]]
+  run "$PAW" gui restart --repo "$REPO" --port 0
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"paw gui: http://127.0.0.1:"* ]]
+  [ -f "$XDG_STATE_HOME/paw/gui/active.gitconfig" ]
+  "$PAW" gui kill >/dev/null 2>&1 || true
 }
 
 @test "paw gui --help: prints lifecycle usage without starting server" {
   run "$PAW" gui --help
 
   [ "$status" -eq 0 ]
-  [[ "$output" == "usage: paw gui [start|stop|kill]"* ]]
+  [[ "$output" == "usage: paw gui [start|stop|restart|kill]"* ]]
   [[ "$output" == *"[--all]"* ]]
 }
 

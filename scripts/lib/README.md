@@ -8,7 +8,7 @@ Shared bash helpers sourced by `scripts/paw`. Each file exports one or more func
 |------|---------|---------|
 | [`crash_log.sh`](crash_log.sh) | crash classification and append helpers | Records backend failures to `.agent/<task>/crash.log` with structured metadata and a stderr tail. |
 | [`task_store.sh`](task_store.sh) | task path, metadata, listing, migration, and branch PR body helpers | Resolves central task-store packages first, falls back to legacy `.agent/<task>/`, writes `metadata.gitconfig`, resolves branch-level PR body paths, and copies legacy packages for `paw task-migrate`. |
-| [`gui_lifecycle.sh`](gui_lifecycle.sh) | GUI process metadata helpers | Stores `paw gui start` PID/URL/log metadata under local state, detects stale records, and validates the recorded PAW GUI process before stop/kill. |
+| [`gui_lifecycle.sh`](gui_lifecycle.sh) | GUI process metadata helpers | Stores `paw gui start` PID/URL/log/mode metadata under local state, detects stale records, and validates the recorded PAW GUI process before stop/restart/kill. |
 | [`prompt_optimizer.sh`](prompt_optimizer.sh) | `prompt_optimize` | Optional `paw plan` pre-pass that rewrites the user prompt when `PAW_PROMPT_OPTIMIZE=1`; otherwise it passes the prompt through unchanged. |
 | [`gui_server.py`](gui_server.py) | local HTTP server | Python standard-library server used by `paw gui` to render compact task lists, safe Markdown detail pages, expandable path metadata, local `paw plan`/`edit`/`implement` action forms, guarded task deletion, and `--all` central-store repo grouping. |
 | [`claude_invoke.sh`](claude_invoke.sh) | (thin shim) | Backwards-compatibility shim that sources `backends/claude.sh`. Callers that imported `claude_invoke.sh` directly continue to work. |

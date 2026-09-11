@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gui_lifecycle.sh — local process metadata helpers for `paw gui start|stop|kill`.
+# gui_lifecycle.sh — local process metadata helpers for `paw gui start|stop|restart|kill`.
 
 paw_gui_state_dir() {
   if [[ -n "${XDG_STATE_HOME:-}" ]]; then
@@ -51,7 +51,7 @@ paw_gui_active_metadata() {
 }
 
 paw_gui_record_metadata() {
-  local pid="$1" host="$2" port="$3" repo_path="$4" task_home="$5" url="$6" stdout_log="$7" stderr_log="$8"
+  local pid="$1" host="$2" port="$3" repo_path="$4" task_home="$5" url="$6" stdout_log="$7" stderr_log="$8" all_repos="${9:-0}"
   local metadata_file
   metadata_file="$(paw_gui_metadata_file)"
   mkdir -p "$(dirname "$metadata_file")"
@@ -61,6 +61,7 @@ paw_gui_record_metadata() {
   git config --file "$metadata_file" paw.port "$port"
   git config --file "$metadata_file" paw.repo-path "$repo_path"
   git config --file "$metadata_file" paw.task-home "$task_home"
+  git config --file "$metadata_file" paw.all-repos "$all_repos"
   git config --file "$metadata_file" paw.url "$url"
   git config --file "$metadata_file" paw.stdout-log "$stdout_log"
   git config --file "$metadata_file" paw.stderr-log "$stderr_log"

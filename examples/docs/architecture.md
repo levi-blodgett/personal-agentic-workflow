@@ -15,7 +15,7 @@ Repo structure, file layout, and the relationship between task templates, commit
 | `examples/` | Committed examples and durable operator docs | See [`examples/README.md`](../README.md) |
 | `examples/docs/` | Durable operator documentation | This directory |
 | `${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}/<repo-slug>/<task>/` | Default local task store | Markdown task package plus local metadata; never committed |
-| `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/active.gitconfig` | Managed GUI lifecycle state | PID, URL, logs, repo path, task home, and start time for `paw gui start`; never committed |
+| `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/active.gitconfig` | Managed GUI lifecycle state | PID, URL, logs, repo path, task home, `--all` mode, and start time for `paw gui start` / `paw gui restart`; never committed |
 | `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/repos.gitconfig` | GUI repo registry | Local list of Git repo paths available in the Active repo dropdown; never committed |
 | `.agent/<task>/` | Legacy local-only task docs | Still resolved for compatibility; excluded via `.git/info/exclude`; never committed |
 
@@ -78,7 +78,7 @@ personal-agentic-workflow/
 │       ├── README.md                     — helper overview and backend module notes
 │       ├── crash_log.sh                  — crash classification and append helpers
 │       ├── task_store.sh                 — central/legacy task path resolution, metadata, and migration helpers
-│       ├── gui_lifecycle.sh              — local PID/URL metadata and stop/kill helpers for `paw gui start`
+│       ├── gui_lifecycle.sh              — local PID/URL metadata and stop/restart/kill helpers for `paw gui start`
 │       ├── gui_server.py                 — stdlib local HTTP server for `paw gui`
 │       ├── prompt_optimizer.sh           — optional `paw plan` prompt pre-optimizer
 │       ├── claude_invoke.sh              — backwards-compat shim for `backends/claude.sh`

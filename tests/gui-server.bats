@@ -1179,15 +1179,16 @@ MD
 @test "paw gui start: launches background dashboard and records metadata" {
   export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
 
-  run "$PAW" gui start --repo "$REPO" --port 0
+  run "$PAW" gui start --repo "$REPO"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"paw gui: http://127.0.0.1:"* ]]
+  [[ "$output" == "paw gui: http://127.0.0.1:8765/" ]]
   local meta="$XDG_STATE_HOME/paw/gui/active.gitconfig"
   [ -f "$meta" ]
   local url
   url="$(git config --file "$meta" --get paw.url)"
-  [[ "$url" == http://127.0.0.1:* ]]
+  [[ "$url" == "http://127.0.0.1:8765/" ]]
+  [[ "$(git config --file "$meta" --get paw.port)" == "8765" ]]
   git config --file "$meta" --get paw.pid > "$BATS_TEST_TMPDIR/gui.pid"
 
   python3 - "$url" > "$BATS_TEST_TMPDIR/page.html" <<'PY'
@@ -1197,6 +1198,21 @@ print(urlopen(sys.argv[1], timeout=2).read().decode())
 PY
 
   grep -q "gui-task" "$BATS_TEST_TMPDIR/page.html"
+
+  "$PAW" gui kill >/dev/null 2>&1 || true
+}
+
+@test "paw gui start: explicit port zero still requests an ephemeral port" {
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+
+  run "$PAW" gui start --repo "$REPO" --port 0
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"paw gui: http://127.0.0.1:"* ]]
+  [[ "$output" != "paw gui: http://127.0.0.1:8765/" ]]
+  local meta="$XDG_STATE_HOME/paw/gui/active.gitconfig"
+  [ -f "$meta" ]
+  [[ "$(git config --file "$meta" --get paw.port)" != "0" ]]
 
   "$PAW" gui kill >/dev/null 2>&1 || true
 }
@@ -1211,6 +1227,46 @@ PY
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"already running"* ]]
+
+  "$PAW" gui kill >/dev/null 2>&1 || true
+}
+
+@test "paw gui restart: replaces active recorded dashboard and preserves mode metadata" {
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+  git -C "$REPO" init -q
+
+  "$PAW" gui start --repo "$REPO" --port 0 --all >/dev/null
+  local meta="$XDG_STATE_HOME/paw/gui/active.gitconfig"
+  local first_pid first_port
+  first_pid="$(git config --file "$meta" --get paw.pid)"
+  first_port="$(git config --file "$meta" --get paw.port)"
+
+  run "$PAW" gui restart
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"restarted"* ]]
+  local second_pid
+  second_pid="$(git config --file "$meta" --get paw.pid)"
+  [[ "$second_pid" != "$first_pid" ]]
+  [[ "$(git config --file "$meta" --get paw.port)" == "$first_port" ]]
+  [[ "$(git config --file "$meta" --get paw.repo-path)" == "$(real_path "$REPO")" ]]
+  [[ "$(git config --file "$meta" --get paw.all-repos)" == "1" ]]
+  ! kill -0 "$first_pid" 2>/dev/null
+  kill -0 "$second_pid"
+
+  "$PAW" gui kill >/dev/null 2>&1 || true
+}
+
+@test "paw gui restart: without active metadata starts a managed dashboard" {
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+
+  run "$PAW" gui restart --repo "$REPO" --port 0
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"paw gui: http://127.0.0.1:"* ]]
+  local meta="$XDG_STATE_HOME/paw/gui/active.gitconfig"
+  [ -f "$meta" ]
+  kill -0 "$(git config --file "$meta" --get paw.pid)"
 
   "$PAW" gui kill >/dev/null 2>&1 || true
 }
