@@ -1430,8 +1430,19 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as exc:
             return self.redirect(self.task_url(task, f"View PR unavailable: gh failed to start: {exc}", "error"))
         pr_url = result.stdout.strip()
-        if result.returncode != 0 or not pr_url:
-            return self.redirect(self.task_url(task, f"No current PR found for branch {branch}", "error"))
+        if result.returncode != 0:
+            details = result.stderr.strip() or pr_url
+            diagnostic = details.lower()
+            if result.returncode == 4 or any(marker in diagnostic for marker in (
+                "gh auth", "gh_token", "github_token", "authentication", "bad credentials",
+            )):
+                message = f"View PR unavailable: gh authentication/configuration failed: {details or 'authentication required'}"
+            elif re.match(r"^no pull requests? found(?:\s|$)", diagnostic):
+                message = f"No current PR found for branch {branch}"
+            else:
+                details = details or f"exit status {result.returncode}; no diagnostic output"
+                message = f"View PR unavailable: gh lookup failed for branch {branch}: {details}"
+            return self.redirect(self.task_url(task, message, "error"))
         if not re.match(r"^https?://", pr_url):
             return self.redirect(self.task_url(task, f"View PR unavailable: gh returned an invalid PR URL for branch {branch}", "error"))
         body = (

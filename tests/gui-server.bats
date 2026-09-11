@@ -695,6 +695,70 @@ SH
   [ ! -f "$BATS_TEST_TMPDIR/backend.prompt" ]
 }
 
+@test "paw gui: View PR preserves authentication guidance" {
+  init_repo_with_commit
+  git -C "$REPO" branch feature/gui-pr
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.branch-name feature/gui-pr
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat > "$BATS_TEST_TMPDIR/bin/gh" <<'SH'
+#!/usr/bin/env bash
+printf 'To get started with GitHub CLI, please run: gh auth login\nAlternatively, populate the GH_TOKEN environment variable.\n' >&2
+exit 4
+SH
+  chmod +x "$BATS_TEST_TMPDIR/bin/gh"
+  export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+  local port=18751 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+  post_gui "$port" "/task/gui-task/view-pr" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/view-pr-auth.html"
+  stop_gui
+
+  grep -q "View PR unavailable: gh authentication/configuration failed" "$BATS_TEST_TMPDIR/view-pr-auth.html"
+  grep -q "gh auth login" "$BATS_TEST_TMPDIR/view-pr-auth.html"
+  grep -q "GH_TOKEN" "$BATS_TEST_TMPDIR/view-pr-auth.html"
+  ! grep -q "No current PR found" "$BATS_TEST_TMPDIR/view-pr-auth.html"
+  [ ! -f "$BATS_TEST_TMPDIR/backend.prompt" ]
+  [ ! -d "$REPO/.agent/gui-task/runs" ]
+}
+
+@test "paw gui: View PR preserves generic diagnostics safely and handles empty output" {
+  init_repo_with_commit
+  git -C "$REPO" branch feature/gui-pr
+  git config --file "$REPO/.agent/gui-task/metadata.gitconfig" paw.branch-name feature/gui-pr
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat > "$BATS_TEST_TMPDIR/bin/gh" <<'SH'
+#!/usr/bin/env bash
+case "$(cat "$BATS_TEST_TMPDIR/gh-mode")" in
+  stderr) printf 'API unavailable <script>alert(1)</script>\n' >&2; exit 1 ;;
+  stdout) printf 'Network connection refused\n'; exit 1 ;;
+  silent) exit 1 ;;
+  empty) exit 0 ;;
+  invalid) printf 'not-a-url\n'; exit 0 ;;
+esac
+SH
+  chmod +x "$BATS_TEST_TMPDIR/bin/gh"
+  export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+  local port=18750 path mode
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+  for mode in stderr stdout silent empty invalid; do
+    printf '%s\n' "$mode" > "$BATS_TEST_TMPDIR/gh-mode"
+    post_gui "$port" "/task/gui-task/view-pr" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/view-pr-$mode.html"
+    ! grep -q "No current PR found" "$BATS_TEST_TMPDIR/view-pr-$mode.html"
+  done
+  stop_gui
+
+  grep -q "gh lookup failed for branch feature/gui-pr" "$BATS_TEST_TMPDIR/view-pr-stderr.html"
+  grep -q 'API unavailable &lt;script&gt;alert(1)&lt;/script&gt;' "$BATS_TEST_TMPDIR/view-pr-stderr.html"
+  ! grep -q '<script>alert(1)</script>' "$BATS_TEST_TMPDIR/view-pr-stderr.html"
+  grep -q 'Network connection refused' "$BATS_TEST_TMPDIR/view-pr-stdout.html"
+  grep -q 'exit status 1; no diagnostic output' "$BATS_TEST_TMPDIR/view-pr-silent.html"
+  grep -q 'gh returned an invalid PR URL' "$BATS_TEST_TMPDIR/view-pr-empty.html"
+  grep -q 'gh returned an invalid PR URL' "$BATS_TEST_TMPDIR/view-pr-invalid.html"
+  [ ! -f "$BATS_TEST_TMPDIR/backend.prompt" ]
+  [ ! -d "$REPO/.agent/gui-task/runs" ]
+}
+
 @test "paw gui: View PR reports when gh is unavailable" {
   init_repo_with_commit
   git -C "$REPO" branch feature/gui-pr
