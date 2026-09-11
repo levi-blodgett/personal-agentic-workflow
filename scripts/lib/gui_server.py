@@ -757,7 +757,7 @@ def task_workflow(task: Task) -> TaskWorkflow:
         return TaskWorkflow("Reviewed", "Use as Prototype", "prototype", next_work)
     if task.finished:
         return TaskWorkflow("Review", "Review", "review", next_work)
-    return TaskWorkflow("Implement", "Implement", "implement", next_work)
+    return TaskWorkflow("Implement", "Approve Implementation", "approve-implementation", next_work)
 
 
 def list_repo_tasks(repo: Path, task_home: Path) -> list[Task]:
@@ -1018,6 +1018,7 @@ class Handler(BaseHTTPRequestHandler):
                 query.get("doc", ["plan"])[0],
                 query.get("path", [""])[0],
                 query.get("active_repo", [""])[0],
+                query.get("approve", [""])[0],
             )
         if parsed.path.startswith("/fragments/task/"):
             query = parse_qs(parsed.query)
@@ -1463,13 +1464,12 @@ class Handler(BaseHTTPRequestHandler):
             "</form></div></div></details>"
         )
 
-    def implement_form(self, task: Task) -> str:
-        return (
-            f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/implement'>"
-            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
-            f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
-            "<button type='submit'>Implement</button></form>"
+    def approve_implementation_button(self, task: Task, label: str = "Approve Implementation") -> str:
+        preview_url = (
+            f"/fragments/task-doc/{quote(task.name)}?path={quote(str(task.path), safe='')}"
+            f"&doc=plan&approve=implementation&active_repo={quote(str(task.repo), safe='')}"
         )
+        return f"<button type='button' data-doc-preview-url='{html_attr(preview_url)}'>{html.escape(label)}</button>"
 
     def action_form(self, task: Task, action: str, label: str) -> str:
         return (
@@ -1526,13 +1526,10 @@ class Handler(BaseHTTPRequestHandler):
                 preview_url = f"/fragments/task-doc/{quote(task.name)}?path={quote(str(task.path), safe='')}&doc={doc}{active_query}"
                 pieces.append(f"<button type='button' data-doc-preview-url='{html_attr(preview_url)}'>{doc}.md</button>")
         edit_label = "Answer Questions" if task.blocked else "Edit"
-        pieces.extend(
-            [
-                self.extras_modal(task, "edit", edit_label),
-                self.implement_form(task),
-                self.delete_modal(task),
-            ]
-        )
+        pieces.append(self.extras_modal(task, "edit", edit_label))
+        if task_workflow(task).action == "approve-implementation":
+            pieces.append(self.approve_implementation_button(task))
+        pieces.append(self.delete_modal(task))
         if not include_docs:
             prototype_reason = prototype_disabled_reason(task)
             prototype_control = (
@@ -1548,6 +1545,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.extras_modal(task, "edit", workflow.next_label)
         if workflow.action == "cancel":
             return self.cancel_form(task)
+        if workflow.action == "approve-implementation":
+            return self.approve_implementation_button(task, workflow.next_label)
         if workflow.action in {"implement", "review", "prototype", "archive"}:
             return self.action_form(task, workflow.action, workflow.next_label)
         reason = workflow.disabled_reason or "Action unavailable"
@@ -1707,18 +1706,45 @@ class Handler(BaseHTTPRequestHandler):
             f"<tbody>{''.join(rows) or empty}</tbody></table></div>"
         )
 
-    def task_doc_fragment(self, name: str, doc: str, path_value: str = "", active_repo_value: str = "") -> None:
+    def approval_panel(self, task: Task) -> str:
+        plan_path = task.path / "plan.md"
+        edit_extras = "Review and refine plan.md before implementation approval. Do not change implementation files."
+        return (
+            "<div class='approval-panel'>"
+            f"<h3>Approve implementation for {html.escape(task.name)}</h3>"
+            "<p class='muted'>Review the plan before starting implementation. You can revise it through paw edit or update the file manually.</p>"
+            "<div class='action-row'>"
+            f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/edit'>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
+            f"<input type='hidden' name='extras' value='{html_attr(edit_extras)}'>"
+            "<button type='submit'>Edit Plan</button></form>"
+            f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/implement'>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
+            "<button type='submit'>Approve Implementation</button></form>"
+            "<button type='button' onclick='this.closest(\"[data-doc-preview]\").innerHTML=\"\"'>Close</button>"
+            "</div>"
+            "<details><summary>Manual plan path</summary>"
+            f"<pre><code>{html.escape(str(plan_path))}</code></pre>"
+            "</details>"
+            "</div>"
+        )
+
+    def task_doc_fragment(self, name: str, doc: str, path_value: str = "", active_repo_value: str = "", approve: str = "") -> None:
         active_repo, _ = self.selected_repo({"active_repo": [active_repo_value]})
         task = self.resolve_task(name, path_value, active_repo)
         if not task:
             return self.send_fragment("<h1>Task not found</h1>", 404)
         selected_doc = doc_name(doc)
         content = self.task_doc_content(task, selected_doc)
+        approval = self.approval_panel(task) if selected_doc == "plan" and approve == "implementation" else ""
         self.send_fragment(
             "<div class='modal-panel'><div class='modal-body'>"
             f"<h2>{html.escape(task.name)} / {html.escape(selected_doc)}.md</h2>"
             "<p><button type='button' onclick='this.closest(\"[data-doc-preview]\").innerHTML=\"\"'>Close</button></p>"
             f"<div class='document'>{render_markdown(content)}</div>"
+            f"{approval}"
             "</div></div>"
         )
 
