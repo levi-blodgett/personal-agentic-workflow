@@ -113,6 +113,7 @@ assignment_file() {
   [[ "$output" == *"paw prototype"* ]]
   [[ "$output" == *"paw review"* ]]
   [[ "$output" == *"paw archive"* ]]
+  [[ "$output" == *"paw browse <task-name>"* ]]
   [[ "$output" == *"paw completion zsh"* ]]
   [[ "$output" == *"paw plan"* ]]
   [[ "$output" == *"paw implement"* ]]
@@ -166,6 +167,7 @@ assignment_file() {
   [[ "$output" == *"'review:review completed task quality and record recommendations'"* ]]
   [[ "$output" == *"'prototype:create a replacement plan from a reviewed task prototype'"* ]]
   [[ "$output" == *"'archive:move a central task package out of active listings'"* ]]
+  [[ "$output" == *"'browse:browse a task package's Markdown docs in the terminal'"* ]]
   [[ "$output" == *"'implement-batch:launch multiple eligible approved tasks concurrently'"* ]]
   [[ "$output" == *"'diagnose:run the feedback-loop-first debugging workflow for an approved task'"* ]]
   [[ "$output" == *"'tighten:sharpen an existing task plan one question at a time'"* ]]
@@ -182,6 +184,108 @@ assignment_file() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"review:"* ]]
   [[ "$output" == *"prototype:"* ]]
+  [[ "$output" != *"browse:"* ]]
+}
+
+@test "paw browse: validates usage without invoking AI backend" {
+  run "$PAW" browse
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"usage: paw browse <task-name>"* ]]
+
+  run "$PAW" browse some-task extra
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"paw browse accepts only one task name"* ]]
+
+  run "$PAW" browse bad/name
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"invalid task name"* ]]
+
+  run "$PAW" browse missing-task
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"task 'missing-task' not found"* ]]
+  [ ! -f "$BATS_TEST_TMPDIR/claude.args" ]
+}
+
+@test "paw browse: renders central task docs without invoking AI backend" {
+  init_git_repo
+  run "$PAW" plan browse-central "seed central task"
+  [ "$status" -eq 0 ]
+  local task_dir
+  task_dir=$(find "$PAW_TASK_HOME" -path "*/browse-central" -type d -print -quit)
+  printf '# Contract\n\nCentral contract body.\n' > "$task_dir/contract.md"
+  printf '# Plan\n\nCentral plan body.\n' > "$task_dir/plan.md"
+  printf '# PR\n\nCentral pr body.\n' > "$task_dir/pr.md"
+  rm -f "$BATS_TEST_TMPDIR/claude.args"
+
+  PAW_BROWSE_PAGER=cat run "$PAW" browse browse-central
+
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" | grep -qF "# paw browse: browse-central"
+  printf '%s\n' "$output" | grep -qF "## contract.md"
+  printf '%s\n' "$output" | grep -qF "Central contract body."
+  printf '%s\n' "$output" | grep -qF "## plan.md"
+  printf '%s\n' "$output" | grep -qF "Central plan body."
+  printf '%s\n' "$output" | grep -qF "## pr.md"
+  printf '%s\n' "$output" | grep -qF "Central pr body."
+  ! printf '%s\n' "$output" | grep -qF "task browse-central ->"
+  [ ! -f "$BATS_TEST_TMPDIR/claude.args" ]
+}
+
+@test "paw browse: sends aggregated docs to explicit pager override" {
+  init_git_repo
+  run "$PAW" plan browse-pager "seed pager task"
+  [ "$status" -eq 0 ]
+  local task_dir pager_script
+  task_dir=$(find "$PAW_TASK_HOME" -path "*/browse-pager" -type d -print -quit)
+  printf '# Plan\n\nPager receives this body.\n' > "$task_dir/plan.md"
+  pager_script="$BATS_TEST_TMPDIR/capture-pager"
+  cat > "$pager_script" <<'SH'
+#!/usr/bin/env bash
+cat > "$BATS_TEST_TMPDIR/pager.stdin"
+printf '%s\n' "$@" > "$BATS_TEST_TMPDIR/pager.args"
+SH
+  chmod +x "$pager_script"
+  rm -f "$BATS_TEST_TMPDIR/claude.args"
+
+  PAW_BROWSE_PAGER="$pager_script --flag" run "$PAW" browse browse-pager
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "" ]
+  grep -qF "# paw browse: browse-pager" "$BATS_TEST_TMPDIR/pager.stdin"
+  grep -qF "Pager receives this body." "$BATS_TEST_TMPDIR/pager.stdin"
+  grep -qF -- "--flag" "$BATS_TEST_TMPDIR/pager.args"
+  [ ! -f "$BATS_TEST_TMPDIR/claude.args" ]
+}
+
+@test "paw browse: falls back to legacy task packages and prefers central when present" {
+  mkdir -p "$REPO/.agent/browse-legacy"
+  printf '# Plan\n\nLegacy-only body.\n' > "$REPO/.agent/browse-legacy/plan.md"
+
+  PAW_BROWSE_PAGER=cat run "$PAW" browse browse-legacy
+
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" | grep -qF "Legacy-only body."
+
+  init_git_repo
+  run "$PAW" plan browse-priority "seed central priority task"
+  [ "$status" -eq 0 ]
+  local central_dir
+  central_dir=$(find "$PAW_TASK_HOME" -path "*/browse-priority" -type d -print -quit)
+  printf '# Plan\n\nCentral body wins.\n' > "$central_dir/plan.md"
+  mkdir -p "$REPO/.agent/browse-priority"
+  printf '# Plan\n\nLegacy body loses.\n' > "$REPO/.agent/browse-priority/plan.md"
+  rm -f "$BATS_TEST_TMPDIR/claude.args"
+
+  PAW_BROWSE_PAGER=cat run "$PAW" browse browse-priority
+
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" | grep -qF "Central body wins."
+  ! printf '%s\n' "$output" | grep -qF "Legacy body loses."
+  [ ! -f "$BATS_TEST_TMPDIR/claude.args" ]
 }
 
 @test "paw review: no longer emits deprecated PR-address-comments message" {

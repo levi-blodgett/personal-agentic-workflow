@@ -29,6 +29,8 @@
 #   PAW_LINT_LENGTH     working-surface budget check default: 1 (enabled); set to 0
 #                       to disable in `paw lint` / `lint-task.sh` (blank lines
 #                       and single-line HTML comment lines are not counted)
+#   PAW_BROWSE_PAGER    pager override for `paw browse`; set to cat for
+#                       deterministic terminal output
 #   PAW_PROMPT_OPTIMIZE set to 1 to enable haiku pre-optimizer for `paw plan`:
 #                       fires a cheap haiku call to tighten the user prompt before
 #                       the main plan model run (default: 0; opt-in)
@@ -180,6 +182,7 @@ pr-address-commentscmd_pr_address_comments<pr-number>create a plan for addres
 gh-actions-reviewcmd_gh_actions_review[--create-issue]inspect same-day GitHub Actions failures
 compactcmd_compact<task-name>archive completed implementation checklist items
 archivecmd_archive<task-name>move a central task package out of active listings
+browsecmd_browse<task-name>browse a task package's Markdown docs in the terminal
 listcmd_list[repo-path]list .agent tasks and current status
 lintcmd_lint[task-dir|--repo p]verify task package contracts
 modelcmd_model[-v|--verbose]print resolved backend model details
@@ -260,6 +263,8 @@ Environment overrides:
   PAW_LINT_LENGTH     working-surface budget check default: 1 (enabled); set to 0
                       to disable in `paw lint` / `lint-task.sh` (blank lines
                       and single-line HTML comment lines are not counted)
+  PAW_BROWSE_PAGER    pager override for `paw browse`; set to cat for
+                      deterministic terminal output
   PAW_PROMPT_OPTIMIZE set to 1 to enable haiku pre-optimizer for `paw plan`:
                       fires a cheap haiku call to tighten the user prompt before
                       the main plan model run (default: 0; opt-in)
@@ -2745,6 +2750,87 @@ cmd_archive() {
     exit 1
   fi
   printf 'archived task %s -> %s\n' "$task_name" "$archived"
+}
+
+_browse_doc_names() {
+  printf '%s\n' \
+    contract.md \
+    plan.md \
+    pr.md \
+    review.md \
+    issue.md \
+    tighten.md \
+    comments.md \
+    crash.log
+}
+
+_browse_render_task_docs() {
+  local task_name="$1" task_dir="$2" doc_path doc_name first_doc=1
+  printf '# paw browse: %s\n\n' "$task_name"
+  printf 'Task package: %s\n' "$task_dir"
+
+  while IFS= read -r doc_name; do
+    doc_path="$task_dir/$doc_name"
+    [[ -f "$doc_path" ]] || continue
+    if [[ $first_doc -eq 1 ]]; then
+      printf '\n'
+      first_doc=0
+    else
+      printf '\n'
+    fi
+    printf '## %s\n\n' "$doc_name"
+    sed -n '1,$p' "$doc_path"
+    printf '\n'
+  done < <(_browse_doc_names)
+}
+
+_browse_send_to_pager() {
+  local rendered_file="$1" pager_spec="$2"
+  local -a pager_cmd
+  read -r -a pager_cmd <<< "$pager_spec"
+  if [[ ${#pager_cmd[@]} -eq 0 ]] || ! command -v "${pager_cmd[0]}" >/dev/null 2>&1; then
+    sed -n '1,$p' "$rendered_file"
+    return 0
+  fi
+  "${pager_cmd[@]}" < "$rendered_file"
+}
+
+cmd_browse() {
+  local task_name="${1:-}"
+  if [[ -z "$task_name" ]]; then
+    echo "usage: paw browse <task-name>" >&2
+    exit 2
+  fi
+  if [[ -n "${2:-}" ]]; then
+    echo "error: paw browse accepts only one task name" >&2
+    exit 2
+  fi
+  if ! _validate_task_name "$task_name"; then
+    echo "error: invalid task name: $task_name" >&2
+    echo "task names must be simple directory names under .agent/ (no slashes, '.', or '..')" >&2
+    exit 2
+  fi
+
+  local task_dir
+  if ! task_dir="$(_task_dir_for_existing "$task_name")"; then
+    exit 1
+  fi
+
+  local rendered_file pager_spec
+  rendered_file=$(mktemp)
+  trap 'trap - RETURN; rm -f "${rendered_file:-}"' RETURN
+  _browse_render_task_docs "$task_name" "$task_dir" > "$rendered_file"
+
+  if [[ -n "${PAW_BROWSE_PAGER:-}" ]]; then
+    pager_spec="$PAW_BROWSE_PAGER"
+  elif [[ -n "${PAGER:-}" ]]; then
+    pager_spec="$PAGER"
+  elif command -v less >/dev/null 2>&1; then
+    pager_spec="less -R"
+  else
+    pager_spec="cat"
+  fi
+  _browse_send_to_pager "$rendered_file" "$pager_spec"
 }
 
 cmd_compact() {

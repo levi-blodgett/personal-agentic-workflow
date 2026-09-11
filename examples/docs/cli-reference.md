@@ -140,6 +140,11 @@ paw compact <task-name>                archive completed Implementation Phases i
 paw archive <task-name>                move a central task package under the
                                        repo store's `.archive/` folder so
                                        active CLI and GUI task lists omit it
+paw browse <task-name>                 browse a resolved task package's Markdown
+                                       docs in the terminal; resolves central
+                                       tasks before legacy `.agent/<task>/`
+                                       packages; uses PAW_BROWSE_PAGER, then
+                                       PAGER, then less -R, otherwise stdout
 paw crash-log <task-name>              print crash log for a task
                                        (.agent/<task>/crash.log); prints
                                        "no crashes recorded" when absent; exit 0
@@ -159,17 +164,23 @@ Every AI-backed subcommand prints a consistent launch banner to stderr before in
 Launching: paw <sub> (PAW_BACKEND=<backend> model=<model> stream=<0|1>) for .agent/<task>/
 ```
 
-Environment overrides: see the canonical reference table in [`scripts/README.md`](../../scripts/README.md). The most operationally important ones are `PAW_BACKEND`, `PAW_MODEL`, `PAW_STREAM`, `PAW_PROMPT_OPTIMIZE`, and `PAW_PROMPT_WARN_TOKENS`.
+Environment overrides: see the canonical reference table in [`scripts/README.md`](../../scripts/README.md). The most operationally important ones are `PAW_BACKEND`, `PAW_MODEL`, `PAW_STREAM`, `PAW_PROMPT_OPTIMIZE`, `PAW_PROMPT_WARN_TOKENS`, and `PAW_BROWSE_PAGER`.
 
 ### Task Store And GUI
 
 PAW stores new task packages under `${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}` by default. The store is grouped per repo using a stable local repo slug, and each task package keeps Markdown docs plus `metadata.gitconfig` with repo path, Git common dir, worktree, branch/head state, and created or migrated timestamps.
 
-Legacy `.agent/<task>/` packages remain readable. `paw list`, `paw lint --repo`, `paw edit`, `paw implement`, `paw review`, `paw prototype`, PR/issue helpers, `paw compact`, and `paw crash-log` resolve central tasks first and fall back to legacy packages. `paw archive` archives central packages; migrate legacy packages before archiving them. If you already have repo-local task packages, run `paw task-migrate` from that repo or pass one or more explicit repo paths:
+Legacy `.agent/<task>/` packages remain readable. `paw list`, `paw lint --repo`, `paw edit`, `paw implement`, `paw review`, `paw prototype`, `paw browse`, PR/issue helpers, `paw compact`, and `paw crash-log` resolve central tasks first and fall back to legacy packages. `paw archive` archives central packages; migrate legacy packages before archiving them. If you already have repo-local task packages, run `paw task-migrate` from that repo or pass one or more explicit repo paths:
 
 ```bash
 paw task-migrate
 paw task-migrate ../api ../web
+```
+
+Use `paw browse <task-name>` when you want to inspect a task package from the terminal without finding the central store path manually. The command aggregates available docs such as `contract.md`, `plan.md`, `pr.md`, `review.md`, issue/tighten/comment notes, and `crash.log` with readable file headings; missing optional docs are skipped. For deterministic output in scripts or tests:
+
+```bash
+PAW_BROWSE_PAGER=cat paw browse my-task
 ```
 
 `paw gui` serves the local dashboard:
