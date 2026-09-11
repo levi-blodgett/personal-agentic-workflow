@@ -181,6 +181,107 @@ MD
   grep -q "gui-task" "$BATS_TEST_TMPDIR/filter-repo.html"
 }
 
+@test "paw gui: sorts task rows by most recent activity in scoped mode" {
+  mkdir -p "$REPO/.agent/alpha-task/runs" "$REPO/.agent/beta-task/runs"
+  cp "$REPO/.agent/gui-task/plan.md" "$REPO/.agent/alpha-task/plan.md"
+  cp "$REPO/.agent/gui-task/plan.md" "$REPO/.agent/beta-task/plan.md"
+  git config --file "$REPO/.agent/alpha-task/runs/old.gitconfig" paw.end-time "2026-01-01T00:00:00Z"
+  git config --file "$REPO/.agent/beta-task/runs/new.gitconfig" paw.start-time "2026-02-01T00:00:00Z"
+  local port=18782
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/sorted.html"
+  stop_gui
+
+  python3 - "$BATS_TEST_TMPDIR/sorted.html" <<'PY'
+import sys
+html = open(sys.argv[1], encoding="utf-8").read()
+assert html.index("beta-task") < html.index("alpha-task"), html
+PY
+}
+
+@test "paw gui --all: sorts central task rows by most recent activity" {
+  git -C "$REPO" init -q
+  local repo_two="$BATS_TEST_TMPDIR/repo-two"
+  mkdir -p "$repo_two"
+  git -C "$repo_two" init -q
+  local old_task new_task port=18783
+  old_task="$(bash -c 'source "$1"; paw_task_create_dir "$2" old-central' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
+  new_task="$(bash -c 'source "$1"; paw_task_create_dir "$2" new-central' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$repo_two")"
+  mkdir -p "$old_task/runs" "$new_task/runs"
+  cp "$REPO/.agent/gui-task/plan.md" "$old_task/plan.md"
+  cp "$REPO/.agent/gui-task/plan.md" "$new_task/plan.md"
+  bash -c 'source "$1"; paw_task_write_metadata "$2" "$3" old-central created ""; paw_task_write_metadata "$4" "$5" new-central created ""' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$old_task" "$REPO" "$new_task" "$repo_two"
+  git config --file "$old_task/runs/old.gitconfig" paw.end-time "2026-01-01T00:00:00Z"
+  git config --file "$new_task/runs/new.gitconfig" paw.end-time "2026-03-01T00:00:00Z"
+
+  "$PAW" gui --all --repo "$REPO" --port "$port" > "$BATS_TEST_TMPDIR/gui-all-sort.out" 2> "$BATS_TEST_TMPDIR/gui-all-sort.err" &
+  GUI_PID="$!"
+  GUI_PORT="$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/all-sorted.html"
+  stop_gui
+
+  python3 - "$BATS_TEST_TMPDIR/all-sorted.html" <<'PY'
+import sys
+html = open(sys.argv[1], encoding="utf-8").read()
+assert html.index("new-central") < html.index("old-central"), html
+PY
+}
+
+@test "paw gui: index page exposes auto-refresh fragment for task rows" {
+  local port=18784
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/refresh-index.html"
+  fetch_gui "$port" "/fragments/tasks" "$BATS_TEST_TMPDIR/tasks-fragment.html"
+  stop_gui
+
+  grep -q 'data-paw-refresh-url="/fragments/tasks' "$BATS_TEST_TMPDIR/refresh-index.html"
+  grep -q 'data-paw-refresh-interval-ms=' "$BATS_TEST_TMPDIR/refresh-index.html"
+  grep -q "fetch(refreshUrl" "$BATS_TEST_TMPDIR/refresh-index.html"
+  grep -q "gui-task" "$BATS_TEST_TMPDIR/tasks-fragment.html"
+  ! grep -q "<!doctype html>" "$BATS_TEST_TMPDIR/tasks-fragment.html"
+}
+
+@test "paw gui: task detail fragment reflects updated plan and run metadata" {
+  local port=18785 path encoded_path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  encoded_path="$(url_encode "$path")"
+  start_gui "$port"
+  fetch_gui "$port" "/task/gui-task?path=$encoded_path&doc=plan" "$BATS_TEST_TMPDIR/detail-refresh-page.html"
+
+  cat > "$REPO/.agent/gui-task/plan.md" <<'MD'
+# Updated Plan
+
+## Implementation Phases / Checklist
+- [x] Done.
+  Progress: Finished.
+- [x] Next.
+  Progress: Also finished.
+
+## Current Status
+
+- Plan position: Refreshed from disk.
+- Estimated completion: 100%
+- Next work: Review.
+
+## Validation Performed
+- OK.
+MD
+  mkdir -p "$REPO/.agent/gui-task/runs"
+  git config --file "$REPO/.agent/gui-task/runs/done.gitconfig" paw.subcommand implement
+  git config --file "$REPO/.agent/gui-task/runs/done.gitconfig" paw.status complete
+  git config --file "$REPO/.agent/gui-task/runs/done.gitconfig" paw.end-time "2026-04-01T00:00:00Z"
+  fetch_gui "$port" "/fragments/task/gui-task?path=$encoded_path&doc=plan" "$BATS_TEST_TMPDIR/detail-fragment.html"
+  stop_gui
+
+  grep -q 'data-paw-refresh-url="/fragments/task/gui-task' "$BATS_TEST_TMPDIR/detail-refresh-page.html"
+  grep -q '<span class=.pill complete.>complete</span>' "$BATS_TEST_TMPDIR/detail-fragment.html"
+  grep -q "2/2 checklist" "$BATS_TEST_TMPDIR/detail-fragment.html"
+  grep -q "Refreshed from disk" "$BATS_TEST_TMPDIR/detail-fragment.html"
+  grep -q "<h1>Updated Plan</h1>" "$BATS_TEST_TMPDIR/detail-fragment.html"
+  grep -q "implement" "$BATS_TEST_TMPDIR/detail-fragment.html"
+  ! grep -q "<!doctype html>" "$BATS_TEST_TMPDIR/detail-fragment.html"
+}
+
 @test "paw gui: unfinished eligible tasks can be selected for batch implement" {
   mkdir -p "$REPO/.agent/blocked-task" "$REPO/.agent/done-task"
   cat > "$REPO/.agent/blocked-task/plan.md" <<'MD'

@@ -10,9 +10,10 @@ import re
 import shutil
 import subprocess
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 
 PAW_SCRIPT = Path(__file__).resolve().parents[1] / "paw"
@@ -61,6 +62,22 @@ def metadata_value(file: Path, key: str) -> str:
         ).strip()
     except Exception:
         return ""
+
+
+def parse_timestamp(value: str) -> float:
+    if not value:
+        return 0.0
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def file_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def running_metadata_is_active(meta: Path) -> bool:
@@ -305,6 +322,37 @@ def run_rows(task_path: Path) -> str:
     return "".join(rows) or "<tr><td colspan=7>No runs recorded.</td></tr>"
 
 
+def recent_activity(task_path: Path) -> float:
+    run_times: list[float] = []
+    runs_dir = task_path / "runs"
+    if runs_dir.exists():
+        for meta in runs_dir.glob("*.gitconfig"):
+            run_times.extend(
+                parse_timestamp(metadata_value(meta, key))
+                for key in ("end-time", "start-time")
+            )
+            run_times.append(file_mtime(meta))
+    latest_run = max(run_times, default=0.0)
+    if latest_run:
+        return latest_run
+
+    metadata = task_path / "metadata.gitconfig"
+    metadata_times = [
+        parse_timestamp(metadata_value(metadata, "migrated-at")),
+        parse_timestamp(metadata_value(metadata, "created-at")),
+    ]
+    latest_metadata = max(metadata_times, default=0.0)
+    if latest_metadata:
+        return latest_metadata
+
+    fallback_files = [task_path / name for name in ("plan.md", "contract.md", "pr.md", "metadata.gitconfig", "crash.log")]
+    return max((file_mtime(path) for path in fallback_files), default=0.0)
+
+
+def sort_tasks_by_recent_activity(tasks: list["Task"]) -> list["Task"]:
+    return sorted(tasks, key=lambda task: (-task.activity_time, task.repo_name, task.name, str(task.path)))
+
+
 def valid_task_name(name: str) -> bool:
     return bool(TASK_NAME_RE.match(name)) and name not in {".", ".."} and "/" not in name and "\x00" not in name
 
@@ -357,6 +405,7 @@ class Task:
         self.plan = (path / "plan.md").read_text(errors="replace") if (path / "plan.md").exists() else ""
         self.contract = (path / "contract.md").read_text(errors="replace") if (path / "contract.md").exists() else ""
         self.pr = (path / "pr.md").read_text(errors="replace") if (path / "pr.md").exists() else ""
+        self.activity_time = recent_activity(path)
 
     @property
     def repo_name(self) -> str:
@@ -428,8 +477,8 @@ def list_all_central_tasks(task_home: Path) -> list[Task]:
 
 def list_tasks(repo: Path, task_home: Path, all_repos: bool) -> list[Task]:
     if all_repos:
-        return list_all_central_tasks(task_home)
-    return list_repo_tasks(repo, task_home)
+        return sort_tasks_by_recent_activity(list_all_central_tasks(task_home))
+    return sort_tasks_by_recent_activity(list_repo_tasks(repo, task_home))
 
 
 STYLE = """
@@ -439,6 +488,28 @@ a{color:#0b57d0;text-decoration:none}table{border-collapse:collapse;width:100%;b
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical-align:top}th{background:#edf1f7;font-size:12px;text-transform:uppercase;color:#4b5563}
 .pill{display:inline-block;border:1px solid #ccd3dd;border-radius:999px;padding:2px 8px;background:#f8fafc;font-size:12px}.blocked{border-color:#d97706;color:#92400e}.running{border-color:#2563eb;color:#1d4ed8}.ready{border-color:#15803d;color:#166534}
 .tabs a{margin-right:14px}.muted{color:#667085}.document{background:white;border:1px solid #dfe3ea;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:#f6f8fa;border:1px solid #dfe3ea;padding:12px;overflow:auto}.document code{background:#eef2f7;padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid #d0d7de;color:#57606a;margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}
+"""
+
+SCRIPT = """
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("[data-paw-refresh-url]").forEach((target) => {
+    const interval = Number(target.dataset.pawRefreshIntervalMs || "2500");
+    const refreshUrl = target.dataset.pawRefreshUrl;
+    const refresh = async () => {
+      if (target.matches(":focus-within")) return;
+      try {
+        const response = await fetch(refreshUrl, {cache: "no-store"});
+        if (!response.ok) return;
+        target.innerHTML = await response.text();
+      } catch (_error) {
+        // Keep the last good view when the local server is stopping or busy.
+      }
+    };
+    window.setInterval(refresh, interval);
+  });
+});
+</script>
 """
 
 
@@ -451,7 +522,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
-        self.wfile.write(f"<!doctype html><title>PAW</title><style>{STYLE}</style>{body}".encode())
+        self.wfile.write(f"<!doctype html><title>PAW</title><style>{STYLE}</style>{body}{SCRIPT}".encode())
+
+    def send_fragment(self, body: str, code: int = 200) -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body.encode())
 
     def redirect(self, location: str) -> None:
         self.send_response(303)
@@ -488,6 +566,15 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/":
             return self.index()
+        if parsed.path == "/fragments/tasks":
+            return self.tasks_fragment(parse_qs(parsed.query))
+        if parsed.path.startswith("/fragments/task/"):
+            query = parse_qs(parsed.query)
+            return self.task_fragment(
+                unquote(parsed.path.removeprefix("/fragments/task/")),
+                query.get("doc", ["plan"])[0],
+                query.get("path", [""])[0],
+            )
         if parsed.path.startswith("/task/"):
             query = parse_qs(parsed.query)
             return self.task(
@@ -607,14 +694,62 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(urlparse(self.path).query)
         message = query.get("message", [""])[0]
         level = query.get("level", ["notice"])[0]
+        scope = "All central task stores" if self.all_repos else str(self.repo)
+        central_note = str(self.task_home) if self.all_repos else str(self.task_home / repo_slug(self.repo))
+        refresh_query = {
+            key: query.get(key, [""])[0]
+            for key in ("state", "repo", "completion")
+            if query.get(key, [""])[0]
+        }
+        refresh_url = "/fragments/tasks"
+        if refresh_query:
+            refresh_url += "?" + urlencode(refresh_query)
+        body = (
+            f"<header><h1>PAW Tasks</h1><div>{html.escape(scope)}</div></header><main>"
+            f"{self.flash_html(message, level)}"
+            f"<p class='muted'>Central store: {html.escape(central_note)}</p>"
+            f"{self.index_filters(query)}"
+            "<form method='post' action='/actions/plan'>"
+            "<h2>New Plan</h2>"
+            "<p><label>Task name <input name='task_name' required pattern='[A-Za-z0-9._-]+'></label></p>"
+            "<p><label>Prompt<br><textarea name='prompt' required rows='4'></textarea></label></p>"
+            "<p><button type='submit'>Start plan</button></p>"
+            "</form>"
+            f"<div id='task-list' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
+            f"{self.index_task_list(query)}"
+            "</div></main>"
+        )
+        self.send_html(body)
+
+    def tasks_fragment(self, query: dict[str, list[str]]) -> None:
+        self.send_fragment(self.index_task_list(query))
+
+    def index_filters(self, query: dict[str, list[str]]) -> str:
         state_filter = query.get("state", [""])[0]
-        repo_filter = query.get("repo", [""])[0].strip().lower()
         completion_filter = query.get("completion", [""])[0]
         all_tasks = list_tasks(self.repo, self.task_home, self.all_repos)
         state_options = sorted({task.state for task in all_tasks})
         completion_options = sorted(
             {status_field(task.plan, "Estimated completion") for task in all_tasks if status_field(task.plan, "Estimated completion")}
         )
+        state_select = "".join([option_tag("", "Any state", state_filter), *(option_tag(state, state, state_filter) for state in state_options)])
+        completion_select = "".join(
+            [option_tag("", "Any completion", completion_filter), *(option_tag(value, value, completion_filter) for value in completion_options)]
+        )
+        return (
+            "<form method='get'>"
+            f"<p><label>State <select name=\"state\">{state_select}</select></label> "
+            f"<label>Repo <input name=\"repo\" value=\"{html_attr(query.get('repo', [''])[0])}\"></label> "
+            f"<label>Completion <select name=\"completion\">{completion_select}</select></label> "
+            "<button type='submit'>Filter</button> <a href='/'>Clear</a></p>"
+            "</form>"
+        )
+
+    def index_task_list(self, query: dict[str, list[str]]) -> str:
+        state_filter = query.get("state", [""])[0]
+        repo_filter = query.get("repo", [""])[0].strip().lower()
+        completion_filter = query.get("completion", [""])[0]
+        all_tasks = list_tasks(self.repo, self.task_home, self.all_repos)
         rows = []
         for task in all_tasks:
             done, total = checklist_counts(task.plan)
@@ -645,34 +780,12 @@ class Handler(BaseHTTPRequestHandler):
                 f"<td>{done}/{total}</td><td>{validation_state(task.plan)}</td>"
                 "</tr>"
             )
-        state_select = "".join([option_tag("", "Any state", state_filter), *(option_tag(state, state, state_filter) for state in state_options)])
-        completion_select = "".join(
-            [option_tag("", "Any completion", completion_filter), *(option_tag(value, value, completion_filter) for value in completion_options)]
-        )
-        scope = "All central task stores" if self.all_repos else str(self.repo)
-        central_note = str(self.task_home) if self.all_repos else str(self.task_home / repo_slug(self.repo))
-        body = (
-            f"<header><h1>PAW Tasks</h1><div>{html.escape(scope)}</div></header><main>"
-            f"{self.flash_html(message, level)}"
-            f"<p class='muted'>Central store: {html.escape(central_note)}</p>"
-            "<form method='get'>"
-            f"<p><label>State <select name=\"state\">{state_select}</select></label> "
-            f"<label>Repo <input name=\"repo\" value=\"{html_attr(query.get('repo', [''])[0])}\"></label> "
-            f"<label>Completion <select name=\"completion\">{completion_select}</select></label> "
-            "<button type='submit'>Filter</button> <a href='/'>Clear</a></p>"
-            "</form>"
-            "<form method='post' action='/actions/plan'>"
-            "<h2>New Plan</h2>"
-            "<p><label>Task name <input name='task_name' required pattern='[A-Za-z0-9._-]+'></label></p>"
-            "<p><label>Prompt<br><textarea name='prompt' required rows='4'></textarea></label></p>"
-            "<p><button type='submit'>Start plan</button></p>"
-            "</form>"
+        return (
             "<form method='post' action='/actions/implement-batch'>"
             "<p><button type='submit'>Start selected implementations</button></p>"
             "<table><thead><tr><th>Select</th><th>Task</th><th>Repo</th><th>State</th><th>Plan Position</th><th>Completion</th><th>Next Work</th><th>Checklist</th><th>Validation</th></tr></thead>"
-            f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table></form></main>"
+            f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table></form>"
         )
-        self.send_html(body)
 
     def flash_html(self, message: str, level: str = "notice") -> str:
         if not message:
@@ -684,25 +797,11 @@ class Handler(BaseHTTPRequestHandler):
         task = self.resolve_task(name, path_value)
         if not task:
             return self.send_html("<h1>Task not found</h1>", 404)
-        content = {"contract": task.contract, "plan": task.plan, "pr": task.pr}.get(doc, task.plan)
         path_query = quote(str(task.path), safe="")
-        tabs = " ".join(f"<a href='/task/{quote(name)}?path={path_query}&doc={tab}'>{tab}.md</a>" for tab in ("contract", "plan", "pr"))
-        done, total = checklist_counts(task.plan)
-        crash_state = "available" if (task.path / "crash.log").exists() else "none"
-        pr_tracking = tracking_summary(task.plan, "PR") or "none"
-        issue_tracking = tracking_summary(task.plan, "Issue") or "none"
+        refresh_url = f"/fragments/task/{quote(task.name)}?path={path_query}&doc={quote(doc)}"
         body = (
             f"<header><h1>{html.escape(task.name)}</h1><div>{html.escape(str(task.path))}</div></header><main>"
             f"{self.flash_html(message, level)}"
-            f"<p><span class='pill {task.state}'>{task.state}</span> <span class='pill'>{task.source}</span> <span class='pill'>{done}/{total} checklist</span></p>"
-            "<table><tbody>"
-            f"<tr><th>Repo</th><td>{html.escape(str(task.repo))}</td></tr>"
-            f"<tr><th>Repo Slug</th><td>{html.escape(task.slug)}</td></tr>"
-            f"<tr><th>Worktree</th><td>{html.escape(metadata_value(task.path / 'metadata.gitconfig', 'worktree-path') or 'legacy metadata unavailable')}</td></tr>"
-            f"<tr><th>PR</th><td>{html.escape(pr_tracking)}</td></tr>"
-            f"<tr><th>Issue</th><td>{html.escape(issue_tracking)}</td></tr>"
-            f"<tr><th>Crash Log</th><td>{html.escape(crash_state)}</td></tr>"
-            "</tbody></table>"
             f"<form method='post' action='/task/{quote(task.name)}/edit'>"
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
             "<h2>Edit Plan</h2><p><label>Extra instructions<br><textarea name='extras' rows='3'></textarea></label></p>"
@@ -715,11 +814,40 @@ class Handler(BaseHTTPRequestHandler):
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
             f"<h2>Delete Task</h2><p><label>Type {html.escape(task.name)} <input name='confirm'></label></p>"
             "<p><button type='submit'>Delete task</button></p></form>"
-            f"<p class='tabs'>{tabs}</p><div class='document'>{render_markdown(content)}</div>"
-            "<h2>Run History</h2><table><thead><tr><th>Subcommand</th><th>Status</th><th>Backend</th><th>Model</th><th>Started</th><th>Ended</th><th>Exit</th></tr></thead>"
-            f"<tbody>{run_rows(task.path)}</tbody></table></main>"
+            f"<div id='task-detail' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
+            f"{self.task_detail(task, doc)}"
+            "</div></main>"
         )
         self.send_html(body)
+
+    def task_fragment(self, name: str, doc: str, path_value: str = "") -> None:
+        task = self.resolve_task(name, path_value)
+        if not task:
+            return self.send_fragment("<h1>Task not found</h1>", 404)
+        self.send_fragment(self.task_detail(task, doc))
+
+    def task_detail(self, task: Task, doc: str) -> str:
+        content = {"contract": task.contract, "plan": task.plan, "pr": task.pr}.get(doc, task.plan)
+        path_query = quote(str(task.path), safe="")
+        tabs = " ".join(f"<a href='/task/{quote(task.name)}?path={path_query}&doc={tab}'>{tab}.md</a>" for tab in ("contract", "plan", "pr"))
+        done, total = checklist_counts(task.plan)
+        crash_state = "available" if (task.path / "crash.log").exists() else "none"
+        pr_tracking = tracking_summary(task.plan, "PR") or "none"
+        issue_tracking = tracking_summary(task.plan, "Issue") or "none"
+        return (
+            f"<p><span class='pill {task.state}'>{task.state}</span> <span class='pill'>{task.source}</span> <span class='pill'>{done}/{total} checklist</span></p>"
+            "<table><tbody>"
+            f"<tr><th>Repo</th><td>{html.escape(str(task.repo))}</td></tr>"
+            f"<tr><th>Repo Slug</th><td>{html.escape(task.slug)}</td></tr>"
+            f"<tr><th>Worktree</th><td>{html.escape(metadata_value(task.path / 'metadata.gitconfig', 'worktree-path') or 'legacy metadata unavailable')}</td></tr>"
+            f"<tr><th>PR</th><td>{html.escape(pr_tracking)}</td></tr>"
+            f"<tr><th>Issue</th><td>{html.escape(issue_tracking)}</td></tr>"
+            f"<tr><th>Crash Log</th><td>{html.escape(crash_state)}</td></tr>"
+            "</tbody></table>"
+            f"<p class='tabs'>{tabs}</p><div class='document'>{render_markdown(content)}</div>"
+            "<h2>Run History</h2><table><thead><tr><th>Subcommand</th><th>Status</th><th>Backend</th><th>Model</th><th>Started</th><th>Ended</th><th>Exit</th></tr></thead>"
+            f"<tbody>{run_rows(task.path)}</tbody></table>"
+        )
 
 
 def main() -> int:
