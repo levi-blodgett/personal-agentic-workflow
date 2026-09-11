@@ -45,7 +45,7 @@ Future top-level `paw` commands should extend the shared shell scaffolding inste
 
 - Register every public command once in `_paw_command_table()` so help text, completion generation, and dispatch stay aligned.
 - Register every AI-backed command in `_paw_model_command_table()` so `paw model` stays in sync with the actual prompt-running surface.
-- Reuse `_seed_task_templates()`, `_join_prompt_extras()`, `_prompt_append_human_extras()`, `_prompt_pr_md_usage_note()`, and `_run_model_subcommand()` before adding new one-off heredoc plumbing.
+- Reuse `_seed_task_templates()`, `_join_prompt_extras()`, `_prompt_append_human_extras()`, `_prompt_pr_md_usage_note()`, branch PR body helpers, and `_run_model_subcommand()` before adding new one-off heredoc plumbing.
 - Reuse `scripts/lib/task_store.sh` for task package creation, lookup, repo-wide listing, archive moves, migration, current-status field extraction, and task eligibility/running-state predicates; do not hard-code new `$PWD/.agent/<task>` lookups.
 - Reuse `scripts/lib/gui_lifecycle.sh` for managed GUI PID/URL metadata and process signalling; keep browser-facing GUI actions local-only, routed through existing `scripts/paw` commands, and constrained to task packages resolved from the central/legacy task listing.
 - Preserve existing task-package semantics unless the task plan explicitly changes them; shared scaffolding should not silently widen workflow behavior.

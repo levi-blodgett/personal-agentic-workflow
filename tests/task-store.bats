@@ -21,6 +21,16 @@ setup() {
   [[ "$output" == *"demo-task"* ]]
 }
 
+@test "task store: branch PR body path uses one path-safe file per branch" {
+  git -C "$REPO" checkout -q -b feature/branch-prs
+
+  run bash -c 'source "$1"; paw_branch_pr_body_file "$2"; paw_branch_pr_body_file "$2" "review:needs/fix"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$PAW_TASK_HOME/"*"feature-branch-prs-pr.md"* ]]
+  [[ "$output" == *"$PAW_TASK_HOME/"*"review-needs-fix-pr.md"* ]]
+}
+
 @test "task store: resolve prefers central task and falls back to legacy .agent task" {
   mkdir -p "$REPO/.agent/legacy-task"
 

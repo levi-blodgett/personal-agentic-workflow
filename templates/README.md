@@ -1,6 +1,6 @@
 # `templates/`
 
-Empty skeleton files for the task package. `paw plan` copies these into `.agent/<task-name>/` when creating a new task.
+Empty skeleton files for PAW task planning. `paw plan` copies task docs into `.agent/<task-name>/` or the central task store; the PR body template is used for the branch-level PR file when the repo has a pull request template.
 
 ## Files
 
@@ -8,7 +8,7 @@ Empty skeleton files for the task package. `paw plan` copies these into `.agent/
 |----------|---------|
 | [`contract.md`](contract.md) | Raw task request, constraints, repo context, and unresolved assumptions. |
 | [`plan.md`](plan.md) | Single task surface for planning and implementation progress: objective, questions, implementation checklist, acceptance criteria, scope, status, validation, decisions, and handoff notes. |
-| [`pr.md`](pr.md) | Concise PR-ready description derived from `plan.md`. **Opt-in:** only seeded by `paw plan` when the repo has `.github/pull_request_template.md` (either case). Omit from prompt context and lint checks when absent. |
+| [`pr.md`](pr.md) | Concise branch-level PR body derived from `plan.md`. **Opt-in:** used by `paw plan` when the repo has `.github/pull_request_template.md` (either case). |
 
 ## Conventions to note
 

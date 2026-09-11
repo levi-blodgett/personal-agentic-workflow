@@ -666,7 +666,7 @@ MD
   grep -q "data-doc-preview-url='/fragments/task-doc/gui-task" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "contract.md" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "plan.md" "$BATS_TEST_TMPDIR/index-actions.html"
-  grep -q "pr.md" "$BATS_TEST_TMPDIR/index-actions.html"
+  ! grep -q "pr.md" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "/task/gui-task/edit" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "/task/gui-task/implement" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "/task/gui-task/delete" "$BATS_TEST_TMPDIR/index-actions.html"
@@ -687,13 +687,11 @@ MD
   encoded_path="$(url_encode "$path")"
   start_gui "$port"
   fetch_gui "$port" "/fragments/task-doc/gui-task?path=$encoded_path&doc=plan" "$BATS_TEST_TMPDIR/plan-preview.html"
-  fetch_gui "$port" "/fragments/task-doc/gui-task?path=$encoded_path&doc=pr" "$BATS_TEST_TMPDIR/pr-preview.html"
   stop_gui
 
   grep -q "modal-panel" "$BATS_TEST_TMPDIR/plan-preview.html"
   grep -q "gui-task / plan.md" "$BATS_TEST_TMPDIR/plan-preview.html"
   grep -q "<h1>Plan</h1>" "$BATS_TEST_TMPDIR/plan-preview.html"
-  grep -q "(file missing)" "$BATS_TEST_TMPDIR/pr-preview.html"
   ! grep -q "<!doctype html>" "$BATS_TEST_TMPDIR/plan-preview.html"
 }
 

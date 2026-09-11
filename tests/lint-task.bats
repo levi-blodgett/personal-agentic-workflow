@@ -320,7 +320,7 @@ MD
   [[ "$output" != *"pr.md missing"* ]]
 }
 
-@test "lint-task: reports optional pr.md when repo has a PR template" {
+@test "lint-task: does not report missing task-level pr.md when repo has a PR template" {
   local repo="$BATS_TEST_TMPDIR/repo"
   mkdir -p "$repo/.agent/task-with-pr" "$repo/.github"
   cp "$FIXTURES_DIR/sample-task-valid/contract.md" "$repo/.agent/task-with-pr/"
@@ -331,5 +331,5 @@ MD
   run "$SCRIPTS_DIR/lint-task.sh" "$repo/.agent/task-with-pr"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"pr.md missing"* ]]
+  [[ "$output" != *"pr.md missing"* ]]
 }

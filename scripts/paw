@@ -174,7 +174,7 @@ to-issuescmd_to_issues<task-name> [--publish]draft tracer-bullet issue slices
 task-migratecmd_task_migrate[repo-path ...]copy legacy .agent tasks into the central task store
 guicmd_gui[start|stop|kill] [--host 127.0.0.1] [--port 0|<port>] [--repo <path>]start, stop, or foreground the local PAW task dashboard
 completioncmd_completionzshprint the zsh completion script for paw
-pr-submitcmd_pr_submit<task-name>create a draft PR from .agent/<task>/pr.md
+pr-submitcmd_pr_submit<task-name>create a draft PR from the branch PR body file
 issue-submitcmd_issue_submit<task-name>create a GitHub issue from .agent/<task>/issue.md
 pr-reviewcmd_pr_review<pr-number>fetch or submit PR review feedback via gh
 issue-reviewcmd_issue_review<issue-number>seed a plan-only task from a GitHub issue body
@@ -574,8 +574,12 @@ _run_metadata_end() {
 
 _prompt_pr_md_usage_note() {
   local task_dir="$1"
-  if [[ ! -f "$task_dir/pr.md" ]]; then
-    printf '\npr.md is not used for this task (no PR template in repo).'
+  local pr_file
+  pr_file="$(_task_pr_body_file "$task_dir" 2>/dev/null || true)"
+  if [[ -n "$pr_file" && -f "$pr_file" && "$pr_file" != "$task_dir/pr.md" ]]; then
+    printf '\nBranch PR body file: %s' "$(_task_display_path "$pr_file")"
+  elif [[ ! -f "$task_dir/pr.md" ]]; then
+    printf '\nBranch PR body is not used for this task (no PR template in repo).'
   fi
 }
 
@@ -693,7 +697,7 @@ _review_prompt_task_doc_requirements() {
 This is a `paw review` run: a short task-quality review of completed work, not PR comment handling.
 
 Review requirements:
-- Inspect the task docs first, especially `contract.md`, `plan.md`, `pr.md` if present, and `review.md`.
+- Inspect the task docs first, especially `contract.md`, `plan.md`, the branch PR body file if present, and `review.md`.
 - Inspect the repo diff or changed files associated with the task when safely available from local Git metadata.
 - Check the task's recorded validation results and any durable docs changed by the task.
 - Assign a clear grade.
@@ -722,7 +726,7 @@ Preserve this operator model:
 - Do not implement the replacement plan during this run.
 
 Task-package requirements:
-- Fill in the new replacement task's `contract.md`, `plan.md`, and `pr.md` when present.
+- Fill in the new replacement task's `contract.md` and `plan.md`, plus the branch PR body file when present.
 - Add a `## Prototype Source` section to the replacement task's `plan.md`.
 - Mention the source task, `review.md`, grade, recommendations, and revert/prototype status.
 - Preserve the normal PAW plan contract and leave implementation for a later `paw implement`.
@@ -814,7 +818,7 @@ _tighten_doc_seed() {
 
 - `plan.md`
 - `contract.md`
-- `pr.md` (when present and materially affected)
+- branch PR body file (when present and materially affected)
 EOF
 }
 
@@ -864,12 +868,13 @@ _validate_task_name() {
 }
 
 _plan_seeded_list_for_task() {
-  local task_name="$1" include_pr="$2" display_root
+  local task_name="$1" include_pr="$2" display_root branch_pr_file
   display_root="${3:-.agent/$task_name}"
+  branch_pr_file="${4:-}"
   printf '%s\n' "- $display_root/contract.md"
   printf '%s\n' "- $display_root/plan.md"
   if [[ "$include_pr" == "1" ]]; then
-    printf '%s\n' "- $display_root/pr.md"
+    printf '%s\n' "- ${branch_pr_file:-branch PR body file}"
   fi
 }
 
@@ -877,7 +882,12 @@ _seed_plan_task_package() {
   local task_name="$1" include_pr="$2" task_dir="$3"
   _seed_task_templates "$task_dir" contract plan
   if [[ "$include_pr" == "1" ]]; then
-    _seed_task_templates "$task_dir" pr
+    local pr_file
+    pr_file="$(paw_branch_pr_body_file "$PWD")"
+    mkdir -p "$(dirname "$pr_file")"
+    if [[ ! -f "$pr_file" ]]; then
+      cp "$PAW_HOME/templates/pr.md" "$pr_file"
+    fi
   fi
 }
 
@@ -1239,14 +1249,35 @@ _task_pr_number_from_file() {
   sed -nE 's/.*PR Number: #?([0-9]+).*/\1/p' "$file" | head -n1
 }
 
+_task_pr_body_file() {
+  local task_dir="$1" branch_file
+  branch_file="$(paw_task_branch_pr_body_file "$PWD" "$task_dir")"
+  if [[ -f "$branch_file" ]]; then
+    printf '%s\n' "$branch_file"
+    return 0
+  fi
+  if [[ -f "$task_dir/pr.md" ]]; then
+    printf '%s\n' "$task_dir/pr.md"
+    return 0
+  fi
+  printf '%s\n' "$branch_file"
+  return 1
+}
+
 _task_find_by_pr_number() {
   local pr_number="$1"
-  local matches=() dir task_name tracked tracked_file _task_source task_rows
+  local matches=() dir task_name tracked tracked_file pr_candidate _task_source task_rows
   task_rows="$(paw_task_list "$PWD")"
   while IFS=$'\t' read -r task_name _task_source dir; do
     [[ -n "$dir" ]] || continue
     tracked=""
-    for tracked_file in "$dir/plan.md" "$dir/pr.md" "$dir/review.md"; do
+    local tracked_files=("$dir/plan.md")
+    pr_candidate="$(_task_pr_body_file "$dir" 2>/dev/null || true)"
+    if [[ -n "$pr_candidate" ]]; then
+      tracked_files+=("$pr_candidate")
+    fi
+    tracked_files+=("$dir/pr.md" "$dir/review.md")
+    for tracked_file in "${tracked_files[@]}"; do
       tracked=$(_task_pr_number_from_file "$tracked_file" 2>/dev/null || true)
       [[ "$tracked" == "$pr_number" ]] && break
       tracked=""
@@ -1292,10 +1323,11 @@ _task_tracking_body() {
 }
 
 _task_pr_tracking_upsert() {
-  local task_dir="$1" pr_number="$2" pr_url="$3" body
+  local task_dir="$1" pr_number="$2" pr_url="$3" pr_file body
+  pr_file="$(_task_pr_body_file "$task_dir")"
   body=$(_task_tracking_body "PR" "$pr_number" "$pr_url")
   _markdown_section_upsert "$task_dir/plan.md" "## PR Tracking" "$body"
-  _markdown_section_upsert "$task_dir/pr.md" "## PR Tracking" "$body"
+  _markdown_section_upsert "$pr_file" "## PR Tracking" "$body"
 }
 
 _task_issue_tracking_upsert() {
@@ -1765,18 +1797,20 @@ cmd_plan() {
     include_pr=1
   fi
 
-  local task_dir display_task_dir
+  local task_dir display_task_dir branch_pr_file display_branch_pr_file
   task_dir="$(_task_dir_for_plan "$task_name")"
   display_task_dir="$(_task_display_path "$task_dir")"
   _seed_plan_task_package "$task_name" "$include_pr" "$task_dir"
+  branch_pr_file="$(paw_branch_pr_body_file "$PWD")"
+  display_branch_pr_file="$(_task_display_path "$branch_pr_file")"
 
   # Build seeded-files list for the prompt.
   local seeded_list
   local pr_note=""
-  seeded_list="$(_plan_seeded_list_for_task "$task_name" "$include_pr" "$display_task_dir")"
+  seeded_list="$(_plan_seeded_list_for_task "$task_name" "$include_pr" "$display_task_dir" "$display_branch_pr_file")"
   if [[ "$include_pr" != "1" ]]; then
     pr_note="
-pr.md is not used for this task (no PR template in repo)."
+Branch PR body is not used for this task (no PR template in repo)."
   fi
 
   local prompt=""
@@ -1958,7 +1992,7 @@ cmd_prototype() {
   _task_assignment_resume_or_handoff prototype "$task_name" "$@"
 
   _require_task_dir "$task_name"
-  local source_task_dir source_review replacement_task_name replacement_task_dir include_pr display_source_dir display_replacement_dir extras prompt seeded_list run_status
+  local source_task_dir source_review replacement_task_name replacement_task_dir include_pr display_source_dir display_replacement_dir display_branch_pr_file extras prompt seeded_list run_status
   source_task_dir="$(_task_dir_for_existing "$task_name")"
   source_review="$source_task_dir/review.md"
   if [[ ! -f "$source_review" ]]; then
@@ -1983,7 +2017,8 @@ cmd_prototype() {
   extras=$(_join_prompt_extras "$@")
   display_source_dir="$(_task_display_path "$source_task_dir")"
   display_replacement_dir="$(_task_display_path "$replacement_task_dir")"
-  seeded_list="$(_plan_seeded_list_for_task "$replacement_task_name" "$include_pr" "$display_replacement_dir")"
+  display_branch_pr_file="$(_task_display_path "$(paw_branch_pr_body_file "$PWD")")"
+  seeded_list="$(_plan_seeded_list_for_task "$replacement_task_name" "$include_pr" "$display_replacement_dir" "$display_branch_pr_file")"
 
   prompt=$(cat <<EOF
 Follow $INSTRUCTIONS, with <!-- PAW:PLAN --> as the primary section for this run, and create or update a replacement plan-only task package in $display_replacement_dir/. Do not create commits.
@@ -2239,8 +2274,8 @@ cmd_pr_submit() {
 
   local task_dir
   task_dir="$(_task_dir_for_existing "$task_name")"
-  local pr_file="$task_dir/pr.md"
-  if [[ ! -f "$pr_file" ]]; then
+  local pr_file
+  if ! pr_file="$(_task_pr_body_file "$task_dir")"; then
     echo "error: $pr_file is required for 'paw pr-submit'." >&2
     exit 1
   fi
@@ -2399,7 +2434,7 @@ Read $display_task_dir/comments.md — it contains the fetched PR review feedbac
 
 The template files have already been seeded under $display_task_dir/. Fill them in:
 $seeded_list
-pr.md is not used for this task (no PR template in repo). Do not create commits.
+Branch PR body is not used for this task (no PR template in repo). Do not create commits.
 EOF
 )
 
@@ -2457,7 +2492,7 @@ Read $display_task_dir/issue.md — it contains the fetched GitHub issue title, 
 
 The template files have already been seeded under $display_task_dir/. Fill them in:
 $seeded_list
-pr.md is not used for this task (no PR template in repo). Do not create commits.
+Branch PR body is not used for this task (no PR template in repo). Do not create commits.
 EOF
 )
 
@@ -2756,7 +2791,6 @@ _browse_doc_names() {
   printf '%s\n' \
     contract.md \
     plan.md \
-    pr.md \
     review.md \
     issue.md \
     tighten.md \

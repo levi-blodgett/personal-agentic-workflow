@@ -210,19 +210,6 @@ lint_one() {
     echo "  INFO: contract.md missing (optional but recommended)"
   fi
 
-  # Suppress pr.md INFO when the task's repo has no PR template; otherwise report as optional.
-  if [[ ! -f "$task_dir/pr.md" ]]; then
-    local repo_root="$task_dir"
-    # Walk up from task_dir to find the repo root (contains .git/).
-    while [[ "$repo_root" != "/" && ! -d "$repo_root/.git" ]]; do
-      repo_root="$(dirname "$repo_root")"
-    done
-    if [[ -f "$repo_root/.github/pull_request_template.md" || \
-          -f "$repo_root/.github/PULL_REQUEST_TEMPLATE.md" ]]; then
-      echo "  INFO: pr.md missing (optional but recommended)"
-    fi
-  fi
-
   if [[ $issues -eq 0 ]]; then
     echo "  OK"
   fi

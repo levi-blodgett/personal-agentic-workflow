@@ -702,17 +702,21 @@ MD
   [ -f "${matches[0]}" ]
 }
 
-@test "paw plan: seeds pr.md when the repo has a PR template" {
+@test "paw plan: seeds branch PR body when the repo has a PR template" {
   mkdir -p "$REPO/.github"
   touch "$REPO/.github/pull_request_template.md"
+  init_git_repo
+  git -C "$REPO" checkout -q -b feature/seeded-pr
 
   run "$PAW" plan seeded-task-with-pr "some task description"
 
   [ "$status" -eq 0 ]
-  local matches=("$PAW_TASK_HOME"/*/seeded-task-with-pr/pr.md)
+  local matches=("$PAW_TASK_HOME"/*/feature-seeded-pr-pr.md)
   [ -f "${matches[0]}" ]
-  prompt_contains "seeded-task-with-pr/pr.md"
-  ! grep -qF "pr.md is not used for this task" "$BATS_TEST_TMPDIR/backend.prompt"
+  local task_matches=("$PAW_TASK_HOME"/*/seeded-task-with-pr/pr.md)
+  [ ! -e "${task_matches[0]}" ]
+  prompt_contains "feature-seeded-pr-pr.md"
+  ! grep -qF "Branch PR body is not used for this task" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 
 @test "paw plan: does not overwrite existing files during seeding" {

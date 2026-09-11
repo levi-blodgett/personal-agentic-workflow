@@ -218,7 +218,6 @@ assignment_file() {
   task_dir=$(find "$PAW_TASK_HOME" -path "*/browse-central" -type d -print -quit)
   printf '# Contract\n\nCentral contract body.\n' > "$task_dir/contract.md"
   printf '# Plan\n\nCentral plan body.\n' > "$task_dir/plan.md"
-  printf '# PR\n\nCentral pr body.\n' > "$task_dir/pr.md"
   rm -f "$BATS_TEST_TMPDIR/claude.args"
 
   PAW_BROWSE_PAGER=cat run "$PAW" browse browse-central
@@ -229,8 +228,7 @@ assignment_file() {
   printf '%s\n' "$output" | grep -qF "Central contract body."
   printf '%s\n' "$output" | grep -qF "## plan.md"
   printf '%s\n' "$output" | grep -qF "Central plan body."
-  printf '%s\n' "$output" | grep -qF "## pr.md"
-  printf '%s\n' "$output" | grep -qF "Central pr body."
+  ! printf '%s\n' "$output" | grep -qF "## pr.md"
   ! printf '%s\n' "$output" | grep -qF "task browse-central ->"
   [ ! -f "$BATS_TEST_TMPDIR/claude.args" ]
 }

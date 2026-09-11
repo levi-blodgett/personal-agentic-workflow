@@ -448,7 +448,7 @@ def recent_activity(task_path: Path) -> float:
     if latest_metadata:
         return latest_metadata
 
-    fallback_files = [task_path / name for name in ("plan.md", "contract.md", "pr.md", "metadata.gitconfig", "crash.log")]
+    fallback_files = [task_path / name for name in ("plan.md", "contract.md", "metadata.gitconfig", "crash.log")]
     return max((file_mtime(path) for path in fallback_files), default=0.0)
 
 
@@ -507,7 +507,6 @@ class Task:
         self.slug = slug or repo_slug(repo)
         self.plan = (path / "plan.md").read_text(errors="replace") if (path / "plan.md").exists() else ""
         self.contract = (path / "contract.md").read_text(errors="replace") if (path / "contract.md").exists() else ""
-        self.pr = (path / "pr.md").read_text(errors="replace") if (path / "pr.md").exists() else ""
         self.review = (path / "review.md").read_text(errors="replace") if (path / "review.md").exists() else ""
         self.activity_time = recent_activity(path)
 
@@ -1106,7 +1105,7 @@ class Handler(BaseHTTPRequestHandler):
         detail_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}{active_query}"
         pieces = [f"<a class='button' href='{detail_href}'>Open</a>"]
         if include_docs:
-            for doc in ("contract", "plan", "pr"):
+            for doc in ("contract", "plan"):
                 preview_url = f"/fragments/task-doc/{quote(task.name)}?path={quote(str(task.path), safe='')}&doc={doc}{active_query}"
                 pieces.append(f"<button type='button' data-doc-preview-url='{html_attr(preview_url)}'>{doc}.md</button>")
         pieces.extend(
@@ -1249,13 +1248,13 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def task_doc_content(self, task: Task, doc: str) -> str:
-        return {"contract": task.contract, "plan": task.plan, "pr": task.pr, "review": task.review}.get(doc, task.plan)
+        return {"contract": task.contract, "plan": task.plan, "review": task.review}.get(doc, task.plan)
 
     def task_detail(self, task: Task, doc: str) -> str:
         selected_doc = doc_name(doc)
         content = self.task_doc_content(task, selected_doc)
         path_query = quote(str(task.path), safe="")
-        doc_tabs = ["contract", "plan", "pr"]
+        doc_tabs = ["contract", "plan"]
         if task.review:
             doc_tabs.append("review")
         active_query = f"&active_repo={quote(str(task.repo), safe='')}"

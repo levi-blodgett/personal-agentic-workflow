@@ -48,7 +48,7 @@ personal-agentic-workflow/
 ├── Makefile                              — operator entrypoint (make help for target list)
 ├── README.md                             — quick start plus durable docs index
 ├── .github/
-│   ├── pull_request_template.md          — repo PR template; causes local tasks here to seed `pr.md`
+│   ├── pull_request_template.md          — repo PR template; causes branch PR body seeding
 │   └── workflows/
 │       └── test.yml                      — CI: make check on pushes and pull requests
 ├── prompts/
@@ -92,7 +92,7 @@ personal-agentic-workflow/
 │   ├── README.md                         — template conventions and task-package rules
 │   ├── contract.md                       — empty `contract.md` skeleton
 │   ├── plan.md                           — empty `plan.md` skeleton
-│   └── pr.md                             — empty `pr.md` skeleton
+│   └── pr.md                             — empty branch PR body skeleton
 └── tests/
     ├── README.md                         — how to run the bats test suite
     ├── fixtures/
@@ -127,6 +127,6 @@ personal-agentic-workflow/
 
 The [`examples/example-task/`](../example-task/) directory is still useful even though `templates/` exists: `templates/` shows the empty canonical skeleton, while `examples/` shows what a completed task package looks like after real checklist progress, validation logging, and handoff notes have accumulated. Real task packages now live in the central local task store by default, while existing `.agent/<task-name>/` directories still resolve as legacy local-only packages.
 
-Central-store task packages keep Markdown authoritative. `metadata.gitconfig` records local provenance, and `runs/*.gitconfig` records observational run/session state for PAW runs; neither file replaces `contract.md`, `plan.md`, or `pr.md`.
+Central-store task packages keep Markdown authoritative. `metadata.gitconfig` records local provenance, and `runs/*.gitconfig` records observational run/session state for PAW runs; neither file replaces `contract.md` or `plan.md`. Branch PR body files live beside task packages when a repo has a PR template.
 
 The slugged central store remains canonical because it handles duplicate repo names and worktrees better than a plain `paw/.agent/<repo>/<task>` tree. The GUI presents the friendlier repo-to-task grouping: scoped mode combines one repo's central and legacy tasks, while `--all` enumerates all central repo slugs and displays repo name, path, slug, branch/head state, source, and task path. The startup `--repo` path seeds the local GUI repo registry, and the Add repo path form appends validated existing Git repos to `repos.gitconfig`. The Active repo dropdown changes scoped listing and the repo used by new Plan actions; with `--all`, the table remains all central stores while the dropdown still controls the Plan target. The main table sorts by recent activity, filters by state, repo text, and completion, and derives a Stage/Next workflow from task Markdown, review docs, prototype metadata, and active run metadata. Local polling keeps open index/detail views current with task files and run metadata. Browser actions stay local-only and delegate to `scripts/paw` for plan/edit/implement/review/prototype/archive so CLI prompt, assignment, follow-up guard, and archive semantics remain authoritative. Guarded deletion resolves the target from the same task listing or from a registered repo task path, requires exact task-name confirmation, rejects stale paths, and removes only that task directory.

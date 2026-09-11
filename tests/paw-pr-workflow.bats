@@ -64,6 +64,15 @@ PR body content.
 EOF
 }
 
+branch_pr_file_for() {
+  local branch="$1"
+  local safe
+  # shellcheck source=../scripts/lib/task_store.sh
+  source "$SCRIPTS_DIR/lib/task_store.sh"
+  safe="$(printf '%s\n' "$branch" | tr -c '[:alnum:]._-' '-' | sed -E 's/^-+//; s/-+$//')"
+  printf '%s/%s-pr.md\n' "$(paw_task_repo_store "$REPO")" "$safe"
+}
+
 task_dir_for() {
   local task_name="$1"
   local matches=("$PAW_TASK_HOME"/*/"$task_name")
@@ -122,9 +131,26 @@ EOF
   run "$PAW" plan pr-workflow "record assignment"
   [ "$status" -eq 0 ]
 
-  seed_task_package pr-workflow
   local task_dir
   task_dir="$(task_dir_for pr-workflow)"
+  mkdir -p "$task_dir"
+  cat > "$task_dir/contract.md" <<'EOF'
+# Contract — `pr-workflow`
+
+## Task Summary
+
+Add two PR commands to paw, change paw review command.
+EOF
+  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$task_dir/plan.md"
+  local pr_file
+  pr_file="$(branch_pr_file_for feature/pr-workflow)"
+  cat > "$pr_file" <<'EOF'
+# `Feature: Add two PR commands to paw`
+
+## Summary
+
+PR body content.
+EOF
   write_fake_gh
 
   run "$PAW" pr-submit pr-workflow
@@ -139,10 +165,23 @@ EOF
   grep -q "## PR Tracking" "$task_dir/plan.md"
   grep -q "PR Number: #123" "$task_dir/plan.md"
   grep -q "PR URL: https://github.com/example/repo/pull/123" "$task_dir/plan.md"
-  grep -q "PR Number: #123" "$task_dir/pr.md"
+  grep -q "PR Number: #123" "$pr_file"
+  [ ! -f "$task_dir/pr.md" ]
 }
 
-@test "paw pr-submit: errors clearly when pr.md is missing" {
+@test "paw pr-submit: falls back to legacy task-level pr.md" {
+  init_git_repo
+  git -C "$REPO" checkout -q -b feature/legacy-pr-md
+  seed_task_package legacy-pr
+  write_fake_gh
+
+  run "$PAW" pr-submit legacy-pr
+
+  [ "$status" -eq 0 ]
+  grep -q "PR Number: #123" "$REPO/.agent/legacy-pr/pr.md"
+}
+
+@test "paw pr-submit: errors clearly when branch PR body is missing" {
   init_git_repo
   git -C "$REPO" checkout -q -b feature/missing-pr-md
   run "$PAW" plan missing-pr "record assignment"
@@ -159,7 +198,7 @@ EOF
   run "$PAW" pr-submit missing-pr
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *"missing-pr/pr.md"* ]]
+  [[ "$output" == *"feature-missing-pr-md-pr.md"* ]]
 }
 
 @test "paw pr-review: first run collects comments into the task review.md draft" {

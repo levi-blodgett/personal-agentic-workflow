@@ -60,6 +60,28 @@ paw_task_archive_dir() {
   printf '%s/%s\n' "$(paw_task_archive_root "$repo_path")" "$task_name"
 }
 
+paw_branch_pr_safe_name() {
+  local branch_name="$1" safe
+  safe="$(printf '%s' "$branch_name" | tr -c '[:alnum:]._-' '-' | sed -E 's/^-+//; s/-+$//')"
+  [[ -n "$safe" ]] || safe="detached"
+  printf '%s\n' "$safe"
+}
+
+paw_branch_pr_body_file() {
+  local repo_path="$1" branch_name="${2:-}" safe
+  if [[ -z "$branch_name" ]]; then
+    branch_name="$(git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  fi
+  safe="$(paw_branch_pr_safe_name "$branch_name")"
+  printf '%s/%s-pr.md\n' "$(paw_task_repo_store "$repo_path")" "$safe"
+}
+
+paw_task_branch_pr_body_file() {
+  local repo_path="$1" task_dir="$2" branch_name
+  branch_name="$(paw_task_metadata_get "$task_dir" branch-name)"
+  paw_branch_pr_body_file "$repo_path" "$branch_name"
+}
+
 paw_task_legacy_dir() {
   local repo_path="$1" task_name="$2"
   printf '%s/.agent/%s\n' "$(paw_repo_physical_path "$repo_path")" "$task_name"

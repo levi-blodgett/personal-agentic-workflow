@@ -17,10 +17,10 @@ Shared sections apply universally: Document Contract, Approval Model, Risk Class
 .agent/<task-name>/
   contract.md
   plan.md
-  pr.md           (only seeded when repo has .github/pull_request_template.md)
 ```
 
 All `.agent/` files are local-only AI working docs — not project documentation. Do not commit `.agent/` files.
+When a repo has `.github/pull_request_template.md`, PAW stores the PR body at the branch level instead of inside the task package; legacy task-level `pr.md` files may still be read for compatibility.
 
 <!-- PAW:REVIEW -->
 ## PR Review Feedback
@@ -68,21 +68,21 @@ Capture: task summary, repo context, user constraints (exact, not paraphrased), 
 - `Estimated completion` must be a bare integer percentage such as `25%`. `Next work` is free-form. When `Estimated completion` is `100%`, `Next work` must be `Review.` or `Review.` plus a genuinely important follow-up.
 - **Cost log:** `paw` appends repo-level entries to `.agent/cost-log.md`; do not hand-edit task `plan.md` for cost tracking.
 
-### `pr.md`
+### Branch PR Body
 
-Only seeded when repo has `.github/pull_request_template.md`. Keep concise, derived from `plan.md`; update when reviewer-facing scope, validation, or risk notes change materially.
+When present, keep concise, derived from `plan.md`, and update when reviewer-facing scope, validation, or risk notes change materially.
 
 ## Approval Model
 
 <!-- PAW:PLAN -->
 ### Plan: plan-only run
 
-1. Create or update `.agent/<task>/`.
+1. Create or update `.agent/<task>/` and the branch PR body file when present.
 2. Inspect `git status` and `git diff`.
 3. Read only files needed for the plan.
 4. Ask the user the highest-value task-specific clarifying questions whenever better answers would materially improve the plan; ask as many follow-ups as the task needs. Skip this only when the task is already well-specified or genuinely trivial.
-5. Update `contract.md`, `plan.md`, and `pr.md`.
-6. Stop; ask user to review. Do not modify project files outside `.agent/<task>/`.
+5. Update `contract.md`, `plan.md`, and the branch PR body file when present.
+6. Stop; ask user to review. Do not modify project files outside `.agent/<task>/` except the branch PR body file.
 
 <!-- PAW:EDIT -->
 ### Edit work: plan-only refinement

@@ -16,9 +16,13 @@ New task docs live in PAW's central local task store by default:
 ${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}/<repo-slug>/<task-name>/
   contract.md
   plan.md
-  pr.md   # seeded when the repo has a PR template
   metadata.gitconfig
   runs/*.gitconfig
+```
+
+When the repo has a pull request template, PAW creates a branch-level PR body beside task packages:
+```text
+${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}/<repo-slug>/<branch-name-safe>-pr.md
 ```
 
 Legacy repo-local task docs remain supported:
@@ -26,7 +30,7 @@ Legacy repo-local task docs remain supported:
 $HOME/git/<repo-name>/.agent/<task-name>/
   contract.md
   plan.md
-  pr.md   # seeded when the repo has a PR template
+  pr.md   # legacy PR body fallback
 ```
 
 Repo-local `.agent/` directories should be excluded locally via `.git/info/exclude`, not committed `.gitignore`. To set this up in a target repo, run either:
@@ -74,7 +78,7 @@ flowchart TD
    - **Implement several approved tasks** — `paw implement-batch <task-a> <task-b>` or select eligible unfinished tasks in the GUI; PAW rejects the whole selected set before launch if any task is blocked, complete, already running, duplicated, or missing
    - **Draft tracer-bullet issues from approved work** — `paw to-issues <task-name>`; reuses the saved assignment, writes a reviewable numbered breakdown to `.agent/<task>/issues/index.md`, and keeps one issue draft per slice under `.agent/<task>/issues/*.md`
    - **Publish reviewed issue drafts** — `paw to-issues <task-name> --publish`; submits the saved draft files in dependency order, fills in per-draft issue metadata, and syncs aggregate issue tracking back into `plan.md`
-   - **Submit a draft PR** — `paw pr-submit <task-name>`; reuses the saved assignment, requires `.agent/<task>/pr.md`, and records the created PR number back into `plan.md` and `pr.md`
+   - **Submit a draft PR** — `paw pr-submit <task-name>`; reuses the saved assignment, requires the branch PR body file, and records the created PR number back into `plan.md` and the PR body
    - **Submit a GitHub issue** — `paw issue-submit <task-name>`; reuses the saved assignment, requires an on-demand `.agent/<task>/issue.md`, and records the created issue number back into `plan.md` and `issue.md`
    - **Draft a GitHub review from saved comments** — `paw pr-review <pr-number>`; first run writes `.agent/<task>/review.md`, later runs submit that saved draft comment
    - **Plan from an open GitHub issue** — `paw issue-review <issue-number>`; seeds `.agent/<issue-number>-issue-review/`, refreshes `issue.md` from the live GitHub issue, and runs a plan-only pass from the issue body only
@@ -93,7 +97,7 @@ flowchart TD
   `  - USER ANSWER (UNRESOLVED):`
   When the user replies, change that line to `USER ANSWER (PROVIDED): <answer>` and run `paw edit <task>` so the plan is reconciled before implementation.
 - Completed checklist items must gain an adjacent `Progress:` line in the same edit before the agent moves on; `paw lint` enforces that for the `Implementation Phases / Checklist` section.
-- `pr.md` is seeded only when the repo has a pull-request template. This repo now ships one, so local tasks here include `pr.md` by default.
+- Branch PR body files are seeded only when the repo has a pull-request template. Legacy task-level `pr.md` files remain readable as a fallback.
 - When task plans or workflow docs mention TDD, the canonical expectation is red-green-refactor: write one behavior-focused failing test, make that single test pass with one implementation step, repeat, and defer test-cleanup refactors until the implementation loop is complete. Tests should fail only when behavior changes, not when code is cleanly refactored.
 
 ### Branch and worktree assignment
@@ -107,7 +111,7 @@ flowchart TD
 
 `paw gui [--host 127.0.0.1] [--port 0|<port>] [--repo <path>] [--all]` starts a browser dashboard in the foreground and prints its URL. `paw gui start` uses the same options but runs in the background and records lifecycle metadata under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/`. Stop it with `paw gui stop`; use `paw gui kill` only as the force-stop fallback. All GUI modes bind only to `127.0.0.1` or `localhost`; non-local hosts are rejected.
 
-The GUI is observational, but it is also a local task control surface. Scoped mode lists the chosen repo's central tasks plus legacy `.agent/<task>/` packages. `--all` lists every central task store and shows repo name, repo path, slug, branch/head state, source, task path, checklist progress, validation, and run metadata. The main table sorts newest activity first, filters by state, repo text, and completion, exposes per-task open/edit/implement/delete controls, and previews `contract.md`, `plan.md`, and `pr.md` in an in-window overlay. Open index/detail pages poll local fragments so run and Markdown changes appear without a browser refresh, and every normal page links back Home. It shows selection checkboxes only for unfinished tasks that are not blocked and not already running; submitting selected tasks starts one background implementation subprocess per task. Plan/edit/review/prototype prompts collect optional instructions in overlays; GUI implementation launches without extra instructions even though CLI `paw implement <task-name> [extras...]` still supports them. Delete uses an "Are you sure?" confirmation and an exact resolved-path check. Use CLI flows such as `paw edit`, `paw implement`, `paw implement-batch`, `paw crash-log`, and `paw pr-submit` when you need terminal-first control or non-GUI extras.
+The GUI is observational, but it is also a local task control surface. Scoped mode lists the chosen repo's central tasks plus legacy `.agent/<task>/` packages. `--all` lists every central task store and shows repo name, repo path, slug, branch/head state, source, task path, checklist progress, validation, and run metadata. The main table sorts newest activity first, filters by state, repo text, and completion, exposes per-task open/edit/implement/delete controls, and previews `contract.md` and `plan.md` in an in-window overlay. Open index/detail pages poll local fragments so run and Markdown changes appear without a browser refresh, and every normal page links back Home. It shows selection checkboxes only for unfinished tasks that are not blocked and not already running; submitting selected tasks starts one background implementation subprocess per task. Plan/edit/review/prototype prompts collect optional instructions in overlays; GUI implementation launches without extra instructions even though CLI `paw implement <task-name> [extras...]` still supports them. Delete uses an "Are you sure?" confirmation and an exact resolved-path check. Use CLI flows such as `paw edit`, `paw implement`, `paw implement-batch`, `paw crash-log`, and `paw pr-submit` when you need terminal-first control or non-GUI extras.
 
 ### A `paw implement` run in detail
 
@@ -130,7 +134,7 @@ sequenceDiagram
 
 1. **User ownership** — the user approves the plan before any implementation runs; the AI cannot exceed the approved scope.
 2. **Enforced contract** — `paw lint` checks that every required `plan.md` section is present, `## Current Status` contains the required fields, every completed implementation checkbox has an adjacent `Progress:` line, and the working surface stays ≤ 350 lines (default-on; disable with `PAW_LINT_LENGTH=0`).
-3. **Strong paper trail** — `contract.md`, `plan.md`, and optional `pr.md` live beside the code while the task is in flight; the agent's rationale, decisions, checklist progress, and validation trail are captured locally without polluting committed project docs.
+3. **Strong paper trail** — `contract.md`, `plan.md`, and optional branch PR body files live beside the code while the task is in flight; the agent's rationale, decisions, checklist progress, and validation trail are captured locally without polluting committed project docs.
 4. **Fast resume** — any new agent run starts from the task docs; no context is lost between sessions.
 5. **Consistent terminal output** — AI-backed `paw` subcommands print the same `Launching: paw <sub> (PAW_BACKEND=… model=… stream=…)` banner, making it easy to see which backend and model is about to run.
 6. **Shellcheck CI + lint** — every push runs shellcheck over all scripts and lints the canonical fixture; regressions are caught automatically.
@@ -185,8 +189,8 @@ When the workflow itself is under pressure, the agent should mirror that discipl
 `paw pr-submit <task-name>` is the shell-side handoff from an approved task package to a draft GitHub PR:
 
 1. It reuses the task's saved branch/worktree assignment when that is safe.
-2. It requires `.agent/<task>/pr.md` as the PR body source.
-3. It generates a working title from the task docs, opens a **draft** PR, and records the created PR number + URL back into `plan.md` and `pr.md` under `## PR Tracking`.
+2. It requires the resolved branch PR body file, with legacy task-level `pr.md` fallback.
+3. It generates a working title from the task docs, opens a **draft** PR, and records the created PR number + URL back into `plan.md` and the PR body under `## PR Tracking`.
 
 ### PR Review Drafting (`paw pr-review`)
 
@@ -246,7 +250,7 @@ git diff
 4. Confirm:
    - actual diff matches the plan
    - `plan.md` explains what changed and why
-   - `pr.md` is usable as the PR description
+   - the branch PR body file is usable as the PR description when present
    - durable project docs were updated if behavior, commands, workflows, reports, policy, validation, or user-facing behavior changed
    - `.agent/` files remain untracked
    - the agent ran the Post-Implementation Wrap-Up gate after the last `- [ ]` flipped to `- [x]`
