@@ -347,16 +347,160 @@ def checklist_counts(plan: str) -> tuple[int, int]:
     return done, total
 
 
-def validation_state(plan: str) -> str:
-    body = section_body(plan, "Validation Performed")
-    if not body:
+def validation_entries(body: str) -> list[str]:
+    """Keep complete source records, including indented/fenced diagnostics."""
+    entries = []
+    current = []
+    fenced = False
+    for line in body.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        if current and not fenced and line and not line[0].isspace() and not line.startswith("```"):
+            entries.append("\n".join(current).strip())
+            current = []
+        current.append(line)
+    if current:
+        entries.append("\n".join(current).strip())
+    return [entry for entry in entries if entry]
+
+
+def validation_outcome(entry: str) -> str:
+    headline, *diagnostics = entry.splitlines()
+    headline = headline.replace("(rerun; supersedes earlier result)", "")
+    if "; " in headline:
+        return validation_aggregate({validation_outcome(part) for part in headline.split("; ")})
+    nested = [line.strip() for line in diagnostics
+              if re.match(r"^\s+[^:]+: (?:failed|blocked|unavailable|not run|skipped)\b", line, re.I)]
+    if nested:
+        return validation_aggregate({validation_outcome(headline), *(validation_outcome(line) for line in nested)})
+    return validation_headline_outcome(headline)
+
+
+def validation_headline_outcome(headline: str) -> str:
+    """Recognize supported result wording; keep unfamiliar evidence neutral."""
+    text = re.sub(r"^(?:[-*]|\d+\.)\s+", "", headline).strip().lower().rstrip(".")
+    if re.fullmatch(r"(?:<[^>]+>(?:\s*—\s*<[^>]+>)?|todo|pending|not yet recorded)", text):
         return "missing"
-    lowered = body.lower()
-    if "fail" in lowered or "error" in lowered:
+    if text.startswith("code best-practices checklist applied") or re.match(r"(?:note|provenance|source|rationale):", text):
+        return "missing"
+    if re.match(r"(?:reviewed|read|inspected)\b", text):
+        return "recorded"
+    text = re.sub(r"`[^`]*`", "CHECK", text)
+    if re.search(r"\bplanning[- ]only\b|\bplanning (?:investigation|validation) only\b", text):
+        return "missing"
+    if re.match(r"(?:run |will |must |should |expected |next |validation tier chosen:)", text):
+        return "missing"
+    if re.search(r"\b(?:not (?:yet )?run|has not run|no validation (?:has been )?(?:run|executed)|not executed)\b", text):
+        return "missing"
+    if re.search(r"\b(?:expected|will|must|should|would)\b", text):
+        return "missing"
+    if "?" in text:
+        return "recorded"
+    if ": " in text:
+        text = text.split(": ", 1)[1]
+    text = re.sub(r"\b(?:0|zero|no) (?:failed|failures?|errors?)\b", "", text)
+    if re.search(r"\b(?:not|never|no)\b[^.;]*\b(?:passed|ok|succeeded|successful)\b", text):
         return "attention"
-    if "passed" in lowered or "ok" in lowered:
+    if re.search(r"\bexit(?: code| status)?[ :=]+[1-9]\d*\b", text):
+        return "attention"
+    boundary = r"(?<![\w/.-])"
+    ending = r"(?![\w/.-])"
+    if re.search(boundary + r"(?:failed|failures?|error|errors|blocked|unavailable|did not pass|not (?:all )?passed|not ok|not successful|not succeeded)" + ending, text):
+        return "attention"
+    if re.search(r"\b(?:skipped|unknown|uncertain|pending|not verified)\b", text):
+        return "recorded"
+    if re.search(boundary + r"(?:passed|ok|succeeded|exit(?: code| status)?[ :=]+0)" + ending, text):
         return "passed"
     return "recorded"
+
+
+def validation_aggregate(states: set[str]) -> str:
+    if "attention" in states:
+        return "attention"
+    if "recorded" in states or {"passed", "missing"} <= states:
+        return "recorded"
+    return "passed" if "passed" in states else "missing"
+
+
+def validation_check_name(entry: str) -> str:
+    headline = re.sub(r"^(?:[-*]|\d+\.)\s+", "", entry.splitlines()[0])
+    # Explicit name: outcome form is also the identity for replacement evidence.
+    return headline.split(": ", 1)[0].strip(" `") if ": " in headline else ""
+
+
+def validation_summary(plan: str) -> dict:
+    body = section_body(plan, "Validation Performed")
+    entries = []
+    planning_only = bool(re.search(r"(?im)^[-*]?\s*planning (?:investigation|validation) only\b", body))
+    for source in validation_entries(body):
+        outcome = validation_outcome(source)
+        if planning_only and outcome == "passed":
+            outcome = "missing"
+        name = validation_check_name(source)
+        if name and outcome == "passed" and "(rerun; supersedes earlier result)" in source.lower():
+            for previous in entries:
+                if previous["name"] == name:
+                    previous["superseded"] = True
+        entries.append({"source": source, "outcome": outcome, "name": name, "superseded": False})
+    states = {entry["outcome"] for entry in entries if not entry["superseded"]} - {"missing"}
+    if "passed" in states and any(entry["outcome"] == "missing" and entry["name"]
+                                  and re.search(r"\bnot (?:yet )?run\b", entry["source"], re.I)
+                                  for entry in entries if not entry["superseded"]):
+        states.add("recorded")
+    state = next((value for value in ("attention", "recorded", "passed") if value in states), "missing")
+    return {"state": state, "entries": entries}
+
+
+def validation_state(plan: str) -> str:
+    return validation_summary(plan)["state"]
+
+
+def validation_reason(summary: dict) -> str:
+    state = summary["state"]
+    if state == "attention":
+        adverse = [entry for entry in summary["entries"]
+                   if entry["outcome"] == "attention" and not entry["superseded"]]
+        headline = " ".join(adverse[0]["source"].split()).lstrip("-* ")
+        suffix = f" (+{len(adverse) - 1} more)" if len(adverse) > 1 else ""
+        return headline[:180] + ("…" if len(headline) > 180 else "") + suffix
+    return {
+        "missing": "No executed implementation validation results recorded.",
+        "passed": "Recorded checks passed; current-run freshness is not established.",
+        "recorded": "Evidence is ambiguous, skipped, or has unresolved check outcomes.",
+    }[state]
+
+
+def validation_cell(plan: str, task_href: str) -> str:
+    summary = validation_summary(plan)
+    return (validation_chip(summary["state"])
+            + f"<div class='task-subtle'>{html.escape(validation_reason(summary))}</div>"
+            + f"<a href='{html_attr(task_href)}#validation'>Validation details</a>")
+
+
+def validation_details(task: Task) -> str:
+    source_href = (f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}"
+                   f"&active_repo={quote(str(task.repo), safe='')}&doc=plan#validation-source")
+    summary = validation_summary(task.plan)
+    records = []
+    for entry in summary["entries"]:
+        label = "Superseded record" if entry["superseded"] else {
+            "attention": "Needs attention", "passed": "Recorded success",
+            "recorded": "Unclassified / skipped", "missing": "No execution evidence / context",
+        }[entry["outcome"]]
+        records.append(f"<li><strong>{label}</strong><pre class='validation-evidence'>{html.escape(entry['source'])}</pre></li>")
+    return (
+        "<section id='validation' aria-labelledby='validation-heading'>"
+        "<h2 id='validation-heading'>Validation details</h2>"
+        f"{validation_chip(summary['state'])}<p>{html.escape(validation_reason(summary))}</p>"
+        "<p>Recorded from plan.md → Validation Performed. These records do not prove "
+        "current-run freshness or that all required checks ran. Planning-only checks do not establish implementation success.</p>"
+        "<p>Original records below retain check names and diagnostics where supplied. "
+        "Check names or reasons absent from a record are not supplied; no details are inferred.</p>"
+        f"<p><a href='{html_attr(source_href)}'>Open plan.md source</a></p>"
+        f"<ul>{''.join(records)}</ul>"
+        + ("" if records else "<p>No validation evidence has been recorded.</p>")
+        + "</section>"
+    )
 
 
 def html_attr(value: str) -> str:
@@ -386,7 +530,8 @@ def repo_disclosure(task: Task, branch: str) -> str:
 
 def validation_chip(state: str) -> str:
     class_name = f"validation-{state}" if state in {"passed", "attention", "missing", "recorded"} else "validation-recorded"
-    return f"<span class='validation-chip {class_name}'>{html.escape(state)}</span>"
+    label = "Unvalidated" if state == "missing" else state.title()
+    return f"<span class='validation-chip {class_name}'>{html.escape(label)}</span>"
 
 
 def review_grade(review: str) -> str:
@@ -1110,7 +1255,7 @@ table{border-collapse:collapse;width:100%;background:white;border:1px solid #dfe
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical-align:top}th{background:#edf1f7;font-size:12px;text-transform:uppercase;color:#4b5563}
 .pill{display:inline-block;border:1px solid #ccd3dd;border-radius:999px;padding:2px 8px;background:#f8fafc;font-size:12px}.blocked{border-color:#d97706;color:#92400e}.running{border-color:#2563eb;color:#1d4ed8}.ready{border-color:#15803d;color:#166534}.complete{border-color:#6d28d9;color:#5b21b6}
 .review-grade{display:inline-block;border:1px solid #ccd3dd;border-radius:999px;background:#f8fafc;padding:2px 8px;font-size:12px;font-weight:600}.grade-a{border-color:#15803d;color:#166534;background:#f0fdf4}.grade-b{border-color:#0b57d0;color:#1d4ed8;background:#eff6ff}.grade-c{border-color:#d97706;color:#92400e;background:#fffbeb}.grade-d{border-color:#ea580c;color:#9a3412;background:#fff7ed}.grade-f{border-color:#dc2626;color:#991b1b;background:#fef2f2}.grade-unknown{border-color:#6b7280;color:#374151;background:#f9fafb}
-.toolbar{display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:14px 0}.toolbar-fields,.top-actions,.dashboard-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.dashboard-actions{margin:14px 0}.toolbar label,.selected-actions label{display:grid;gap:3px;font-size:12px;color:#475467}.selected-actions .checkbox-label{display:flex;align-items:center;gap:5px;padding-bottom:6px}.toolbar select,.toolbar input,.selected-actions select{font:inherit;border:1px solid #cbd5e1;border-radius:6px;padding:5px 8px;background:white}.filter-disclosure{margin:14px 0}.filter-disclosure>summary{cursor:pointer;color:#3b495c}.filter-disclosure .toolbar{margin:8px 0 0}.flash,.flash-error{border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1e3a8a;padding:8px 10px}.flash-error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.metric-chip,.validation-chip{display:inline-flex;align-items:center;justify-content:center;min-width:3.2em;border-radius:999px;border:1px solid #ccd3dd;background:#f8fafc;padding:2px 8px;font-size:12px}.validation-passed{border-color:#16a34a;color:#166534}.validation-attention{border-color:#d97706;color:#92400e}.validation-missing{border-color:#b8c0cc;color:#667085}.validation-recorded{border-color:#0b57d0;color:#1d4ed8}
+.toolbar{display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:14px 0}.toolbar-fields,.top-actions,.dashboard-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.dashboard-actions{margin:14px 0}.toolbar label,.selected-actions label{display:grid;gap:3px;font-size:12px;color:#475467}.selected-actions .checkbox-label{display:flex;align-items:center;gap:5px;padding-bottom:6px}.toolbar select,.toolbar input,.selected-actions select{font:inherit;border:1px solid #cbd5e1;border-radius:6px;padding:5px 8px;background:white}.filter-disclosure{margin:14px 0}.filter-disclosure>summary{cursor:pointer;color:#3b495c}.filter-disclosure .toolbar{margin:8px 0 0}.flash,.flash-error{border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1e3a8a;padding:8px 10px}.flash-error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.metric-chip,.validation-chip{display:inline-flex;align-items:center;justify-content:center;min-width:3.2em;border-radius:999px;border:1px solid #ccd3dd;background:#f8fafc;padding:2px 8px;font-size:12px}.validation-evidence{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;overflow:auto}.validation-passed{border-color:#16a34a;color:#166534}.validation-attention{border-color:#d97706;color:#92400e}.validation-missing{border-color:#b8c0cc;color:#667085}.validation-recorded{border-color:#0b57d0;color:#1d4ed8}
 .task-title{font-weight:600}.task-subtle{margin-top:4px}.repo-name{font-weight:600}.path-disclosure{margin-top:5px;font-size:12px;color:#667085}.path-disclosure summary{cursor:pointer;color:#3b495c}.path-disclosure code{display:block;margin-top:5px;white-space:nowrap;overflow:auto;max-width:42rem}.path-disclosure dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;margin:6px 0 0}.path-disclosure dt{font-weight:600;color:#475467}.path-disclosure dd{margin:0;min-width:0}
 .tabs a{margin-right:14px}.muted{color:#667085}.document{background:white;border:1px solid #dfe3ea;border-radius:8px;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:#f6f8fa;border:1px solid #dfe3ea;padding:12px;overflow:auto}.document code{background:#eef2f7;padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid #d0d7de;color:#57606a;margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}.document table{border:1px solid #dfe3ea}.document tr:nth-child(even),.table-wrap tbody tr:nth-child(even){background:#fbfcfe}
 .log-stream{display:grid;gap:14px;margin:14px 0 24px}.log-panel{background:white;border:1px solid #dfe3ea;border-radius:8px;overflow:hidden}.log-panel h3{font-size:13px;text-transform:uppercase;color:#4b5563;background:#edf1f7;margin:0;padding:8px 12px}.log-panel pre{margin:0;max-height:45vh;overflow:auto;padding:12px;background:#0f172a;color:#e5e7eb;white-space:pre-wrap}
@@ -2020,7 +2165,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"<td>{self.workflow_stage_cell(task, workflow)}</td>"
                 f"<td>{self.workflow_next_cell(task, workflow)}</td>"
                 f"<td><span class='metric-chip'>{html.escape(completion)}</span></td>"
-                f"<td><span class='metric-chip'>{done}/{total}</span></td><td>{validation_chip(validation_state(task.plan))}</td>"
+                f"<td><span class='metric-chip'>{done}/{total}</span></td><td>{validation_cell(task.plan, task_href)}</td>"
                 f"<td>{self.task_actions(task, include_docs=True)}</td>"
                 "</tr>"
             )
@@ -2243,7 +2388,8 @@ class Handler(BaseHTTPRequestHandler):
             f"<tr><th>Prototype Cleanup</th><td>{html.escape(prototype_cleanup_message)}</td></tr>"
             f"<tr><th>Crash Log</th><td>{html.escape(crash_state)}</td></tr>"
             "</tbody></table></div>"
-            f"<p class='tabs'>{tabs}</p><div class='document'>{render_markdown(content)}</div>"
+            f"{validation_details(task)}"
+            f"<p class='tabs'>{tabs}</p><div id='validation-source' class='document'>{render_markdown(content)}</div>"
             f"{self.live_stream_section(task)}"
             f"{self.prototype_failure_logs(task)}"
             "<h2>Run History</h2><div class='table-wrap'><table><thead><tr><th>Subcommand</th><th>Status</th><th>Backend</th><th>Model</th><th>Started</th><th>Ended</th><th>Exit</th></tr></thead>"

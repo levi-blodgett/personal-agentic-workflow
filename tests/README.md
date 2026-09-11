@@ -82,3 +82,5 @@ bats tests/lint-task.bats
   and clean up on teardown.
 
 Prototype journey coverage in `gui-server.bats` includes `gui-prototype.py` behavior checks for replacement/source roles, instructions, immediate and linked run tracking, duplicate starts, cancellation, stale approval, failure logs, reuse and same-repo navigation. `paw-prompt-body.bats` verifies failed planning preserves source work, retry retains replacement notes, successful cleanup follows planning, and source archival preserves the replacement. Fixtures use isolated task stores and stub/local subprocesses; no model service is called.
+
+`gui-validation.py`, invoked by `gui-server.bats`, covers conservative recorded validation states, negation and zero failures, planning-only evidence, mixed and explicitly superseded outcomes, complete escaped diagnostics/source links, central/legacy task identity, and dashboard/detail fragment transitions.

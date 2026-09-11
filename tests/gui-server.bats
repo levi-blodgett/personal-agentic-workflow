@@ -516,7 +516,7 @@ PY
   grep -q "<div class='toolbar-fields'>" "$BATS_TEST_TMPDIR/polish-index.html"
   grep -q "<div class='top-actions'>" "$BATS_TEST_TMPDIR/polish-index.html"
   grep -q "<span class='metric-chip'>1/2</span>" "$BATS_TEST_TMPDIR/polish-index.html"
-  grep -q "<span class='validation-chip validation-passed'>passed</span>" "$BATS_TEST_TMPDIR/polish-index.html"
+  grep -q "<span class='validation-chip validation-passed'>Passed</span>" "$BATS_TEST_TMPDIR/polish-index.html"
   grep -q "button:focus-visible,.button:focus-visible,.home-link:focus-visible" "$BATS_TEST_TMPDIR/polish-index.html"
   grep -q ".flash,.flash-error" "$BATS_TEST_TMPDIR/polish-index.html"
   grep -q ".document table{border:1px solid #dfe3ea}" "$BATS_TEST_TMPDIR/polish-detail.html"
@@ -1817,4 +1817,8 @@ PY
 
 @test "paw gui: prototype journey behavior regressions" {
   python3 "$REPO_ROOT/tests/gui-prototype.py"
+}
+
+@test "paw gui: recorded validation behavior regressions" {
+  python3 "$REPO_ROOT/tests/gui-validation.py"
 }
