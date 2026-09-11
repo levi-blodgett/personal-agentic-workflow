@@ -303,6 +303,47 @@ def review_grade_class(grade: str) -> str:
     return f"grade-{match.group(1).lower()}"
 
 
+def pending_answer_questions(plan: str) -> list[str]:
+    questions: list[str] = []
+    lines = plan.splitlines()
+    marker_re = re.compile(r"USER ANSWER(?:\s+---)?\s+\((UNRESOLVED|PROVIDED)\):")
+    bullet_re = re.compile(r"^(\s*)[-*]\s+(.*\S)\s*$")
+    for index, line in enumerate(lines):
+        if not marker_re.search(line):
+            continue
+        marker_indent = len(line) - len(line.lstrip())
+        for previous in range(index - 1, -1, -1):
+            candidate = lines[previous].strip()
+            if not candidate:
+                continue
+            match = bullet_re.match(lines[previous])
+            if match and len(match.group(1)) < marker_indent and not marker_re.search(match.group(2)):
+                question = match.group(2).strip()
+                questions.append(question)
+            break
+    return questions
+
+
+def answer_extras(task: Task, answers: str, extras: str) -> str:
+    parts: list[str] = []
+    if answers:
+        questions = task.answer_questions
+        question_lines = "\n".join(f"- {question}" for question in questions) if questions else "- <question text not parsed>"
+        parts.append(
+            "\n".join(
+                [
+                    f"Question answers submitted from the GUI for {task.name}:",
+                    question_lines,
+                    "",
+                    answers,
+                ]
+            )
+        )
+    if extras:
+        parts.append(extras)
+    return "\n\n".join(parts)
+
+
 def render_inline(text: str) -> str:
     placeholders: list[str] = []
 
@@ -584,7 +625,11 @@ class Task:
 
     @property
     def blocked(self) -> bool:
-        return bool(re.search(r"USER ANSWER \((UNRESOLVED|PROVIDED)\):", self.plan))
+        return bool(re.search(r"USER ANSWER(?:\s+---)?\s+\((UNRESOLVED|PROVIDED)\):", self.plan))
+
+    @property
+    def answer_questions(self) -> list[str]:
+        return pending_answer_questions(self.plan)
 
     @property
     def active_run(self) -> ActiveRun | None:
@@ -639,11 +684,11 @@ def task_workflow(task: Task) -> TaskWorkflow:
     if not task.plan:
         return TaskWorkflow("Missing plan", "Edit", "edit", "plan.md is missing.", "plan.md missing")
     if task.blocked:
-        return TaskWorkflow("Needs edit", "Edit", "edit", plan_position, "USER ANSWER placeholders remain")
+        return TaskWorkflow("Needs edit", "Answer Questions", "edit", plan_position, "USER ANSWER placeholders remain")
     if task.prototype_status or task.prototype_source:
         return TaskWorkflow("Prototype", "Archive", "archive", next_work)
     if task.review:
-        return TaskWorkflow("Reviewed", "Prototype", "prototype", next_work)
+        return TaskWorkflow("Reviewed", "Use as Prototype", "prototype", next_work)
     if task.finished:
         return TaskWorkflow("Review", "Review", "review", next_work)
     return TaskWorkflow("Implement", "Implement", "implement", next_work)
@@ -1037,6 +1082,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect(self.task_url(task, f"{task.name} already has a running PAW subprocess", "error"))
         args = [subcommand, task.name]
         extras = "" if subcommand == "implement" else form.get("extras", "").strip()
+        if subcommand == "edit" and task.blocked:
+            extras = answer_extras(task, form.get("answers", "").strip(), extras)
         if extras and subcommand != "archive":
             args.append(extras)
         ok, message = launch_paw(task.repo, self.task_home, task.path, args)
@@ -1215,6 +1262,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def extras_modal(self, task: Task, action: str, label: str) -> str:
         action_path = f"/task/{quote(task.name)}/{action}"
+        questions = task.answer_questions if action == "edit" and task.blocked else []
+        default_extras = ""
+        question_block = ""
+        answers_block = ""
+        if action == "edit" and task.blocked:
+            default_extras = (
+                "Answer/reconcile the listed USER ANSWER placeholders in plan.md as part of this edit run. "
+                "Do not change implementation files."
+            )
+            if questions:
+                items = "".join(f"<li>{html.escape(question)}</li>" for question in questions)
+                question_block = f"<div class='question-list'><h3>Pending questions</h3><ol>{items}</ol></div>"
+            answers_block = "<p><label>Answers<br><textarea name='answers' rows='5'></textarea></label></p>"
         return (
             "<details class='modal-toggle'>"
             f"<summary><span class='button'>{html.escape(label)}</span></summary>"
@@ -1223,7 +1283,9 @@ class Handler(BaseHTTPRequestHandler):
             f"<h2>{html.escape(label)} {html.escape(task.name)}</h2>"
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
             f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
-            "<p><label>Extra instructions<br><textarea name='extras' rows='4'></textarea></label></p>"
+            f"{question_block}"
+            f"{answers_block}"
+            f"<p><label>Extra instructions<br><textarea name='extras' rows='4'>{html.escape(default_extras)}</textarea></label></p>"
             f"<p class='action-row'><button type='submit'>{html.escape(label)}</button><button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Close</button></p>"
             "</form></div></div></details>"
         )
@@ -1290,15 +1352,16 @@ class Handler(BaseHTTPRequestHandler):
             for doc in ("contract", "plan"):
                 preview_url = f"/fragments/task-doc/{quote(task.name)}?path={quote(str(task.path), safe='')}&doc={doc}{active_query}"
                 pieces.append(f"<button type='button' data-doc-preview-url='{html_attr(preview_url)}'>{doc}.md</button>")
+        edit_label = "Answer Questions" if task.blocked else "Edit"
         pieces.extend(
             [
-                self.extras_modal(task, "edit", "Edit"),
+                self.extras_modal(task, "edit", edit_label),
                 self.implement_form(task),
                 self.delete_modal(task),
             ]
         )
         if not include_docs:
-            pieces.extend([self.extras_modal(task, "review", "Review"), self.extras_modal(task, "prototype", "Prototype"), self.archive_form(task)])
+            pieces.extend([self.extras_modal(task, "review", "Review"), self.extras_modal(task, "prototype", "Use as Prototype"), self.archive_form(task)])
         return f"<div class='action-row'>{''.join(pieces)}</div>"
 
     def workflow_action_control(self, task: Task, workflow: TaskWorkflow) -> str:

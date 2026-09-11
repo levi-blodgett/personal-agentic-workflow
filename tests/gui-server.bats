@@ -260,8 +260,10 @@ MD
   grep -q "Next: Implement" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "/task/gui-task/implement" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Stage: Needs edit" "$BATS_TEST_TMPDIR/stage-workflow.html"
-  grep -q "Next: Edit" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Next: Answer Questions" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "USER ANSWER placeholders remain" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "What is needed?" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Answer Questions blocked-task" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Stage: Running" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Next: Cancel" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "/task/running-task/cancel" "$BATS_TEST_TMPDIR/stage-workflow.html"
@@ -270,7 +272,7 @@ MD
   grep -q "Next: Review" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "/task/done-task/review" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Stage: Reviewed" "$BATS_TEST_TMPDIR/stage-workflow.html"
-  grep -q "Next: Prototype" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "Next: Use as Prototype" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Review grade: B-" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "grade-b" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "/task/reviewed-task/prototype" "$BATS_TEST_TMPDIR/stage-workflow.html"
@@ -724,6 +726,49 @@ MD
   find "$REPO/.agent/gui-task/runs" -name "*.stdout.log" -print -quit | grep -q stdout.log
 }
 
+@test "paw gui: blocked edit modal submits answer context through paw edit" {
+  cat >> "$REPO/.agent/gui-task/plan.md" <<'MD'
+
+## Open Questions / Follow-Ups
+
+- Which threshold should the task use?
+  - USER ANSWER (UNRESOLVED):
+MD
+  local port=18768 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/answer-modal.html"
+
+  post_gui "$port" "/task/gui-task/edit" "$(form_encode "path=$path" "answers=Use 85% for now." "extras=Keep the scope narrow.")" "$BATS_TEST_TMPDIR/answer-post.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  stop_gui
+
+  grep -q "name='answers'" "$BATS_TEST_TMPDIR/answer-modal.html"
+  grep -q "Which threshold should the task use?" "$BATS_TEST_TMPDIR/answer-modal.html"
+  grep -q "PAW:EDIT" "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -q "Question answers submitted from the GUI for gui-task:" "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -q "Use 85% for now." "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -q "Keep the scope narrow." "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -q "USER ANSWER (UNRESOLVED):" "$REPO/.agent/gui-task/plan.md"
+}
+
+@test "paw gui: blocked edit modal falls back when question text is not parseable" {
+  cat >> "$REPO/.agent/gui-task/plan.md" <<'MD'
+
+USER ANSWER (UNRESOLVED):
+MD
+  local port=18767 path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  start_gui "$port"
+  fetch_gui "$port" "/task/gui-task?path=$(url_encode "$path")&doc=plan" "$BATS_TEST_TMPDIR/answer-fallback.html"
+  stop_gui
+
+  grep -q ">Answer Questions<" "$BATS_TEST_TMPDIR/answer-fallback.html"
+  grep -q "Answer Questions gui-task" "$BATS_TEST_TMPDIR/answer-fallback.html"
+  grep -q "name='answers'" "$BATS_TEST_TMPDIR/answer-fallback.html"
+  ! grep -q "class='question-list'" "$BATS_TEST_TMPDIR/answer-fallback.html"
+}
+
 @test "paw gui: starts paw implement and blocks duplicate active runs" {
   local port=18770 path
   path="$(real_path "$REPO/.agent/gui-task")"
@@ -785,7 +830,8 @@ MD
   grep -q "/task/gui-task/archive" "$BATS_TEST_TMPDIR/actions.html"
   ! grep -q ">Open<" "$BATS_TEST_TMPDIR/actions.html"
   grep -q ">Review<" "$BATS_TEST_TMPDIR/actions.html"
-  grep -q ">Prototype<" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q ">Use as Prototype<" "$BATS_TEST_TMPDIR/actions.html"
+  grep -q "Use as Prototype gui-task" "$BATS_TEST_TMPDIR/actions.html"
   grep -q ">Archive<" "$BATS_TEST_TMPDIR/actions.html"
   ! grep -q "Start review" "$BATS_TEST_TMPDIR/actions.html"
   ! grep -q "Start prototype" "$BATS_TEST_TMPDIR/actions.html"
