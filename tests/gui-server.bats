@@ -568,6 +568,94 @@ MD
   grep -q "gui-created" "$BATS_TEST_TMPDIR/plan-index.html"
 }
 
+@test "paw gui: adds a second local Git repo to the selector" {
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+  git -C "$REPO" init -q
+  local repo_two="$BATS_TEST_TMPDIR/repo-two"
+  mkdir -p "$repo_two"
+  git -C "$repo_two" init -q
+  local port=18796 repo_two_path
+  repo_two_path="$(real_path "$repo_two")"
+  start_gui "$port"
+
+  post_gui "$port" "/actions/repos/add" "$(form_encode "repo_path=$repo_two_path")" "$BATS_TEST_TMPDIR/add-repo-post.html"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/add-repo-index.html"
+  stop_gui
+
+  grep -q "added repo $repo_two_path" "$BATS_TEST_TMPDIR/add-repo-post.html"
+  grep -q "name=\"active_repo\"" "$BATS_TEST_TMPDIR/add-repo-index.html"
+  grep -q "<option value='$repo_two_path'>$repo_two_path</option>" "$BATS_TEST_TMPDIR/add-repo-index.html"
+  git config --file "$XDG_STATE_HOME/paw/gui/repos.gitconfig" --get-all paw.repo | grep -Fx "$repo_two_path"
+}
+
+@test "paw gui: selected repo scopes listing and Plan target" {
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+  git -C "$REPO" init -q
+  local repo_two="$BATS_TEST_TMPDIR/repo-two"
+  mkdir -p "$repo_two"
+  git -C "$repo_two" init -q
+  local central_one central_two
+  central_one="$(bash -c 'source "$1"; paw_task_create_dir "$2" repo-one-task' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
+  central_two="$(bash -c 'source "$1"; paw_task_create_dir "$2" repo-two-task' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$repo_two")"
+  mkdir -p "$central_one" "$central_two"
+  cat > "$central_one/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: Repo one only.
+- Estimated completion: 10%
+- Next work: One.
+MD
+  cat > "$central_two/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: Repo two only.
+- Estimated completion: 20%
+- Next work: Two.
+MD
+  bash -c 'source "$1"; paw_task_write_metadata "$2" "$3" repo-one-task created ""; paw_task_write_metadata "$4" "$5" repo-two-task created ""' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$central_one" "$REPO" "$central_two" "$repo_two"
+  local port=18797 repo_two_path encoded_repo_two created
+  repo_two_path="$(real_path "$repo_two")"
+  encoded_repo_two="$(url_encode "$repo_two_path")"
+  created="$(bash -c 'source "$1"; paw_task_create_dir "$2" selected-plan' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$repo_two")"
+  start_gui "$port"
+
+  post_gui "$port" "/actions/repos/add" "$(form_encode "repo_path=$repo_two_path")" "$BATS_TEST_TMPDIR/select-add-post.html"
+  fetch_gui "$port" "/?active_repo=$encoded_repo_two" "$BATS_TEST_TMPDIR/select-repo-index.html"
+  post_gui "$port" "/actions/plan" "$(form_encode "active_repo=$repo_two_path" "task_name=selected-plan" "prompt=Plan in repo two")" "$BATS_TEST_TMPDIR/select-plan-post.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  stop_gui
+
+  grep -q "Repo two only" "$BATS_TEST_TMPDIR/select-repo-index.html"
+  ! grep -q "Repo one only" "$BATS_TEST_TMPDIR/select-repo-index.html"
+  grep -q "Plan in repo two" "$BATS_TEST_TMPDIR/backend.prompt"
+  [ -f "$created/metadata.gitconfig" ]
+  git config --file "$created/metadata.gitconfig" --get paw.repo-root | grep -Fx "$repo_two_path"
+}
+
+@test "paw gui: rejects invalid and unregistered repo selections visibly" {
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+  git -C "$REPO" init -q
+  local missing="$BATS_TEST_TMPDIR/missing-repo"
+  local unregistered="$BATS_TEST_TMPDIR/unregistered-repo"
+  mkdir -p "$unregistered"
+  git -C "$unregistered" init -q
+  local port=18799 encoded_unregistered
+  encoded_unregistered="$(url_encode "$(real_path "$unregistered")")"
+  start_gui "$port"
+
+  post_gui "$port" "/actions/repos/add" "$(form_encode "repo_path=$missing")" "$BATS_TEST_TMPDIR/invalid-add-post.html"
+  fetch_gui "$port" "/?active_repo=$encoded_unregistered" "$BATS_TEST_TMPDIR/unregistered-index.html"
+  stop_gui
+
+  grep -q "repo path does not exist:" "$BATS_TEST_TMPDIR/invalid-add-post.html"
+  grep -q "selected repo is not registered and was reset" "$BATS_TEST_TMPDIR/unregistered-index.html"
+  ! git config --file "$XDG_STATE_HOME/paw/gui/repos.gitconfig" --get-all paw.repo | grep -Fx "$(real_path "$unregistered")"
+}
+
 @test "paw gui: index uses concise labels modals row actions and doc preview controls" {
   local port=18792
   start_gui "$port"
@@ -965,4 +1053,56 @@ PY
   grep -q "Repo two task" "$BATS_TEST_TMPDIR/all.html"
   grep -q "shared-task" "$BATS_TEST_TMPDIR/all.html"
   grep -q "repo-two" "$BATS_TEST_TMPDIR/all.html"
+}
+
+@test "paw gui --all: active repo selector controls Plan target only" {
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+  local repo_two="$BATS_TEST_TMPDIR/repo-two"
+  mkdir -p "$repo_two"
+  git -C "$REPO" init -q
+  git -C "$repo_two" init -q
+  local central_one central_two
+  central_one="$(bash -c 'source "$1"; paw_task_create_dir "$2" all-one' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
+  central_two="$(bash -c 'source "$1"; paw_task_create_dir "$2" all-two' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$repo_two")"
+  mkdir -p "$central_one" "$central_two"
+  cat > "$central_one/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: All repo one.
+- Estimated completion: 10%
+- Next work: One.
+MD
+  cat > "$central_two/plan.md" <<'MD'
+# Plan
+
+## Current Status
+
+- Plan position: All repo two.
+- Estimated completion: 20%
+- Next work: Two.
+MD
+  bash -c 'source "$1"; paw_task_write_metadata "$2" "$3" all-one created ""; paw_task_write_metadata "$4" "$5" all-two created ""' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$central_one" "$REPO" "$central_two" "$repo_two"
+  local port=18798 repo_two_path encoded_repo_two created
+  repo_two_path="$(real_path "$repo_two")"
+  encoded_repo_two="$(url_encode "$repo_two_path")"
+  created="$(bash -c 'source "$1"; paw_task_create_dir "$2" all-selected-plan' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$repo_two")"
+  "$PAW" gui --all --repo "$REPO" --port "$port" > "$BATS_TEST_TMPDIR/gui-all-active.out" 2> "$BATS_TEST_TMPDIR/gui-all-active.err" &
+  GUI_PID="$!"
+  GUI_PORT="$port"
+
+  post_gui "$port" "/actions/repos/add" "$(form_encode "repo_path=$repo_two_path")" "$BATS_TEST_TMPDIR/all-add-post.html"
+  fetch_gui "$port" "/?active_repo=$encoded_repo_two" "$BATS_TEST_TMPDIR/all-active-index.html"
+  post_gui "$port" "/actions/plan" "$(form_encode "active_repo=$repo_two_path" "task_name=all-selected-plan" "prompt=Plan from all mode")" "$BATS_TEST_TMPDIR/all-plan-post.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  stop_gui
+
+  grep -q "All repo one" "$BATS_TEST_TMPDIR/all-active-index.html"
+  grep -q "All repo two" "$BATS_TEST_TMPDIR/all-active-index.html"
+  grep -q "Repo filter" "$BATS_TEST_TMPDIR/all-active-index.html"
+  grep -q "name=\"active_repo\"" "$BATS_TEST_TMPDIR/all-active-index.html"
+  grep -q "Plan from all mode" "$BATS_TEST_TMPDIR/backend.prompt"
+  [ -f "$created/metadata.gitconfig" ]
+  git config --file "$created/metadata.gitconfig" --get paw.repo-root | grep -Fx "$repo_two_path"
 }

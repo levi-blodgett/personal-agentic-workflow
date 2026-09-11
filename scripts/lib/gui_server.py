@@ -52,6 +52,68 @@ def repo_slug(repo: Path) -> str:
     return f"{safe}-{cksum(str(repo_common_dir(repo)))}"
 
 
+def gui_state_dir() -> Path:
+    root = os.environ.get("XDG_STATE_HOME")
+    if root:
+        return physical(Path(root) / "paw" / "gui")
+    return physical(Path.home() / ".local" / "state" / "paw" / "gui")
+
+
+def registry_path() -> Path:
+    return gui_state_dir() / "repos.gitconfig"
+
+
+def read_repo_registry(file: Path, startup_repo: Path) -> list[Path]:
+    repos = [physical(startup_repo)]
+    if file.exists():
+        try:
+            output = subprocess.check_output(
+                ["git", "config", "--file", str(file), "--get-all", "paw.repo"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+            repos.extend(physical(Path(line)) for line in output.splitlines() if line.strip())
+        except subprocess.CalledProcessError:
+            pass
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for repo in repos:
+        key = str(repo)
+        if key not in seen:
+            unique.append(repo)
+            seen.add(key)
+    return unique
+
+
+def write_repo_registry(file: Path, repos: list[Path]) -> None:
+    file.parent.mkdir(parents=True, exist_ok=True)
+    if file.exists():
+        file.unlink()
+    for repo in repos:
+        subprocess.run(["git", "config", "--file", str(file), "--add", "paw.repo", str(repo)], check=True)
+
+
+def add_repo_to_registry(file: Path, startup_repo: Path, repo: Path) -> None:
+    repos = read_repo_registry(file, startup_repo)
+    if all(existing != repo for existing in repos):
+        repos.append(repo)
+    write_repo_registry(file, repos)
+
+
+def normalize_git_repo(raw_path: str) -> tuple[Path | None, str]:
+    if not raw_path.strip():
+        return None, "repo path is required"
+    candidate = physical(Path(raw_path.strip()))
+    if not candidate.exists():
+        return None, f"repo path does not exist: {candidate}"
+    if not candidate.is_dir():
+        return None, f"repo path is not a directory: {candidate}"
+    root = git_value(candidate, "rev-parse", "--show-toplevel")
+    if not root:
+        return None, f"repo path is not a Git repo: {candidate}"
+    return physical(Path(root)), ""
+
+
 def metadata_value(file: Path, key: str) -> str:
     if not file.exists():
         return ""
@@ -636,6 +698,7 @@ class Handler(BaseHTTPRequestHandler):
     repo: Path
     task_home: Path
     all_repos: bool
+    repo_registry: Path
 
     def send_html(self, body: str, code: int = 200) -> None:
         self.send_response(code)
@@ -667,19 +730,68 @@ class Handler(BaseHTTPRequestHandler):
     def flash_query(self, message: str, level: str = "notice") -> str:
         return f"message={quote(message)}&level={quote(level)}"
 
+    def active_repo_query(self, repo: Path) -> str:
+        return "" if repo == self.repo else f"active_repo={quote(str(repo), safe='')}"
+
+    def with_active_repo(self, repo: Path, query: str = "") -> str:
+        active = self.active_repo_query(repo)
+        pieces = [piece for piece in (active, query) if piece]
+        return "/?" + "&".join(pieces) if pieces else "/"
+
+    def current_repos(self) -> list[Path]:
+        return read_repo_registry(self.repo_registry, self.repo)
+
+    def selected_repo(self, query: dict[str, list[str]]) -> tuple[Path, str]:
+        selected = query.get("active_repo", [""])[0]
+        if not selected:
+            return self.repo, ""
+        try:
+            requested = physical(Path(selected))
+        except Exception:
+            return self.repo, f"selected repo is invalid and was reset: {selected}"
+        repos = self.current_repos()
+        if requested in repos:
+            return requested, ""
+        return self.repo, f"selected repo is not registered and was reset: {requested}"
+
     def task_url(self, task: Task, message: str = "", level: str = "notice") -> str:
         url = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}"
         if message:
             url += f"&{self.flash_query(message, level)}"
         return url
 
-    def resolve_task(self, name: str, path_value: str = "") -> Task | None:
-        all_tasks = list_tasks(self.repo, self.task_home, self.all_repos)
+    def resolve_task(self, name: str, path_value: str = "", active_repo: Path | None = None) -> Task | None:
+        lookup_repo = active_repo or self.repo
+        all_tasks = list_tasks(lookup_repo, self.task_home, self.all_repos)
         if path_value:
             matches = [task for task in all_tasks if str(task.path) == path_value and task.name == name]
+            if not matches:
+                task = self.resolve_registered_task_path(name, path_value)
+                if task:
+                    return task
         else:
             matches = [task for task in all_tasks if task.name == name]
         return matches[0] if matches else None
+
+    def resolve_registered_task_path(self, name: str, path_value: str) -> Task | None:
+        if not valid_task_name(name):
+            return None
+        try:
+            task_path = physical(Path(path_value))
+        except Exception:
+            return None
+        if not task_path.is_dir() or task_path.name != name:
+            return None
+        for repo in self.current_repos():
+            central_root = self.task_home / repo_slug(repo)
+            if task_path == central_root / name:
+                metadata_repo = metadata_value(task_path / "metadata.gitconfig", "repo-root")
+                if metadata_repo and physical(Path(metadata_repo)) != repo:
+                    return None
+                return Task(name, "central", task_path, repo, central_root.name)
+            if task_path == repo / ".agent" / name:
+                return Task(name, "legacy", task_path, repo)
+        return None
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -693,6 +805,7 @@ class Handler(BaseHTTPRequestHandler):
                 unquote(parsed.path.removeprefix("/fragments/task-doc/")),
                 query.get("doc", ["plan"])[0],
                 query.get("path", [""])[0],
+                query.get("active_repo", [""])[0],
             )
         if parsed.path.startswith("/fragments/task/"):
             query = parse_qs(parsed.query)
@@ -700,6 +813,7 @@ class Handler(BaseHTTPRequestHandler):
                 unquote(parsed.path.removeprefix("/fragments/task/")),
                 query.get("doc", ["plan"])[0],
                 query.get("path", [""])[0],
+                query.get("active_repo", [""])[0],
             )
         if parsed.path.startswith("/task/"):
             query = parse_qs(parsed.query)
@@ -707,6 +821,7 @@ class Handler(BaseHTTPRequestHandler):
                 unquote(parsed.path.removeprefix("/task/")),
                 query.get("doc", ["plan"])[0],
                 query.get("path", [""])[0],
+                query.get("active_repo", [""])[0],
                 query.get("message", [""])[0],
                 query.get("level", ["notice"])[0],
             )
@@ -716,6 +831,8 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/actions/plan":
             return self.post_plan()
+        if parsed.path == "/actions/repos/add":
+            return self.post_add_repo()
         if parsed.path == "/actions/implement-batch":
             return self.post_implement_batch()
         if parsed.path.startswith("/task/") and parsed.path.endswith("/edit"):
@@ -740,22 +857,32 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_plan(self) -> None:
         form = self.form_data()
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
         task_name = form.get("task_name", "").strip()
         prompt = form.get("prompt", "").strip()
         if not valid_task_name(task_name):
-            return self.redirect(f"/?{self.flash_query('invalid task name', 'error')}")
+            return self.redirect(self.with_active_repo(active_repo, self.flash_query("invalid task name", "error")))
         if not prompt:
-            return self.redirect(f"/?{self.flash_query('prompt is required', 'error')}")
-        task_path = self.task_home / repo_slug(self.repo) / task_name
-        ok, message = launch_paw(self.repo, self.task_home, task_path, ["plan", task_name, prompt])
-        self.redirect(f"/?{self.flash_query(message, 'notice' if ok else 'error')}")
+            return self.redirect(self.with_active_repo(active_repo, self.flash_query("prompt is required", "error")))
+        task_path = self.task_home / repo_slug(active_repo) / task_name
+        ok, message = launch_paw(active_repo, self.task_home, task_path, ["plan", task_name, prompt])
+        self.redirect(self.with_active_repo(active_repo, self.flash_query(message, "notice" if ok else "error")))
+
+    def post_add_repo(self) -> None:
+        form = self.form_data()
+        repo, error = normalize_git_repo(form.get("repo_path", ""))
+        if error or repo is None:
+            return self.redirect(f"/?{self.flash_query(error, 'error')}")
+        add_repo_to_registry(self.repo_registry, self.repo, repo)
+        self.redirect(self.with_active_repo(repo, self.flash_query(f"added repo {repo}", "notice")))
 
     def post_implement_batch(self) -> None:
         form = self.form_values()
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", [""])[0]]})
         selected_paths = [value for value in form.get("task", []) if value]
         if not selected_paths:
-            return self.redirect(f"/?{self.flash_query('select at least one unfinished task', 'error')}")
-        tasks_by_path = {str(task.path): task for task in list_tasks(self.repo, self.task_home, self.all_repos)}
+            return self.redirect(self.with_active_repo(active_repo, self.flash_query("select at least one unfinished task", "error")))
+        tasks_by_path = {str(task.path): task for task in list_tasks(active_repo, self.task_home, self.all_repos)}
         selected: list[Task] = []
         errors: list[str] = []
         seen: set[str] = set()
@@ -779,7 +906,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 selected.append(task)
         if errors:
-            return self.redirect(f"/?{self.flash_query('batch implement blocked: ' + '; '.join(errors), 'error')}")
+            return self.redirect(self.with_active_repo(active_repo, self.flash_query("batch implement blocked: " + "; ".join(errors), "error")))
 
         messages: list[str] = []
         ok_all = True
@@ -789,11 +916,12 @@ class Handler(BaseHTTPRequestHandler):
             messages.append(f"{task.name}: {message}")
         level = "notice" if ok_all else "error"
         prefix = f"batch implement started {len(selected)} task(s)"
-        self.redirect(f"/?{self.flash_query(prefix + ': ' + '; '.join(messages), level)}")
+        self.redirect(self.with_active_repo(active_repo, self.flash_query(prefix + ": " + "; ".join(messages), level)))
 
     def post_task_action(self, name: str, subcommand: str) -> None:
         form = self.form_data()
-        task = self.resolve_task(name, form.get("path", ""))
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
+        task = self.resolve_task(name, form.get("path", ""), active_repo)
         if not task:
             return self.send_html("<h1>Task not found</h1>", 404)
         if subcommand == "implement" and task.blocked:
@@ -811,9 +939,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_delete(self, name: str) -> None:
         form = self.form_data()
-        task = self.resolve_task(name, form.get("path", ""))
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
+        task = self.resolve_task(name, form.get("path", ""), active_repo)
         if not task:
-            named_task = self.resolve_task(name, "")
+            named_task = self.resolve_task(name, "", active_repo)
             if named_task:
                 return self.redirect(self.task_url(named_task, "delete rejected: stale task path", "error"))
             return self.send_html("<h1>Task not found</h1>", 404)
@@ -829,13 +958,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def index(self) -> None:
         query = parse_qs(urlparse(self.path).query)
+        active_repo, repo_error = self.selected_repo(query)
         message = query.get("message", [""])[0]
         level = query.get("level", ["notice"])[0]
-        scope = "All task stores" if self.all_repos else f"{self.repo.name or 'repo'} repo"
-        central_note = str(self.task_home) if self.all_repos else str(self.task_home / repo_slug(self.repo))
+        if repo_error:
+            message = repo_error if not message else f"{repo_error}; {message}"
+            level = "error"
+        scope = "All task stores" if self.all_repos else f"{active_repo.name or 'repo'} repo"
+        central_note = str(self.task_home) if self.all_repos else str(self.task_home / repo_slug(active_repo))
         refresh_query = {
             key: query.get(key, [""])[0]
-            for key in ("state", "repo", "completion")
+            for key in ("active_repo", "state", "repo", "completion")
             if query.get(key, [""])[0]
         }
         refresh_url = "/fragments/tasks"
@@ -845,21 +978,41 @@ class Handler(BaseHTTPRequestHandler):
             f"{page_header('PAW Tasks', scope)}<main class='shell'>"
             f"{self.flash_html(message, level)}"
             f"<p class='muted'>Central store {path_disclosure('Central store', central_note)}</p>"
-            f"{self.index_filters(query)}"
-            f"{self.new_plan_modal()}"
+            f"{self.index_filters(query, active_repo)}"
+            f"{self.new_plan_modal(active_repo)}"
             f"<div id='task-list' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
-            f"{self.index_task_list(query)}"
+            f"{self.index_task_list(query, active_repo)}"
             "</div><div class='doc-preview' data-doc-preview></div></main>"
         )
         self.send_html(body)
 
     def tasks_fragment(self, query: dict[str, list[str]]) -> None:
-        self.send_fragment(self.index_task_list(query))
+        active_repo, error = self.selected_repo(query)
+        if error:
+            active_repo = self.repo
+        self.send_fragment(self.index_task_list(query, active_repo))
 
-    def index_filters(self, query: dict[str, list[str]]) -> str:
+    def repo_selector(self, active_repo: Path) -> str:
+        options = "".join(option_tag(str(repo), str(repo), str(active_repo)) for repo in self.current_repos())
+        return (
+            "<form class='toolbar repo-toolbar' method='get'>"
+            "<div class='toolbar-fields'>"
+            f"<label>Active repo <select name=\"active_repo\">{options}</select></label>"
+            "</div><div class='top-actions'>"
+            "<button type='submit'>Switch</button>"
+            "</div></form>"
+            "<form class='toolbar repo-toolbar' method='post' action='/actions/repos/add'>"
+            "<div class='toolbar-fields'>"
+            "<label>Add repo path <input name='repo_path' required></label>"
+            "</div><div class='top-actions'>"
+            "<button type='submit'>Add repo</button>"
+            "</div></form>"
+        )
+
+    def index_filters(self, query: dict[str, list[str]], active_repo: Path) -> str:
         state_filter = query.get("state", [""])[0]
         completion_filter = query.get("completion", [""])[0]
-        all_tasks = list_tasks(self.repo, self.task_home, self.all_repos)
+        all_tasks = list_tasks(active_repo, self.task_home, self.all_repos)
         state_options = sorted({task.state for task in all_tasks})
         completion_options = sorted(
             {status_field(task.plan, "Estimated completion") for task in all_tasks if status_field(task.plan, "Estimated completion")}
@@ -869,22 +1022,25 @@ class Handler(BaseHTTPRequestHandler):
             [option_tag("", "Any completion", completion_filter), *(option_tag(value, value, completion_filter) for value in completion_options)]
         )
         return (
+            f"{self.repo_selector(active_repo)}"
             "<form class='toolbar' method='get'>"
             "<div class='toolbar-fields'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
             f"<label>State <select name=\"state\">{state_select}</select></label>"
-            f"<label>Repo <input name=\"repo\" value=\"{html_attr(query.get('repo', [''])[0])}\"></label>"
+            f"<label>Repo filter <input name=\"repo\" value=\"{html_attr(query.get('repo', [''])[0])}\"></label>"
             f"<label>Completion <select name=\"completion\">{completion_select}</select></label>"
             "</div><div class='top-actions'>"
             "<button type='submit'>Filter</button><a class='button' href='/'>Clear</a>"
             "</div></form>"
         )
 
-    def new_plan_modal(self) -> str:
+    def new_plan_modal(self, active_repo: Path) -> str:
         return (
             "<details class='modal-toggle'><summary><span class='button primary'>Plan</span></summary>"
             "<div class='modal-panel'><div class='modal-body'>"
             "<form method='post' action='/actions/plan'>"
             "<h2>Plan</h2>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
             "<p><label>Task name <input name='task_name' required pattern='[A-Za-z0-9._-]+'></label></p>"
             "<p><label>Prompt<br><textarea name='prompt' required rows='4'></textarea></label></p>"
             "<p class='action-row'><button type='submit'>Plan</button><button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Close</button></p>"
@@ -900,6 +1056,7 @@ class Handler(BaseHTTPRequestHandler):
             f"<form method='post' action='{action_path}'>"
             f"<h2>{html.escape(label)} {html.escape(task.name)}</h2>"
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
             "<p><label>Extra instructions<br><textarea name='extras' rows='4'></textarea></label></p>"
             f"<p class='action-row'><button type='submit'>{html.escape(label)}</button><button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Close</button></p>"
             "</form></div></div></details>"
@@ -909,6 +1066,7 @@ class Handler(BaseHTTPRequestHandler):
         return (
             f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/implement'>"
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
             "<button type='submit'>Implement</button></form>"
         )
 
@@ -916,6 +1074,7 @@ class Handler(BaseHTTPRequestHandler):
         return (
             f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/{action}'>"
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
             f"<button type='submit'>{html.escape(label)}</button></form>"
         )
 
@@ -923,6 +1082,7 @@ class Handler(BaseHTTPRequestHandler):
         return (
             f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/archive'>"
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
             "<button type='submit'>Archive</button></form>"
         )
 
@@ -935,17 +1095,19 @@ class Handler(BaseHTTPRequestHandler):
             f"<h2>Delete {html.escape(task.name)}</h2>"
             "<p>Are you sure?</p>"
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
             "<input type='hidden' name='confirm' value='yes'>"
             "<p class='action-row'><button class='danger' type='submit'>Delete</button><button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Cancel</button></p>"
             "</form></div></div></details>"
         )
 
     def task_actions(self, task: Task, include_docs: bool = False) -> str:
-        detail_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}"
+        active_query = f"&active_repo={quote(str(task.repo), safe='')}"
+        detail_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}{active_query}"
         pieces = [f"<a class='button' href='{detail_href}'>Open</a>"]
         if include_docs:
             for doc in ("contract", "plan", "pr"):
-                preview_url = f"/fragments/task-doc/{quote(task.name)}?path={quote(str(task.path), safe='')}&doc={doc}"
+                preview_url = f"/fragments/task-doc/{quote(task.name)}?path={quote(str(task.path), safe='')}&doc={doc}{active_query}"
                 pieces.append(f"<button type='button' data-doc-preview-url='{html_attr(preview_url)}'>{doc}.md</button>")
         pieces.extend(
             [
@@ -996,11 +1158,11 @@ class Handler(BaseHTTPRequestHandler):
             "</div>"
         )
 
-    def index_task_list(self, query: dict[str, list[str]]) -> str:
+    def index_task_list(self, query: dict[str, list[str]], active_repo: Path) -> str:
         state_filter = query.get("state", [""])[0]
         repo_filter = query.get("repo", [""])[0].strip().lower()
         completion_filter = query.get("completion", [""])[0]
-        all_tasks = list_tasks(self.repo, self.task_home, self.all_repos)
+        all_tasks = list_tasks(active_repo, self.task_home, self.all_repos)
         rows = []
         for task in all_tasks:
             done, total = checklist_counts(task.plan)
@@ -1012,7 +1174,7 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             if completion_filter and completion != completion_filter:
                 continue
-            task_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}"
+            task_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}&active_repo={quote(str(task.repo), safe='')}"
             branch = task.branch_context or "<none>"
             selector = (
                 f"<input form='batch-implement-form' type='checkbox' name='task' value='{html_attr(str(task.path))}' aria-label='Select {html_attr(task.name)}'>"
@@ -1033,7 +1195,8 @@ class Handler(BaseHTTPRequestHandler):
                 "</tr>"
             )
         return (
-            "<form id='batch-implement-form' method='post' action='/actions/implement-batch'></form>"
+            "<form id='batch-implement-form' method='post' action='/actions/implement-batch'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'></form>"
             "<div class='top-actions'><button form='batch-implement-form' type='submit'>Implement selected</button></div>"
             "<div class='table-wrap'><table><thead><tr><th>Select</th><th>Task</th><th>Repo</th><th>Stage</th><th>Next</th><th>Completion</th><th>Checklist</th><th>Validation</th><th>Actions</th></tr></thead>"
             f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table></div>"
@@ -1045,13 +1208,14 @@ class Handler(BaseHTTPRequestHandler):
         class_name = "flash-error" if level == "error" else "flash"
         return f"<p class='{class_name}'>{html.escape(message)}</p>"
 
-    def task(self, name: str, doc: str, path_value: str = "", message: str = "", level: str = "notice") -> None:
-        task = self.resolve_task(name, path_value)
+    def task(self, name: str, doc: str, path_value: str = "", active_repo_value: str = "", message: str = "", level: str = "notice") -> None:
+        active_repo, _ = self.selected_repo({"active_repo": [active_repo_value]})
+        task = self.resolve_task(name, path_value, active_repo)
         if not task:
             return self.send_html("<h1>Task not found</h1>", 404)
         path_query = quote(str(task.path), safe="")
         selected_doc = doc_name(doc)
-        refresh_url = f"/fragments/task/{quote(task.name)}?path={path_query}&doc={quote(selected_doc)}"
+        refresh_url = f"/fragments/task/{quote(task.name)}?path={path_query}&doc={quote(selected_doc)}&active_repo={quote(str(task.repo), safe='')}"
         body = (
             f"{page_header(task.name, task.repo_name)}<main class='shell'>"
             f"{self.flash_html(message, level)}"
@@ -1062,14 +1226,16 @@ class Handler(BaseHTTPRequestHandler):
         )
         self.send_html(body)
 
-    def task_fragment(self, name: str, doc: str, path_value: str = "") -> None:
-        task = self.resolve_task(name, path_value)
+    def task_fragment(self, name: str, doc: str, path_value: str = "", active_repo_value: str = "") -> None:
+        active_repo, _ = self.selected_repo({"active_repo": [active_repo_value]})
+        task = self.resolve_task(name, path_value, active_repo)
         if not task:
             return self.send_fragment("<h1>Task not found</h1>", 404)
         self.send_fragment(self.task_detail(task, doc_name(doc)))
 
-    def task_doc_fragment(self, name: str, doc: str, path_value: str = "") -> None:
-        task = self.resolve_task(name, path_value)
+    def task_doc_fragment(self, name: str, doc: str, path_value: str = "", active_repo_value: str = "") -> None:
+        active_repo, _ = self.selected_repo({"active_repo": [active_repo_value]})
+        task = self.resolve_task(name, path_value, active_repo)
         if not task:
             return self.send_fragment("<h1>Task not found</h1>", 404)
         selected_doc = doc_name(doc)
@@ -1092,7 +1258,8 @@ class Handler(BaseHTTPRequestHandler):
         doc_tabs = ["contract", "plan", "pr"]
         if task.review:
             doc_tabs.append("review")
-        tabs = " ".join(f"<a href='/task/{quote(task.name)}?path={path_query}&doc={tab}'>{tab}.md</a>" for tab in doc_tabs)
+        active_query = f"&active_repo={quote(str(task.repo), safe='')}"
+        tabs = " ".join(f"<a href='/task/{quote(task.name)}?path={path_query}&doc={tab}{active_query}'>{tab}.md</a>" for tab in doc_tabs)
         done, total = checklist_counts(task.plan)
         crash_state = "available" if (task.path / "crash.log").exists() else "none"
         pr_tracking = tracking_summary(task.plan, "PR") or "none"
@@ -1131,6 +1298,7 @@ def main() -> int:
     Handler.repo = physical(Path(args.repo))
     Handler.task_home = physical(Path(args.task_home))
     Handler.all_repos = args.all
+    Handler.repo_registry = registry_path()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     host, port = server.server_address[:2]
     print(f"paw gui: http://{host}:{port}/", flush=True)
