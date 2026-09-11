@@ -40,7 +40,7 @@ bats tests/lint-task.bats
 | `paw-completion-docs.bats` | Durable docs coverage for `paw completion zsh` and the narrowed `zsh`-only scope |
 | `paw-codex.bats` | Default codex backend wiring, auth banner, sandbox flags, and usage parsing |
 | `paw-crash.bats` | Crash classification, crash log writing, and prompt-size warnings |
-| `paw-prompt-body.bats` | Prompt body + launch banner for every subcommand, including broader review records, implementation provenance capture, and review-driven prototype planning/conservative cleanup behavior (stub backend) |
+| `paw-prompt-body.bats` | Prompt body + launch banner for every subcommand, including broader review records, immutable patch provenance capture, same-path drift/index preservation, literal unusual paths, binary/deletion/mode round trips, legacy/tampered evidence blocking, capture/resume and failure handling, and review-driven prototype planning/conservative cleanup behavior (stub backend) |
 | `paw-pr-workflow.bats` | Shell-side `paw pr-submit` / `paw pr-review` workflow coverage |
 | `paw-issue-workflow.bats` | Shell-side `paw issue-submit` / `paw issue-review` / `paw to-issues --publish` workflow coverage |
 | `paw-gh-actions-workflow.bats` | Shell-side `paw gh-actions-review` dispatch and flag-forwarding coverage |

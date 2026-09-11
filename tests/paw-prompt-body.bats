@@ -244,6 +244,50 @@ MD
   [[ "$(git config --file "$metadata" --get paw.prototype-status)" == planned* ]]
 }
 
+# Exercise production capture with a known clean pre-run snapshot for edge fixtures.
+capture_fixture_provenance() {
+  : > "$BATS_TEST_TMPDIR/before-paths"
+  bash -c 'source "$1"; _implement_record_prototype_provenance proto-task "$2" "$3"' \
+    _ "$PAW" "$source_dir" "$BATS_TEST_TMPDIR/before-paths"
+}
+
+# Capture real implementation provenance before introducing unrelated work.
+capture_prototype_source() {
+  init_git_repo
+  run "$PAW" plan proto-task "Plan source work."
+  [ "$status" -eq 0 ]
+  source_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task" -type d -print -quit)
+  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$source_dir/plan.md"
+  run env PAW_STUB_MUTATE_FILE="$REPO/README.md" "$PAW" implement proto-task
+  [ "$status" -eq 0 ]
+  printf '# Review\n' > "$source_dir/review.md"
+}
+
+@test "paw prototype: preserves later same-path edits after provenance capture" {
+  capture_prototype_source
+  printf 'later unrelated edit\n' >> "$REPO/README.md"
+  cp "$REPO/README.md" "$BATS_TEST_TMPDIR/expected"
+  run "$PAW" prototype proto-task
+  [ "$status" -eq 0 ]
+  cmp "$REPO/README.md" "$BATS_TEST_TMPDIR/expected"
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-status)" = "revert-blocked" ]
+  [ -f "${source_dir}-prototype/plan.md" ]
+}
+
+@test "paw prototype: preserves staged divergence hidden by baseline worktree bytes" {
+  capture_prototype_source
+  git -C "$REPO" add README.md
+  git -C "$REPO" show HEAD:README.md > "$REPO/README.md"
+  git -C "$REPO" diff --cached --binary > "$BATS_TEST_TMPDIR/index-before"
+  run "$PAW" prototype proto-task
+  [ "$status" -eq 0 ]
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-status)" = "revert-blocked" ]
+  git -C "$REPO" diff --cached --binary > "$BATS_TEST_TMPDIR/index-after"
+  cmp "$BATS_TEST_TMPDIR/index-before" "$BATS_TEST_TMPDIR/index-after"
+  [ "$(cat "$REPO/README.md")" = base ]
+  [ -f "${source_dir}-prototype/plan.md" ]
+}
+
 @test "paw prototype: blocks cleanup when tracked changes include unowned paths" {
   init_git_repo
   printf 'notes base\n' > "$REPO/NOTES.md"
@@ -257,6 +301,7 @@ MD
   printf '# Review\n' > "$source_dir/review.md"
   git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path README.md
   printf 'changed\n' > "$REPO/README.md"
+  capture_fixture_provenance
   printf 'unrelated change\n' > "$REPO/NOTES.md"
 
   run "$PAW" prototype proto-task
@@ -286,6 +331,7 @@ MD
   git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path README.md
   printf 'changed\n' > "$REPO/README.md"
 
+  capture_fixture_provenance
   run "$PAW" prototype proto-task
 
   [ "$status" -eq 0 ]
@@ -315,8 +361,8 @@ MD
   replacement_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task-prototype" -type d -print -quit)
   [ -f "$replacement_dir/plan.md" ]
   [ "$(git config --file "$replacement_dir/metadata.gitconfig" --get paw.prototype-status)" = "planned-revert-blocked" ]
-  [[ "$(git config --file "$replacement_dir/metadata.gitconfig" --get paw.prototype-cleanup-message)" == *"missing prototype-owned-path"* ]]
-  [[ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-cleanup-message)" == *"missing prototype-owned-path"* ]]
+  [[ "$(git config --file "$replacement_dir/metadata.gitconfig" --get paw.prototype-cleanup-message)" == *"missing immutable provenance"* ]]
+  [[ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-cleanup-message)" == *"missing immutable provenance"* ]]
 }
 
 @test "paw prototype: blocks cleanup for invalid provenance paths" {
@@ -337,7 +383,7 @@ MD
   local replacement_dir
   replacement_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task-prototype" -type d -print -quit)
   [ "$(git config --file "$replacement_dir/metadata.gitconfig" --get paw.prototype-status)" = "planned-revert-blocked" ]
-  [[ "$(git config --file "$replacement_dir/metadata.gitconfig" --get paw.prototype-cleanup-message)" == *"invalid prototype-owned-path"* ]]
+  [[ "$(git config --file "$replacement_dir/metadata.gitconfig" --get paw.prototype-cleanup-message)" == *"missing immutable provenance"* ]]
 }
 
 @test "paw prototype: blocks cleanup when untracked non-agent files are present" {
@@ -350,6 +396,7 @@ MD
   printf '# Review\n' > "$source_dir/review.md"
   git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path README.md
   printf 'changed\n' > "$REPO/README.md"
+  capture_fixture_provenance
   printf 'scratch\n' > "$REPO/SCRATCH.md"
 
   run "$PAW" prototype proto-task
@@ -380,6 +427,7 @@ MD
   git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path delete-me.md
   printf 'space changed\n' > "$REPO/file with spaces.md"
   rm "$REPO/delete-me.md"
+  capture_fixture_provenance
 
   run "$PAW" prototype proto-task
 
@@ -390,6 +438,160 @@ MD
   local replacement_dir
   replacement_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task-prototype" -type d -print -quit)
   [ "$(git config --file "$replacement_dir/metadata.gitconfig" --get paw.prototype-status)" = "planned-source-reverted" ]
+}
+
+@test "paw prototype: round trips literal unusual paths binary bytes and executable modes" {
+  init_git_repo
+  local paths=('é.md' ':(glob)*.md' $'tab\tname' 'quote"name' 'back\slash') path
+  for path in "${paths[@]}"; do printf 'base\0bytes\n' > "$REPO/$path"; done
+  git --literal-pathspecs -C "$REPO" add -- "${paths[@]}"
+  git -C "$REPO" commit -qm 'edge files'
+  run "$PAW" plan proto-task source
+  [ "$status" -eq 0 ]
+  local source_dir
+  source_dir=$(find "$PAW_TASK_HOME" -path '*/proto-task' -type d -print -quit)
+  printf '# Review\n' > "$source_dir/review.md"
+  for path in "${paths[@]}"; do printf 'task\0bytes\n' > "$REPO/$path"; done
+  chmod +x "$REPO/é.md"
+  capture_fixture_provenance
+  run "$PAW" prototype proto-task
+  [ "$status" -eq 0 ]
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-status)" = source-reverted ]
+  git -C "$REPO" diff --exit-code HEAD
+  [ ! -x "$REPO/é.md" ]
+}
+
+@test "paw prototype: legacy path-only provenance cannot authorize cleanup" {
+  capture_prototype_source
+  git config --file "$source_dir/metadata.gitconfig" --unset paw.prototype-provenance-status
+  run "$PAW" prototype proto-task
+  [ "$status" -eq 0 ]
+  [ "$(cat "$REPO/README.md")" = implemented ]
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-status)" = revert-blocked ]
+}
+
+@test "paw prototype: tampered immutable patch blocks cleanup" {
+  capture_prototype_source
+  printf 'tampered\n' >> "$source_dir/prototype.patch"
+  run "$PAW" prototype proto-task
+  [ "$status" -eq 0 ]
+  [ "$(cat "$REPO/README.md")" = implemented ]
+  [[ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-cleanup-message)" == *checksum* ]]
+}
+
+@test "paw prototype: unavailable saved commit preserves replacement and source" {
+  capture_prototype_source
+  git config --file "$source_dir/metadata.gitconfig" paw.head-sha 0000000000000000000000000000000000000000
+  run "$PAW" prototype proto-task
+  [ "$status" -eq 0 ]
+  [ "$(cat "$REPO/README.md")" = implemented ]
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-status)" = revert-unavailable ]
+  [ -f "${source_dir}-prototype/plan.md" ]
+}
+
+@test "paw prototype: later mode drift blocks even when core.filemode is false" {
+  capture_prototype_source
+  git -C "$REPO" config core.filemode false
+  chmod +x "$REPO/README.md"
+  run "$PAW" prototype proto-task
+  [ "$status" -eq 0 ]
+  [ "$(cat "$REPO/README.md")" = implemented ]
+  [ -x "$REPO/README.md" ]
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-status)" = revert-blocked ]
+}
+
+@test "paw implement: does not reuse old evidence on resume" {
+  capture_prototype_source
+  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$source_dir/plan.md"
+  run "$PAW" implement proto-task
+  [ "$status" -eq 0 ]
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-provenance-status)" = no-owned-paths ]
+  run "$PAW" prototype proto-task
+  [ "$status" -eq 0 ]
+  [ "$(cat "$REPO/README.md")" = implemented ]
+}
+
+@test "paw implement: blocks provenance on unsafe newline path encoding" {
+  init_git_repo
+  local path=$'line\nbreak'
+  printf 'base\n' > "$REPO/$path"
+  git -C "$REPO" add -- "$path"
+  git -C "$REPO" commit -qm newline
+  run "$PAW" plan proto-task source
+  [ "$status" -eq 0 ]
+  local source_dir
+  source_dir=$(find "$PAW_TASK_HOME" -path '*/proto-task' -type d -print -quit)
+  printf 'changed\n' > "$REPO/$path"
+  capture_fixture_provenance
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-provenance-status)" = blocked ]
+}
+
+@test "paw implement: Git enumeration failures invalidate provenance" {
+  capture_prototype_source
+  : > "$BATS_TEST_TMPDIR/before-paths"
+  run bash -c '
+    source "$1"
+    git() { if [[ " $* " == *" ls-files "* ]]; then return 1; fi; command git "$@"; }
+    _implement_record_prototype_provenance proto-task "$2" "$3"
+  ' _ "$PAW" "$source_dir" "$BATS_TEST_TMPDIR/before-paths"
+  [ "$status" -eq 0 ]
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-provenance-status)" = unavailable ]
+  [[ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-provenance-message)" == *enumeration* ]]
+}
+
+@test "paw prototype: metadata write failure prevents source mutation" {
+  capture_prototype_source
+  run bash -c '
+    source "$1"
+    git() { if [[ " $* " == *" paw.prototype-status "* ]]; then return 1; fi; command git "$@"; }
+    _prototype_revert_source_work proto-task "$2" "$2"
+  ' _ "$PAW" "$source_dir"
+  [ "$(cat "$REPO/README.md")" = implemented ]
+  [[ "$output" == *"cannot write"* ]]
+}
+
+@test "paw implement: blocks deleted paths when checkout normalization is enabled" {
+  capture_prototype_source
+  git -C "$REPO" config core.autocrlf true
+  rm "$REPO/README.md"
+  capture_fixture_provenance
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-provenance-status)" = blocked ]
+}
+
+@test "paw implement: pre-existing staged rename excludes both source and destination" {
+  init_git_repo
+  run "$PAW" plan proto-task source
+  [ "$status" -eq 0 ]
+  local source_dir
+  source_dir=$(find "$PAW_TASK_HOME" -path '*/proto-task' -type d -print -quit)
+  git -C "$REPO" mv README.md renamed.md
+  run bash -c '
+    source "$1"
+    _implement_tracked_paths_from_saved_head "$2" "$3"
+    git -C "$4" reset -q HEAD -- README.md renamed.md
+    rm "$4/renamed.md"
+    printf "task result\n" > "$4/README.md"
+    _implement_record_prototype_provenance proto-task "$2" "$3"
+  ' _ "$PAW" "$source_dir" "$BATS_TEST_TMPDIR/before-paths" "$REPO"
+  [ "$status" -eq 0 ]
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-provenance-status)" = no-owned-paths ]
+}
+
+@test "paw implement: final provenance message write failure leaves no cleanup authority" {
+  capture_prototype_source
+  : > "$BATS_TEST_TMPDIR/before-paths"
+  run bash -c '
+    source "$1"
+    git() {
+      if [[ " $* " == *" paw.prototype-provenance-message "* && " $* " != *" --unset-all "* ]]; then return 1; fi
+      command git "$@"
+    }
+    _implement_record_prototype_provenance proto-task "$2" "$3"
+  ' _ "$PAW" "$source_dir" "$BATS_TEST_TMPDIR/before-paths"
+  [ "$status" -eq 0 ]
+  [ "$(git config --file "$source_dir/metadata.gitconfig" --get paw.prototype-provenance-status)" = unavailable ]
+  [ ! -f "$source_dir/prototype.patch" ]
+  [[ "$output" == *"cannot record"* ]]
 }
 
 @test "paw prototype: uses plan-class model defaults when PAW_MODEL is unset" {
@@ -454,6 +656,8 @@ MD
 
   [ "$status" -eq 0 ]
   [ "$(git config --file "$task_dir/metadata.gitconfig" --get paw.prototype-provenance-status)" = "recorded" ]
+  [ -s "$task_dir/prototype.patch" ]
+  [ "$(git hash-object "$task_dir/prototype.patch")" = "$(git config --file "$task_dir/metadata.gitconfig" --get paw.prototype-patch-hash)" ]
   [ "$(git config --file "$task_dir/metadata.gitconfig" --get-all paw.prototype-owned-path)" = "README.md" ]
   ! git config --file "$task_dir/metadata.gitconfig" --get-all paw.prototype-owned-path | grep -Fx "NOTES.md"
   ! git config --file "$task_dir/metadata.gitconfig" --get-all paw.prototype-owned-path | grep -Fx ".agent/local-task/plan.md"

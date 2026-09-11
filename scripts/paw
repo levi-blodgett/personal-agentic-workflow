@@ -757,20 +757,17 @@ EOF
 
 _prototype_set_cleanup_status() {
   local source_task_dir="$1" replacement_task_dir="$2" replacement_status="$3" source_status="$4" message="$5"
-  local source_metadata replacement_metadata
-  source_metadata="$(paw_task_metadata_file "$source_task_dir")"
-  replacement_metadata="$(paw_task_metadata_file "$replacement_task_dir")"
-
-  git config --file "$replacement_metadata" paw.prototype-status "$replacement_status" 2>/dev/null || true
-  if [[ -n "$message" ]]; then
-    git config --file "$replacement_metadata" paw.prototype-cleanup-message "$message" 2>/dev/null || true
-  fi
-  if [[ -f "$source_metadata" ]]; then
-    git config --file "$source_metadata" paw.prototype-status "$source_status" 2>/dev/null || true
-    if [[ -n "$message" ]]; then
-      git config --file "$source_metadata" paw.prototype-cleanup-message "$message" 2>/dev/null || true
+  local metadata status task_dir
+  for task_dir in "$source_task_dir" "$replacement_task_dir"; do
+    metadata="$(paw_task_metadata_file "$task_dir")"
+    status="$source_status"
+    [[ "$task_dir" != "$replacement_task_dir" ]] || status="$replacement_status"
+    if ! git config --file "$metadata" paw.prototype-status "$status" ||
+       ! git config --file "$metadata" paw.prototype-cleanup-message "$message"; then
+      echo "error: cannot write prototype cleanup metadata in $metadata" >&2
+      return 1
     fi
-  fi
+  done
 }
 
 _prototype_owned_path_is_valid() {
@@ -796,88 +793,163 @@ _prototype_path_in_list() {
   return 1
 }
 
+# A failed preflight never mutates the source; planning has already succeeded.
+_prototype_check_and_revert() {
+  local source_task_dir="$1" repo="$2" head="$3" metadata="$4"
+  local path paths_file current_patch hash saved_hash result=0
+  local owned=()
+  [[ "$(paw_task_metadata_get "$source_task_dir" prototype-provenance-status)" == recorded ]] || {
+    echo "missing immutable provenance (legacy prototype-owned-path is insufficient); manual cleanup required"; return 1;
+  }
+  [[ "$(paw_task_metadata_get "$source_task_dir" prototype-patch-head)" == "$head" &&
+     "$(paw_task_metadata_get "$source_task_dir" prototype-index-contract)" == baseline-v1 ]] || {
+    echo "saved patch baseline/index contract does not match; manual cleanup required"; return 1;
+  }
+  saved_hash="$(paw_task_metadata_get "$source_task_dir" prototype-patch-hash)"
+  hash=$(git hash-object -- "$source_task_dir/prototype.patch") || {
+    echo "immutable prototype patch unavailable; manual cleanup required"; return 1;
+  }
+  [[ -n "$saved_hash" && "$hash" == "$saved_hash" ]] || {
+    echo "immutable prototype patch checksum mismatch; manual cleanup required"; return 1;
+  }
+  paths_file=$(mktemp) || { echo "cannot create cleanup snapshot; manual cleanup required"; return 1; }
+  if ! git config -z --file "$metadata" --get-all paw.prototype-owned-path > "$paths_file"; then
+    rm -f "$paths_file"
+    echo "missing prototype-owned-path metadata; manual cleanup required"; return 1
+  fi
+  # shellcheck disable=SC2094 # Removal occurs only immediately before return.
+  while IFS= read -r -d '' path; do
+    if ! _prototype_owned_path_is_valid "$path"; then
+      rm -f "$paths_file"
+      echo "invalid prototype-owned-path '$path'; manual cleanup required"; return 1
+    fi
+    owned+=("$path")
+  done < "$paths_file"
+  if ! git -C "$repo" ls-files -z --others --exclude-standard -- . ':(exclude).agent/**' > "$paths_file"; then
+    rm -f "$paths_file"
+    echo "Git untracked enumeration failed; manual cleanup required"; return 1
+  fi
+  if [[ -s "$paths_file" ]]; then
+    rm -f "$paths_file"
+    echo "untracked non-.agent files make automatic revert unsafe; manual cleanup required"; return 1
+  fi
+  # Check the entire index, including cancellation invisible to the worktree diff.
+  if ! git -C "$repo" diff --no-ext-diff --no-textconv --ignore-submodules=none --cached --quiet "$head" --; then
+    rm -f "$paths_file"
+    echo "index differs from saved baseline; preserve staged work and clean up manually"; return 1
+  fi
+  if ! git -C "$repo" -c core.filemode=true diff --no-ext-diff --no-textconv --ignore-submodules=none --no-renames --name-only -z "$head" -- . ':(exclude).agent/**' > "$paths_file"; then
+    rm -f "$paths_file"
+    echo "Git tracked enumeration failed; manual cleanup required"; return 1
+  fi
+  # shellcheck disable=SC2094 # Removal occurs only immediately before return.
+  while IFS= read -r -d '' path; do
+    if ! _prototype_path_in_list "$path" "${owned[@]}"; then
+      rm -f "$paths_file"
+      echo "unowned tracked changes at '$path'; manual cleanup required"; return 1
+    fi
+  done < "$paths_file"
+  rm -f "$paths_file"
+  if ! _prototype_raw_paths_supported "$repo" "${owned[@]}"; then
+    echo "unsupported path types/content filters; manual cleanup required"; return 1
+  fi
+  current_patch=$(mktemp) || { echo "cannot create patch snapshot; manual cleanup required"; return 1; }
+  if ! _prototype_patch "$repo" "$head" "${owned[@]}" > "$current_patch" ||
+     ! cmp -s "$current_patch" "$source_task_dir/prototype.patch"; then
+    rm -f "$current_patch"
+    echo "source content/mode drift since capture; manual cleanup required"; return 1
+  fi
+  # Apply the verified local copy, never a freshly computed live diff.
+  if ! git -C "$repo" apply --reverse --check --binary "$current_patch"; then
+    result=1
+  elif ! git -C "$repo" apply --reverse --binary "$current_patch"; then
+    result=1
+  fi
+  rm -f "$current_patch"
+  if [[ "$result" -ne 0 ]]; then
+    echo "saved patch could not be reversed; inspect source and clean up manually"; return 1
+  fi
+  if ! git --literal-pathspecs -C "$repo" -c core.filemode=true diff --no-ext-diff --no-textconv --ignore-submodules=none --quiet "$head" -- "${owned[@]}" ||
+     ! git -C "$repo" diff --no-ext-diff --no-textconv --ignore-submodules=none --cached --quiet "$head" --; then
+    echo "cleanup postcondition failed; inspect source and index manually"; return 1
+  fi
+}
+
 _prototype_revert_source_work() {
   local task_name="$1" source_task_dir="$2" replacement_task_dir="$3"
-  local metadata_file repo_path head_sha untracked_line owned_path changed_path message
-  local owned_paths=() changed_paths=() unowned_paths=()
+  local metadata_file repo_path head_sha message
   metadata_file="$(paw_task_metadata_file "$source_task_dir")"
   repo_path="$(paw_task_metadata_get "$source_task_dir" worktree-path)"
   head_sha="$(paw_task_metadata_get "$source_task_dir" head-sha)"
-  repo_path="${repo_path:-$PWD}"
-
-  if ! git -C "$repo_path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-unavailable" "revert-unavailable" "source revert unavailable because $repo_path is not a Git worktree"
-    echo "prototype: replacement plan created, but source revert was unavailable because $repo_path is not a Git worktree." >&2
+  if [[ -z "$repo_path" || -z "$head_sha" ]] ||
+     ! git -C "$repo_path" rev-parse --verify "$head_sha^{commit}" >/dev/null 2>&1; then
+    message="saved worktree/head-sha unavailable; manual cleanup required"
+    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" planned-revert-unavailable revert-unavailable "$message"
+    echo "prototype: replacement plan created; $message" >&2
     return 0
   fi
-  if [[ -z "$head_sha" ]]; then
-    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-unavailable" "revert-unavailable" "source task has no saved head-sha for automatic revert"
-    echo "prototype: replacement plan created, but source task '$task_name' has no saved head-sha for automatic revert." >&2
-    return 0
-  fi
-  if ! git -C "$repo_path" rev-parse --verify "$head_sha^{commit}" >/dev/null 2>&1; then
-    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-unavailable" "revert-unavailable" "saved head-sha '$head_sha' is not available for automatic revert"
-    echo "prototype: replacement plan created, but saved head-sha '$head_sha' is not available for automatic revert." >&2
-    return 0
-  fi
-
-  untracked_line="$(git -C "$repo_path" status --porcelain --untracked-files=normal | awk '$1 == "??" && $2 !~ /^.agent(\/|$)/ { print; exit }')"
-  if [[ -n "$untracked_line" ]]; then
-    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-blocked" "revert-blocked" "untracked non-.agent files make automatic revert unsafe"
-    echo "error: prototype replacement plan was created, but source task '$task_name' has untracked non-.agent files; automatic revert is unsafe." >&2
+  # Ensure status is writable and invalidate any previous success before mutation.
+  if ! _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" \
+      planned-revert-blocked revert-blocked "cleanup verification pending; manual cleanup required if interrupted"; then
     return 1
   fi
-
-  while IFS= read -r owned_path; do
-    [[ -n "$owned_path" ]] || continue
-    if ! _prototype_owned_path_is_valid "$owned_path"; then
-      _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-blocked" "revert-blocked" "invalid prototype-owned-path '$owned_path' in source task metadata"
-      echo "error: prototype replacement plan was created, but source task '$task_name' has invalid cleanup provenance path '$owned_path'." >&2
-      return 1
-    fi
-    owned_paths+=("$owned_path")
-  done < <(git config --file "$metadata_file" --get-all paw.prototype-owned-path 2>/dev/null || true)
-
-  while IFS= read -r changed_path; do
-    [[ -n "$changed_path" ]] || continue
-    changed_paths+=("$changed_path")
-    if [[ "${#owned_paths[@]}" -eq 0 ]] || ! _prototype_path_in_list "$changed_path" "${owned_paths[@]}"; then
-      unowned_paths+=("$changed_path")
-    fi
-  done < <(git -C "$repo_path" diff --name-only "$head_sha" -- . ':(exclude).agent/**')
-
-  if [[ "${#changed_paths[@]}" -gt 0 && "${#owned_paths[@]}" -eq 0 ]]; then
-    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-blocked" "revert-blocked" "missing prototype-owned-path metadata for tracked source cleanup"
-    echo "error: prototype replacement plan was created, but source task '$task_name' has no task-owned file provenance for automatic revert." >&2
+  if ! message=$(_prototype_check_and_revert "$source_task_dir" "$repo_path" "$head_sha" "$metadata_file"); then
+    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" planned-revert-blocked revert-blocked "$message"
+    echo "prototype: replacement plan created; $message" >&2
     return 1
   fi
-  if [[ "${#unowned_paths[@]}" -gt 0 ]]; then
-    message="unowned tracked changes make automatic revert unsafe: ${unowned_paths[*]}"
-    _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-blocked" "revert-blocked" "$message"
-    echo "error: prototype replacement plan was created, but source task '$task_name' has unowned tracked changes; automatic revert is unsafe." >&2
-    return 1
-  fi
-
-  if [[ "${#changed_paths[@]}" -gt 0 ]]; then
-    if ! git -C "$repo_path" diff "$head_sha" -- "${changed_paths[@]}" | git -C "$repo_path" apply -R --check >/dev/null 2>&1; then
-      _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-revert-blocked" "revert-blocked" "PAW could not safely reverse the task-owned patch from saved head-sha '$head_sha'"
-      echo "error: prototype replacement plan was created, but PAW could not safely revert source task '$task_name' from saved head-sha '$head_sha'." >&2
-      return 1
-    fi
-    git -C "$repo_path" diff "$head_sha" -- "${changed_paths[@]}" | git -C "$repo_path" apply -R
-  fi
-
-  _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" "planned-source-reverted" "source-reverted" "source cleanup completed from saved head-sha $head_sha"
-  if [[ -f "$metadata_file" ]]; then
-    git config --file "$metadata_file" paw.prototype-replacement "$replacement_task_dir"
+  _prototype_set_cleanup_status "$source_task_dir" "$replacement_task_dir" planned-source-reverted source-reverted "verified source cleanup completed from saved head-sha $head_sha" || return 1
+  if ! git config --file "$metadata_file" paw.prototype-replacement "$replacement_task_dir"; then
+    echo "error: cannot save prototype replacement in $metadata_file" >&2
   fi
   echo "prototype: source task $task_name reverted to saved head $head_sha"
 }
 
 _path_list_contains_line() {
-  local needle="$1" list_file="$2"
+  local needle="$1" list_file="$2" path
   [[ -f "$list_file" ]] || return 1
-  grep -Fxq -- "$needle" "$list_file"
+  while IFS= read -r -d '' path; do
+    [[ "$needle" == "$path" ]] && return 0
+  done < "$list_file"
+  return 1
+}
+
+# Stable, literal patch bytes are the manifest: baseline blob IDs, result bytes,
+# deletions and modes. Never recompute the patch used for cleanup mutation.
+_prototype_patch() {
+  local repo="$1" head="$2"
+  shift 2
+  git --literal-pathspecs -C "$repo" -c core.quotePath=true -c core.filemode=true diff \
+    --binary --full-index --no-ext-diff --no-textconv --ignore-submodules=none --no-renames \
+    --src-prefix=a/ --dst-prefix=b/ --no-color "$head" -- "$@"
+}
+
+# Git patches cannot prove raw worktree bytes when filters normalize content.
+_prototype_raw_paths_supported() {
+  local repo="$1" path raw filtered attributes _attr value autocrlf
+  shift
+  autocrlf=$(git -C "$repo" config --get core.autocrlf) || [[ "$?" -eq 1 ]] || return 1
+  [[ -z "$autocrlf" || "$autocrlf" == false ]] || return 1
+  attributes=$(mktemp) || return 1
+  if ! git -C "$repo" check-attr -z filter text eol ident working-tree-encoding -- "$@" > "$attributes"; then
+    rm -f "$attributes"
+    return 1
+  fi
+  raw=0
+  while IFS= read -r -d '' path && IFS= read -r -d '' _attr && IFS= read -r -d '' value; do
+    case "$value" in unspecified|unset) ;; *) raw=1 ;; esac
+  done < "$attributes"
+  rm -f "$attributes"
+  [[ "$raw" -eq 0 ]] || return 1
+  for path in "$@"; do
+    [[ ! -L "$repo/$path" ]] || return 1
+    if [[ -e "$repo/$path" ]]; then
+      [[ -f "$repo/$path" ]] || return 1
+      raw=$(git -C "$repo" hash-object --no-filters -- "$repo/$path") || return 1
+      filtered=$(git -C "$repo" hash-object --path="$path" -- "$repo/$path") || return 1
+      [[ "$raw" == "$filtered" ]] || return 1
+    fi
+  done
 }
 
 _implement_set_provenance_status() {
@@ -885,16 +957,22 @@ _implement_set_provenance_status() {
   local metadata_file
   metadata_file="$(paw_task_metadata_file "$task_dir")"
   mkdir -p "$task_dir"
-  git config --file "$metadata_file" paw.prototype-provenance-status "$status" 2>/dev/null || true
-  if [[ -n "$message" ]]; then
-    git config --file "$metadata_file" paw.prototype-provenance-message "$message" 2>/dev/null || true
+  # Publish authority last; a message-write failure must not leave recorded state.
+  if [[ -n "$message" ]] && ! git config --file "$metadata_file" paw.prototype-provenance-message "$message"; then
+    echo "error: cannot record prototype provenance message in $metadata_file" >&2
+    rm -f "$task_dir/prototype.patch"
+    return 0
+  fi
+  if ! git config --file "$metadata_file" paw.prototype-provenance-status "$status"; then
+    echo "error: cannot record prototype provenance in $metadata_file" >&2
+    rm -f "$task_dir/prototype.patch"
   fi
 }
 
 _implement_tracked_paths_from_saved_head() {
   local task_dir="$1" out_file="$2"
   local repo_path head_sha
-  : > "$out_file"
+  rm -f "$out_file"
   repo_path="$(paw_task_metadata_get "$task_dir" worktree-path)"
   head_sha="$(paw_task_metadata_get "$task_dir" head-sha)"
   [[ -n "$repo_path" && -n "$head_sha" ]] || return 0
@@ -902,23 +980,32 @@ _implement_tracked_paths_from_saved_head() {
   git -C "$repo_path" rev-parse --verify "$head_sha^{commit}" >/dev/null 2>&1 || return 0
   # Include index-only dirt and pre-existing untracked files: either can become
   # a tracked worktree change during the run without belonging to this task.
-  if ! git -C "$repo_path" diff --name-only "$head_sha" -- . ':(exclude).agent/**' > "$out_file" 2>/dev/null ||
-     ! git -C "$repo_path" diff --cached --name-only "$head_sha" -- . ':(exclude).agent/**' >> "$out_file" 2>/dev/null ||
-     ! git -C "$repo_path" ls-files --others --exclude-standard -- . ':(exclude).agent/**' >> "$out_file" 2>/dev/null; then
+  if ! git -C "$repo_path" -c core.filemode=true diff --no-ext-diff --no-textconv --ignore-submodules=none --no-renames --name-only -z "$head_sha" -- . ':(exclude).agent/**' > "$out_file" 2>/dev/null ||
+     ! git -C "$repo_path" diff --cached --no-ext-diff --no-textconv --ignore-submodules=none --no-renames --name-only -z "$head_sha" -- . ':(exclude).agent/**' >> "$out_file" 2>/dev/null ||
+     ! git -C "$repo_path" ls-files -z --others --exclude-standard -- . ':(exclude).agent/**' >> "$out_file" 2>/dev/null; then
     rm -f "$out_file"
   fi
 }
 
 _implement_record_prototype_provenance() {
   local task_name="$1" task_dir="$2" before_file="$3"
-  local metadata_file repo_path head_sha untracked_line changed_path message
+  local metadata_file repo_path head_sha untracked_line changed_path message paths_file patch_file patch_hash
   local owned_paths=() preexisting_paths=()
   metadata_file="$(paw_task_metadata_file "$task_dir")"
   repo_path="$(paw_task_metadata_get "$task_dir" worktree-path)"
   head_sha="$(paw_task_metadata_get "$task_dir" head-sha)"
 
-  git config --file "$metadata_file" --unset-all paw.prototype-owned-path 2>/dev/null || true
-  git config --file "$metadata_file" --unset paw.prototype-provenance-message 2>/dev/null || true
+  # Invalidate any previous authority before attempting a fresh capture.
+  if ! git config --file "$metadata_file" paw.prototype-provenance-status unavailable; then
+    echo "error: cannot invalidate prototype provenance in $metadata_file" >&2
+    rm -f "$task_dir/prototype.patch"
+    return 0
+  fi
+  if ! { git config --file "$metadata_file" --unset-all paw.prototype-owned-path || [[ "$?" -eq 5 ]]; } ||
+     ! { git config --file "$metadata_file" --unset-all paw.prototype-provenance-message || [[ "$?" -eq 5 ]]; }; then
+    _implement_set_provenance_status "$task_dir" unavailable "cannot clear previous provenance metadata"
+    return 0
+  fi
 
   if [[ -z "$repo_path" ]]; then
     _implement_set_provenance_status "$task_dir" "unavailable" "prototype provenance unavailable because task '$task_name' has no saved worktree-path"
@@ -942,26 +1029,29 @@ _implement_record_prototype_provenance() {
     return 0
   fi
 
-  untracked_line=""
-  while IFS= read -r changed_path; do
-    [[ -n "$changed_path" ]] || continue
-    [[ "${changed_path:0:2}" == "??" ]] || continue
-    changed_path="${changed_path:3}"
-    case "$changed_path" in
-      .agent|.agent/*) continue ;;
-    esac
-    untracked_line="$changed_path"
-    break
-  done < <(git -C "$repo_path" status --porcelain --untracked-files=normal)
-  if [[ -n "$untracked_line" ]]; then
-    _implement_set_provenance_status "$task_dir" "blocked" "prototype provenance blocked because untracked non-.agent file '$untracked_line' makes ownership ambiguous"
+  paths_file="$(mktemp)"
+  if ! git -C "$repo_path" ls-files -z --others --exclude-standard -- . ':(exclude).agent/**' > "$paths_file"; then
+    rm -f "$paths_file"
+    _implement_set_provenance_status "$task_dir" unavailable "Git untracked enumeration failed"
     return 0
   fi
-
-  while IFS= read -r changed_path; do
-    [[ -n "$changed_path" ]] || continue
+  untracked_line=""
+  IFS= read -r -d '' untracked_line < "$paths_file" || true
+  if [[ -n "$untracked_line" ]]; then
+    rm -f "$paths_file"
+    _implement_set_provenance_status "$task_dir" blocked "untracked non-.agent file '$untracked_line' makes ownership ambiguous"
+    return 0
+  fi
+  if ! git -C "$repo_path" -c core.filemode=true diff --no-ext-diff --no-textconv --ignore-submodules=none --no-renames --name-only -z "$head_sha" -- . ':(exclude).agent/**' > "$paths_file"; then
+    rm -f "$paths_file"
+    _implement_set_provenance_status "$task_dir" unavailable "Git tracked enumeration failed"
+    return 0
+  fi
+  # shellcheck disable=SC2094 # Removal occurs only immediately before return.
+  while IFS= read -r -d '' changed_path; do
     if ! _prototype_owned_path_is_valid "$changed_path"; then
-      _implement_set_provenance_status "$task_dir" "blocked" "prototype provenance blocked by invalid repo path '$changed_path'"
+      rm -f "$paths_file"
+      _implement_set_provenance_status "$task_dir" blocked "invalid repo path '$changed_path'"
       return 0
     fi
     if _path_list_contains_line "$changed_path" "$before_file"; then
@@ -969,7 +1059,8 @@ _implement_record_prototype_provenance() {
       continue
     fi
     owned_paths+=("$changed_path")
-  done < <(git -C "$repo_path" diff --name-only "$head_sha" -- . ':(exclude).agent/**')
+  done < "$paths_file"
+  rm -f "$paths_file"
 
   if [[ "${#owned_paths[@]}" -eq 0 ]]; then
     message="prototype provenance recorded no newly changed tracked paths"
@@ -980,9 +1071,32 @@ _implement_record_prototype_provenance() {
     return 0
   fi
 
+  if ! git -C "$repo_path" diff --no-ext-diff --no-textconv --ignore-submodules=none --cached --quiet "$head_sha" -- ||
+     ! _prototype_raw_paths_supported "$repo_path" "${owned_paths[@]}"; then
+    _implement_set_provenance_status "$task_dir" blocked "index differs from saved baseline or paths use unsupported types/content filters; manual cleanup required"
+    return 0
+  fi
+  patch_file="$(mktemp "$task_dir/prototype.patch.XXXXXX")"
+  if ! _prototype_patch "$repo_path" "$head_sha" "${owned_paths[@]}" > "$patch_file" ||
+     [[ ! -s "$patch_file" ]] ||
+     ! patch_hash=$(git hash-object -- "$patch_file") ||
+     ! mv "$patch_file" "$task_dir/prototype.patch"; then
+    rm -f "$patch_file"
+    _implement_set_provenance_status "$task_dir" unavailable "cannot save immutable prototype patch"
+    return 0
+  fi
   for changed_path in "${owned_paths[@]}"; do
-    git config --file "$metadata_file" --add paw.prototype-owned-path "$changed_path" 2>/dev/null || true
+    if ! git config --file "$metadata_file" --add paw.prototype-owned-path "$changed_path"; then
+      _implement_set_provenance_status "$task_dir" unavailable "cannot save owned-path metadata"
+      return 0
+    fi
   done
+  if ! git config --file "$metadata_file" paw.prototype-patch-hash "$patch_hash" ||
+     ! git config --file "$metadata_file" paw.prototype-patch-head "$head_sha" ||
+     ! git config --file "$metadata_file" paw.prototype-index-contract baseline-v1; then
+    _implement_set_provenance_status "$task_dir" unavailable "cannot save patch manifest metadata"
+    return 0
+  fi
   message="recorded task-owned tracked paths for prototype cleanup: ${owned_paths[*]}"
   if [[ "${#preexisting_paths[@]}" -gt 0 ]]; then
     message="$message; ignored pre-existing tracked changes: ${preexisting_paths[*]}"
