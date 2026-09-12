@@ -2150,3 +2150,200 @@ PYTHON
     done
   done
 }
+
+@test "paw gui: history selects exact completed run through native and fragment routes" {
+  local port=0
+  local runs="$REPO/.agent/gui-task/runs"
+  mkdir -p "$runs"
+  for id in old new; do
+    printf '[paw]\nstatus = completed\nsubcommand = implement\nstdout-log = %s.stdout.log\nstderr-log = %s.stderr.log\n' "$id" "$id" > "$runs/20260912-gui-$id.gitconfig"
+    printf '%s <saved> output\n' "$id" > "$runs/$id.stdout.log"
+  done
+  start_gui "$port"
+  fetch_gui "$port" '/task/gui-task?doc=contract&run=20260912-gui-old.gitconfig' "$BATS_TEST_TMPDIR/history.html"
+  grep -q 'old &lt;saved&gt; output' "$BATS_TEST_TMPDIR/history.html"
+  ! grep -q 'new &lt;saved&gt; output' "$BATS_TEST_TMPDIR/history.html"
+  grep -q 'Close logs' "$BATS_TEST_TMPDIR/history.html"
+  grep -q 'doc=contract.*run=20260912-gui-old.gitconfig' "$BATS_TEST_TMPDIR/history.html"
+  fetch_gui "$port" '/fragments/task/gui-task?doc=contract&run=20260912-gui-old.gitconfig' "$BATS_TEST_TMPDIR/history-fragment.html"
+  grep -q 'old &lt;saved&gt; output' "$BATS_TEST_TMPDIR/history-fragment.html"
+  rm "$runs/20260912-gui-old.gitconfig"
+  fetch_gui "$port" '/fragments/task/gui-task?run=20260912-gui-old.gitconfig' "$BATS_TEST_TMPDIR/deleted.html"
+  grep -q 'Selected run unavailable' "$BATS_TEST_TMPDIR/deleted.html"
+  ! grep -q 'new &lt;saved&gt; output' "$BATS_TEST_TMPDIR/deleted.html"
+}
+
+@test "paw gui: history launch references survive terminal updates and launch failure" {
+  python3 - "$REPO_ROOT" "$REPO" <<'PY'
+import importlib.util, sys
+from pathlib import Path
+from unittest.mock import patch
+spec = importlib.util.spec_from_file_location('gui', Path(sys.argv[1]) / 'scripts/lib/gui_server.py')
+gui = importlib.util.module_from_spec(spec); sys.modules[spec.name] = gui; spec.loader.exec_module(gui)
+repo = Path(sys.argv[2]); task = repo / '.agent/gui-task'
+class Process:
+    pid = 99999999
+    def wait(self): return 0
+class Thread:
+    def __init__(self, **kwargs): pass
+    def start(self): pass
+for failure in (False, True):
+    with patch.object(gui.subprocess, 'Popen', side_effect=OSError('fixture') if failure else None, return_value=Process()), patch.object(gui.threading, 'Thread', Thread), patch.object(gui.subprocess, 'run', wraps=__import__('subprocess').run):
+        # Popen is also used by subprocess.run; persist metadata with a simple fixture writer.
+        def config(args, **kwargs):
+            path = Path(args[3]); key, value = args[4][4:], args[5]
+            with path.open('a') as f: f.write(('[paw]\n' if path.stat().st_size == 0 else '') + key + ' = "' + value + '"\n')
+        with patch.object(gui.subprocess, 'run', side_effect=config):
+            ok, _ = gui.launch_paw(repo, repo / 'tasks', task, ['implement', task.name])
+            assert ok != failure
+    meta = max((task / 'runs').glob('*.gitconfig'), key=lambda p: p.stat().st_mtime_ns)
+    refs = [gui.metadata_value(meta, stream + '-log') for stream in ('stdout', 'stderr')]
+    assert all(refs), refs
+    assert all((meta.parent / ref).is_file() and Path(ref).name == ref for ref in refs)
+    if not failure:
+        for code, state in ((0, 'completed'), (1, 'failed')):
+            process = Process(); process.wait = lambda: code
+            gui.finish_gui_run(process, meta)
+            assert gui.metadata_value(meta, 'status') == state
+            assert refs == [gui.metadata_value(meta, s + '-log') for s in ('stdout', 'stderr')]
+        __import__('subprocess').run(['git','config','--file',str(meta),'paw.status','cancelled'], check=True)
+        gui.finish_gui_run(Process(), meta)
+        assert gui.metadata_value(meta,'status') == 'cancelled'
+        assert refs == [gui.metadata_value(meta, s + '-log') for s in ('stdout', 'stderr')]
+PY
+}
+
+@test "paw gui: history legacy matching rejects ambiguous or insufficient evidence" {
+  python3 - "$REPO_ROOT" "$REPO" <<'PY'
+import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('gui', Path(sys.argv[1]) / 'scripts/lib/gui_server.py')
+gui = importlib.util.module_from_spec(spec); sys.modules[spec.name] = gui; spec.loader.exec_module(gui)
+task = (Path(sys.argv[2]) / '.agent/gui-task').resolve(); runs = task / 'runs'; runs.mkdir()
+meta = runs / '20260912T120000Z-gui-1-99999999.gitconfig'
+body = '[paw]\nstatus = completed\nsubcommand = implement\nstart-time = 2026-09-12T12:00:00Z\n'
+meta.write_text(body)
+out = runs / '20260912T120000Z-gui-1-1-implement-gui-task.stdout.log'; out.write_text('legacy unique')
+assert gui.history_logs(task, meta.name)[0].stdout == out
+other = runs / '20260912T120000Z-gui-2-99999999.gitconfig'; other.write_text(body)
+assert not gui.history_logs(task, meta.name)[0].available
+other.write_text(body.replace('2026-09-12T12:00:00Z','2026-09-12T11:59:59Z'))
+assert not gui.history_logs(task, meta.name)[0].available, 'overlap without end is ambiguous'
+other.unlink()
+second = out.with_name(out.name.replace('-1-1-', '-2-2-')); second.write_text('competing')
+assert not gui.history_logs(task, meta.name)[0].available
+second.unlink()
+for start in ('', 'invalid', '2026-09-12T12:00:01Z'):
+    meta.write_text(body.replace('2026-09-12T12:00:00Z', start))
+    assert not gui.history_logs(task, meta.name)[0].available
+meta.write_text(body + 'stdout-log = ../invalid\n')
+assert not gui.history_logs(task, meta.name)[0].available, 'invalid explicit reference must not fall back'
+meta.write_text(body + 'end-time = 2026-09-12T11:59:00Z\n')
+assert not gui.history_logs(task, meta.name)[0].available, 'reversed time interval'
+meta.write_text(body); other.write_text('[paw]\nstatus=completed\n')
+assert not gui.history_logs(task, meta.name)[0].available, 'unknown competing GUI operation'
+other.unlink()
+meta.write_text(body); out.unlink(); err = out.with_name(out.name.replace('stdout','stderr')); err.write_text('only stderr')
+assert gui.history_logs(task, meta.name)[0].stderr == err
+assert meta.read_text() == body, 'read-only legacy resolution'
+PY
+}
+
+@test "paw gui: history HTTP missing partial empty and unreadable captures stay per stream" {
+  local port=0
+  mkdir -p "$REPO/.agent/gui-task/runs"
+  printf '[paw]\nstatus=failed\nstdout-log=out.log\nstderr-log=err.log\n' > "$REPO/.agent/gui-task/runs/one-gui-failed.gitconfig"
+  touch "$REPO/.agent/gui-task/runs/out.log"
+  printf '[paw]\nstatus=completed\n' > "$REPO/.agent/gui-task/runs/backend.gitconfig"
+  start_gui "$port"
+  fetch_gui "$port" '/task/gui-task?run=one-gui-failed.gitconfig' "$BATS_TEST_TMPDIR/partial.html"
+  grep -q 'stdout (empty)' "$BATS_TEST_TMPDIR/partial.html"
+  grep -q 'stderr (unavailable)' "$BATS_TEST_TMPDIR/partial.html"
+  printf 'surviving stderr' > "$REPO/.agent/gui-task/runs/err.log"
+  chmod 000 "$REPO/.agent/gui-task/runs/out.log"
+  fetch_gui "$port" '/fragments/task/gui-task?run=one-gui-failed.gitconfig' "$BATS_TEST_TMPDIR/unreadable.html"
+  chmod 600 "$REPO/.agent/gui-task/runs/out.log"
+  grep -q 'stdout (unavailable)' "$BATS_TEST_TMPDIR/unreadable.html"
+  grep -q 'surviving stderr' "$BATS_TEST_TMPDIR/unreadable.html"
+  fetch_gui "$port" '/task/gui-task?run=backend.gitconfig' "$BATS_TEST_TMPDIR/backend.html"
+  grep -q 'Unavailable: backend capture not saved' "$BATS_TEST_TMPDIR/backend.html"
+  ! grep -q 'surviving stderr' "$BATS_TEST_TMPDIR/backend.html"
+}
+
+@test "paw gui: history HTTP rejects foreign selectors references symlinks and nonregular files" {
+  local port=0
+  mkdir -p "$REPO/.agent/gui-task/runs"
+  start_gui "$port"
+  python3 - "$port" "$REPO" <<'PY'
+import os, sys
+from pathlib import Path
+from urllib.parse import urlencode
+from urllib.request import urlopen
+repo = Path(sys.argv[2]); task = repo / '.agent/gui-task'; runs = task / 'runs'
+foreign = repo / 'foreign'; foreign.mkdir(); (foreign / 'secret.log').write_text('FOREIGN-SECRET')
+meta = runs / 'one-gui-test.gitconfig'; body = '[paw]\nstatus=completed\nstdout-log = "{}"\n'
+meta.write_text(body.format('owned.log')); (runs / 'owned.log').write_text('OWNED-ONLY')
+def get(selector):
+    with urlopen('http://127.0.0.1:' + sys.argv[1] + '/fragments/task/gui-task?' + urlencode({'run':selector})) as r: return r.read().decode()
+for selector in ('../one-gui-test.gitconfig', str(meta), 'a/../one-gui-test.gitconfig', 'bad\x00.gitconfig'):
+    page = get(selector); assert 'OWNED-ONLY' not in page and 'Selected run unavailable' in page
+for reference in ('../../foreign/secret.log', str(foreign / 'secret.log'), 'a/../owned.log', ''):
+    meta.write_text(body.format(reference)); page = get(meta.name)
+    assert 'FOREIGN-SECRET' not in page and 'OWNED-ONLY' not in page and 'stdout (unavailable)' in page
+(runs / 'escape.log').symlink_to(foreign / 'secret.log')
+(runs / 'folder').mkdir(); os.mkfifo(runs / 'fifo')
+for reference in ('escape.log', 'folder', 'fifo'):
+    meta.write_text(body.format(reference)); assert 'stdout (unavailable)' in get(meta.name)
+foreign_meta = foreign / meta.name; foreign_meta.write_text(body.format('secret.log'))
+meta.unlink(); meta.symlink_to(foreign_meta)
+assert 'Selected run unavailable' in get(meta.name)
+meta.unlink(); runs.rename(task / 'saved-runs'); runs.symlink_to(foreign, target_is_directory=True)
+assert 'FOREIGN-SECRET' not in get(meta.name) and 'Selected run unavailable' in get(meta.name)
+runs.unlink(); (task / 'saved-runs').rename(runs)
+# A path to a same-named task outside the discovered repo cannot select its record.
+other = repo / 'other/.agent/gui-task'; other.mkdir(parents=True)
+(other / 'plan.md').write_text('# foreign')
+try:
+    urlopen('http://127.0.0.1:' + sys.argv[1] + '/task/gui-task?' + urlencode({'path': str(other), 'run': foreign_meta.name}))
+    raise AssertionError('foreign task accepted')
+except __import__('urllib.error', fromlist=['HTTPError']).HTTPError as exc:
+    assert exc.code == 404
+PY
+}
+
+@test "paw gui: history bounded tail escapes hostile output and reads only selected bodies" {
+  python3 - "$REPO_ROOT" "$REPO" <<'PY'
+import importlib.util, sys
+from pathlib import Path
+from unittest.mock import patch
+spec = importlib.util.spec_from_file_location('gui', Path(sys.argv[1]) / 'scripts/lib/gui_server.py')
+gui = importlib.util.module_from_spec(spec); sys.modules[spec.name] = gui; spec.loader.exec_module(gui)
+task = (Path(sys.argv[2]) / '.agent/gui-task').resolve(); runs = task / 'runs'; runs.mkdir()
+for name in ('old', 'new'):
+    (runs / (name + '-gui-test.gitconfig')).write_text('[paw]\nstdout-log = ' + name + '.log\n')
+    (runs / (name + '.log')).write_bytes(b'START-OMITTED' + b'x' * 70000 + b'\xff<script>tail</script>')
+h = object.__new__(gui.Handler)
+with patch.object(Path, 'open', side_effect=AssertionError('history list opened log body')):
+    assert 'Logs' in gui.run_rows(task, '/task/gui-task?doc=plan')
+opened = []
+original = Path.open
+def record(path, *args, **kwargs):
+    opened.append(path.name); return original(path, *args, **kwargs)
+with patch.object(Path, 'open', record):
+    logs, _ = gui.history_logs(task, 'old-gui-test.gitconfig')
+    rendered = h.log_panel('stdout', logs.stdout)
+assert opened == ['old.log'], opened
+assert 'START-OMITTED' not in rendered and 'showing last 64 KiB' in rendered
+assert '&lt;script&gt;tail&lt;/script&gt;' in rendered and '\ufffd' in rendered
+# A file growing between stat and read still cannot exceed the byte budget.
+class Growing:
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def read(self, size=-1):
+        assert size == gui.LOG_TAIL_BYTES, 'tail read must have an explicit bound'
+        return b'bounded'
+    def seek(self, offset): pass
+with patch.object(Path, 'open', return_value=Growing()):
+    assert gui.tail_text(runs / 'old.log')[1].endswith('bounded')
+PY
+}

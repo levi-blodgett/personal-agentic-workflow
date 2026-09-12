@@ -106,6 +106,21 @@ explains expected outcomes. These are hermetic fixtures, not model-quality evide
 
 Journeys cover compact table placement, duplicate-name repo targeting, preserved filters, queue discovery, approval/action placement, input draft retention, accessible dismissal/focus, late preview responses, unchanged polling, pending submissions, contextual bulk controls and archived recovery. Layout checks cover 1440×900, 1024×768, 390×844 and the 720×450 CSS viewport equivalent of 200% desktop zoom. Inspect captured desktop/narrow/dialog images for visual hierarchy, readable contrast, visible focus and reachable action controls; surrounding content must fit while tables may scroll. Run the targeted GUI Bats suite first and the full `PYTHONDONTWRITEBYTECODE=1 make check` after final changes. Browser checks supplement the full command.
 
+### Saved run history regression
+
+`PYTHONDONTWRITEBYTECODE=1 bats tests/gui-server.bats --filter 'history'` covers
+exact selected-run HTTP/fragment identity, terminal launch-reference retention,
+legacy ambiguity, per-stream availability, task/path containment and bounded reads
+(including growth during a read). History lists must not open log bodies. Existing
+`gui-performance.py` bounds continue to apply.
+
+The UX browser harness also verifies History → Logs keyboard/native navigation,
+selected terminal output through new runs/polling, independent scroll/follow,
+disclosure/focus retention, light/dark narrow layouts and delayed old responses after
+switching or closing. Set `PAW_GUI_EVIDENCE` to retain history screenshots. The combined
+browser command below includes existing live Stream and prototype journeys; run it
+and final `PYTHONDONTWRITEBYTECODE=1 make check` before implementation handoff.
+
 ### GUI live-state browser regression
 
 `bats tests/gui-server.bats` covers JSON action results (`Accept: application/json`), ordinary POST fallback, unchanged launch arguments, and task/queue/repo guards in scoped and all-repo modes. These HTTP checks do not assert browser layout, focus, caret, or timer behavior. Run the following real-browser procedure for changes to live updates or dashboard actions, then run `make check` for shared GUI changes.

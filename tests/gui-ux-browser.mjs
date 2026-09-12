@@ -696,6 +696,73 @@ gui.main()`, '--repo', repo, '--task-home', join(root,'tasks'), '--port','0','--
     await call('Emulation.setScriptExecutionDisabled', {value:false});
     console.log('PASS: desktop/laptop/mobile/200% equivalent layout, reachable dialogs, archived recovery and fallback forms');
 
+    // Saved history uses native links; each navigation owns its polling document.
+    const historyRuns = join(task, 'runs');
+    mkdirSync(historyRuns, {recursive:true});
+    const historyMeta = (id, status = 'completed') => `[paw]\nstatus=${status}\nsubcommand=implement\nstdout-log=${id}.stdout.log\nstderr-log=${id}.stderr.log\n`;
+    for (const id of ['older','newer']) {
+      writeFileSync(join(historyRuns, `${id}-gui-record.gitconfig`), historyMeta(id));
+      for (const stream of ['stdout','stderr']) writeFileSync(join(historyRuns, `${id}.${stream}.log`), `${id} ${stream}\n` + 'saved output <tag>\n'.repeat(700));
+    }
+    const historyBase = url + 'task/checks?path=' + encodeURIComponent(task) + '&doc=contract';
+    await navigateTo(historyBase);
+    assert.equal(await evaluate("!!document.querySelector('#run-logs')"), false);
+    await evaluate("document.querySelector('a[href*=\"run=older-gui-record\"]').focus()");
+    await key('Enter','Enter',13);
+    await until('keyboard opens older history', () => evaluate("document.querySelector('#run-logs')?.textContent.includes('older stdout')"));
+    assert.equal(await evaluate("new URL(location.href).searchParams.get('doc')"), 'contract');
+    await evaluate(`const panels = document.querySelectorAll('#run-logs pre'); panels[0].scrollTop = 123; panels[1].scrollTop = panels[1].scrollHeight;
+      document.querySelector('#run-logs details').open = true; document.querySelector('#run-logs summary').focus();`);
+    writeFileSync(join(historyRuns, 'third-gui-record.gitconfig'), historyMeta('third'));
+    writeFileSync(join(historyRuns, 'older-gui-record.gitconfig'), historyMeta('older','cancelled'));
+    for (const stream of ['stdout','stderr']) writeFileSync(join(historyRuns, `older.${stream}.log`), `older ${stream}\n` + 'updated output <tag>\n'.repeat(850));
+    await until('historical content polls', () => evaluate("document.querySelector('#run-logs pre').textContent.includes('updated output')"));
+    assert.equal(await evaluate("document.querySelector('#run-logs pre').scrollTop"), 123);
+    assert.equal(await evaluate("document.querySelector('#run-logs details').open && document.activeElement === document.querySelector('#run-logs summary')"), true);
+    assert.equal(await evaluate("const p = document.querySelectorAll('#run-logs pre')[1]; p.scrollHeight - p.clientHeight - p.scrollTop < 4"), true);
+    assert.equal(await evaluate("document.querySelector('#run-logs').textContent.includes('newer stdout')"), false);
+    for (const palette of ['light','dark']) {
+      await evaluate(`document.querySelector('[data-theme-select]').value = '${palette}'; document.querySelector('[data-theme-select]').dispatchEvent(new Event('change',{bubbles:true}))`);
+      for (const [width, height] of [[1440,900],[390,844]]) {
+        await call('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:false});
+        assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'history overflow');
+        await evaluate("document.querySelector('#run-logs').scrollIntoView()");
+        await capture(`history-${palette}-${width}`);
+      }
+    }
+    console.log('PASS: history keyboard selection, terminal/new-run identity, per-stream scroll/follow, focus, disclosure and palettes');
+
+    const delayed = [];
+    const onHistoryRequest = event => {
+      const msg = JSON.parse(event.data);
+      if (msg.method === 'Fetch.requestPaused') delayed.push(msg.params.requestId);
+    };
+    socket.addEventListener('message', onHistoryRequest);
+    for (const close of [false,true]) {
+      await navigateTo(historyBase + '&run=older-gui-record.gitconfig');
+      await call('Fetch.enable', {patterns:[{urlPattern:'*/fragments/task/*',requestStage:'Response'}]});
+      await until('old history response held', () => delayed.length > 0);
+      const held = delayed.shift();
+      await evaluate(close ? "document.querySelector('#run-logs a').click()" : "document.querySelector('a[href*=\"run=newer-gui-record\"]').click()");
+      await until('native history navigation finishes', () => evaluate(close ? "!new URL(location.href).searchParams.has('run') && !document.querySelector('#run-logs')" : "document.querySelector('#run-logs')?.textContent.includes('newer stdout')"));
+      // Chrome may already have cancelled the old document's pending fetch.
+      try { await call('Fetch.fulfillRequest', {requestId:held,responseCode:200,body:Buffer.from('<section id="run-logs">STALE OLDER RESPONSE</section>').toString('base64')}); }
+      catch (error) { assert.match(error.message, /Invalid InterceptionId|Invalid interceptionId|No resource|Invalid state/); }
+      await call('Fetch.disable');
+      await sleep(300);
+      assert.equal(await evaluate("document.body.textContent.includes('STALE OLDER RESPONSE')"), false);
+      assert.equal(await evaluate("!!document.querySelector('#run-logs')"), !close);
+    }
+    socket.removeEventListener('message', onHistoryRequest);
+    await call('Emulation.setScriptExecutionDisabled', {value:true});
+    await navigateTo(historyBase);
+    await evaluate("document.querySelector('a[href*=\"run=older-gui-record\"]').focus()");
+    await key('Enter','Enter',13);
+    await until('native no-JavaScript history', () => evaluate("document.querySelector('#run-logs')?.textContent.includes('older stdout')"));
+    await call('Emulation.setScriptExecutionDisabled', {value:false});
+    console.log('PASS: history delayed old response cannot replace selection or reopen closed viewer; native no-JavaScript links');
+
+
 
   }
 } catch (error) {

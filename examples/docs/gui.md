@@ -94,12 +94,30 @@ GUI launches write immediate PID-bearing run metadata and stdout/stderr under `r
 CLI backend metadata is separate. Archive is exempt from launch tracking so it cannot
 block its own guard. Source/replacement views link the same operation within one repo.
 
+On a task page, choose **Run History → Logs** to open that GUI operation's saved
+stdout/stderr inline, then **Close logs** to return to history. These native links
+preserve the task, repo and document tab and work without JavaScript. Running,
+completed, failed and cancelled captures remain readable without a live PID.
+New GUI records store exact relative stream filenames. Older records require a unique
+command/task capture in the same recorded second and no competing or overlapping GUI
+operation; missing timestamps, second-boundary differences and ambiguity show unavailable.
+Old records are never rewritten. Backend-only rows explain that their output was not
+saved; a GUI operation capture is not a backend transcript or the task's crash log.
+
+Each selected stream reads at most the last 64 KiB, escapes text and replaces invalid
+UTF-8. Empty, missing and unreadable streams have separate states, so one absent stream
+does not hide the other. No history log bodies are read until selected. With JavaScript,
+the selected run refreshes every 2.5 seconds while focus, disclosures and independent
+scroll/follow positions stay in place. New runs do not replace the selection. Selecting
+another run or closing navigates to a new page, isolating it from old pending polls;
+a deleted selected record becomes unavailable instead of choosing another capture.
+
 Stream requires a live PAW PID and matching GUI stdout/stderr log pair within its active
 run window. Reads stay inside the resolved owner's `runs/` and return bounded tails.
 Cancel verifies the PAW process, sends SIGTERM to its process group if leader (otherwise
 the PID), waits briefly and records cancellation/exit status when performing terminal update.
 Pidless running metadata blocks duplicate runs but grants neither Stream nor Cancel;
-stale PIDs provide no safe signalling/log authority.
+stale PIDs provide no safe signalling or live Stream authority.
 
 stdout/stderr scroll independently. New output follows only a panel already at bottom;
 reading older output stops following. Truncation may remove old content. Polling discovers

@@ -333,7 +333,7 @@ def tail_text(path: Path | None) -> tuple[str, str]:
         with path.open("rb") as handle:
             if size > LOG_TAIL_BYTES:
                 handle.seek(size - LOG_TAIL_BYTES)
-            data = handle.read()
+            data = handle.read(LOG_TAIL_BYTES)
     except OSError as exc:
         return "unavailable", f"could not read log: {exc}"
     text = data.decode("utf-8", errors="replace")
@@ -934,11 +934,15 @@ def tracking_summary(markdown: str, kind: str) -> str:
     return number or url
 
 
-def run_rows(task_path: Path) -> str:
+def run_rows(task_path: Path, history_url: str = "") -> str:
     runs_dir = task_path / "runs"
     rows: list[str] = []
     if runs_dir.exists():
         for meta in sorted(runs_dir.glob("*.gitconfig"), reverse=True):
+            if not task_local_run_file(task_path, meta):
+                continue
+            action = (f"<a href='{html_attr(history_url + '&run=' + quote(meta.name, safe='') + '#run-logs')}'>Logs</a>"
+                      if "-gui-" in meta.name else "Unavailable: backend capture not saved")
             rows.append(
                 "<tr>"
                 f"<td>{html.escape(metadata_value(meta, 'subcommand') or meta.stem)}</td>"
@@ -948,9 +952,69 @@ def run_rows(task_path: Path) -> str:
                 f"<td>{html.escape(metadata_value(meta, 'start-time') or '')}</td>"
                 f"<td>{html.escape(metadata_value(meta, 'end-time') or '')}</td>"
                 f"<td>{html.escape(metadata_value(meta, 'exit-status') or '')}</td>"
+                f"<td>{action}</td>"
                 "</tr>"
             )
-    return "".join(rows) or "<tr><td colspan=7>No runs recorded.</td></tr>"
+    return "".join(rows) or "<tr><td colspan=8>No runs recorded.</td></tr>"
+
+
+def legacy_history_logs(task_path: Path, metadata: Path) -> tuple[ActiveRunLogs, str]:
+    unavailable = ActiveRunLogs(None, None), "Unavailable: ambiguous or missing legacy GUI capture."
+    command = metadata_value(metadata, "subcommand")
+    started = parse_timestamp(metadata_value(metadata, "start-time"))
+    selected_end = parse_timestamp(metadata_value(metadata, "end-time"))
+    if not command or not re.fullmatch(r"[a-z-]+", command) or not started or (selected_end and selected_end < started):
+        return unavailable
+    # Old producers recorded seconds, not an association. Require the same second
+    # and reject overlapping operations rather than borrowing the live heuristic.
+    candidates = set()
+    for stream in ("stdout", "stderr"):
+        for log in metadata.parent.glob(f"*-gui-*-{command}-{task_path.name}.{stream}.log"):
+            if parse_log_filename_timestamp(log) == started and task_local_run_file(task_path, log):
+                candidates.add(log.name.removesuffix(f".{stream}.log"))
+    if len(candidates) != 1:
+        return unavailable
+    stem = candidates.pop()
+    for peer in metadata.parent.glob("*-gui-*.gitconfig"):
+        if peer == metadata:
+            continue
+        if not task_local_run_file(task_path, peer):
+            return unavailable
+        if any(metadata_value(peer, stream + "-log") == stem + f".{stream}.log" for stream in ("stdout", "stderr")):
+            return unavailable
+        peer_command = metadata_value(peer, "subcommand")
+        if not peer_command:
+            return unavailable
+        if peer_command != command:
+            continue
+        peer_start = parse_timestamp(metadata_value(peer, "start-time"))
+        peer_end = parse_timestamp(metadata_value(peer, "end-time"))
+        if peer_end and peer_end < peer_start:
+            return unavailable
+        if not peer_start or not ((peer_end and peer_end < started) or (selected_end and selected_end < peer_start)):
+            return unavailable
+    return ActiveRunLogs(*(task_local_run_file(task_path, metadata.parent / (stem + f".{stream}.log"))
+                           for stream in ("stdout", "stderr"))), "GUI operation output (unique legacy capture; second precision)."
+
+
+def history_logs(task_path: Path, selector: str) -> tuple[ActiveRunLogs, str]:
+    unavailable = ActiveRunLogs(None, None)
+    if not selector or Path(selector).name != selector or "\\" in selector or "\x00" in selector:
+        return unavailable, "Selected run unavailable: invalid record."
+    metadata = task_path / "runs" / selector
+    if metadata not in (task_path / "runs").glob("*.gitconfig") or not task_local_run_file(task_path, metadata):
+        return unavailable, "Selected run unavailable: missing or unsafe record."
+    if "-gui-" not in selector:
+        return unavailable, "Unavailable: backend capture not saved."
+    values = metadata_values(metadata)
+    if not any("paw." + stream + "-log" in values for stream in ("stdout", "stderr")):
+        return legacy_history_logs(task_path, metadata)
+    streams = []
+    for stream in ("stdout", "stderr"):
+        reference = metadata_value(metadata, stream + "-log")
+        safe = reference and Path(reference).name == reference and "\\" not in reference and "\x00" not in reference
+        streams.append(task_local_run_file(task_path, metadata.parent / reference) if safe else None)
+    return ActiveRunLogs(*streams), "GUI operation output (saved capture)."
 
 
 def recent_activity(task_path: Path) -> float:
@@ -1023,6 +1087,7 @@ def launch_paw(repo: Path, task_home: Path, task_path: Path, args: list[str]) ->
         metadata = runs_dir / f"{stamp}-gui-{time.time_ns()}-{process.pid}.gitconfig"
         for key, value in {"status": "running", "subcommand": args[0],
                            "start-time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                           "stdout-log": stdout_log.name, "stderr-log": stderr_log.name,
                            "prototype-replacement-name": args[1] + "-prototype" if args[0] == "prototype" else ""}.items():
             subprocess.run(["git", "config", "--file", str(metadata), f"paw.{key}", value], check=True)
         threading.Thread(target=finish_gui_run, args=(process, metadata), daemon=True).start()
@@ -1032,6 +1097,7 @@ def launch_paw(repo: Path, task_home: Path, task_path: Path, args: list[str]) ->
             stderr.flush()
         metadata = runs_dir / f"{stamp}-gui-{time.time_ns()}-failed.gitconfig"
         for key, value in {"status": "failed", "subcommand": args[0], "exit-status": "start-failed",
+                           "stdout-log": stdout_log.name, "stderr-log": stderr_log.name,
                            "prototype-replacement-name": args[1] + "-prototype" if args[0] == "prototype" else ""}.items():
             subprocess.run(["git", "config", "--file", str(metadata), f"paw.{key}", value], check=False)
         return False, f"failed to start paw {' '.join(args)}: {exc}"
@@ -2071,6 +2137,7 @@ class Handler(BaseHTTPRequestHandler):
                 query.get("doc", ["plan"])[0],
                 query.get("path", [""])[0],
                 query.get("active_repo", [""])[0],
+                query.get("run", [""])[0],
             )
         if parsed.path.startswith("/task/") and parsed.path.endswith("/stream"):
             query = parse_qs(parsed.query)
@@ -2088,6 +2155,7 @@ class Handler(BaseHTTPRequestHandler):
                 query.get("active_repo", [""])[0],
                 query.get("message", [""])[0],
                 query.get("level", ["notice"])[0],
+                query.get("run", [""])[0],
             )
         self.send_html("<h1>Not found</h1>", 404)
 
@@ -2826,31 +2894,31 @@ class Handler(BaseHTTPRequestHandler):
         return (f"<p class='{class_name}' data-transient-message role='status'>{html.escape(message)}"
                 "<button type='button' data-message-dismiss aria-label='Dismiss message'></button></p>")
 
-    def task(self, name: str, doc: str, path_value: str = "", active_repo_value: str = "", message: str = "", level: str = "notice") -> None:
+    def task(self, name: str, doc: str, path_value: str = "", active_repo_value: str = "", message: str = "", level: str = "notice", selected_run: str = "") -> None:
         active_repo, _ = self.selected_repo({"active_repo": [active_repo_value]})
         task = self.resolve_task(name, path_value, active_repo)
         if not task:
             return self.send_html("<h1>Task not found</h1>", 404)
         path_query = quote(str(task.path), safe="")
         selected_doc = doc_name(doc)
-        refresh_url = f"/fragments/task/{quote(task.name)}?path={path_query}&doc={quote(selected_doc)}&active_repo={quote(str(task.repo), safe='')}"
+        refresh_url = f"/fragments/task/{quote(task.name)}?path={path_query}&doc={quote(selected_doc)}&active_repo={quote(str(task.repo), safe='')}&run={quote(selected_run, safe='')}"
         body = (
             f"{page_header(task.name, task.repo_name, task.repo)}<main class='shell'>"
             f"{self.flash_html(message, level)}"
             "<p data-action-feedback role='status' aria-live='polite' aria-atomic='true'></p>"
             f"{self.task_actions(task)}"
             f"<div id='task-detail' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
-            f"{self.task_detail(task, selected_doc)}"
+            f"{self.task_detail(task, selected_doc, selected_run)}"
             "</div><div class='doc-preview' data-doc-preview></div></main>"
         )
         self.send_html(body)
 
-    def task_fragment(self, name: str, doc: str, path_value: str = "", active_repo_value: str = "") -> None:
+    def task_fragment(self, name: str, doc: str, path_value: str = "", active_repo_value: str = "", selected_run: str = "") -> None:
         active_repo, _ = self.selected_repo({"active_repo": [active_repo_value]})
         task = self.resolve_task(name, path_value, active_repo)
         if not task:
             return self.send_fragment("<h1>Task not found</h1>", 404)
-        self.send_fragment(self.task_detail(task, doc_name(doc)))
+        self.send_fragment(self.task_detail(task, doc_name(doc), selected_run))
 
     def task_stream(self, name: str, path_value: str = "", active_repo_value: str = "") -> None:
         active_repo, _ = self.selected_repo({"active_repo": [active_repo_value]})
@@ -3005,7 +3073,7 @@ class Handler(BaseHTTPRequestHandler):
     def task_doc_content(self, task: Task, doc: str) -> str:
         return {"contract": task.contract, "plan": task.plan, "review": task.review}.get(doc, task.plan)
 
-    def task_detail(self, task: Task, doc: str) -> str:
+    def task_detail(self, task: Task, doc: str, selected_run: str = "") -> str:
         selected_doc = doc_name(doc)
         content = self.task_doc_content(task, selected_doc)
         path_query = quote(str(task.path), safe="")
@@ -3013,7 +3081,9 @@ class Handler(BaseHTTPRequestHandler):
         if task.review:
             doc_tabs.append("review")
         active_query = f"&active_repo={quote(str(task.repo), safe='')}"
-        tabs = " ".join(f"<a href='/task/{quote(task.name)}?path={path_query}&doc={tab}{active_query}'>{tab}.md</a>" for tab in doc_tabs)
+        run_query = f"&run={quote(selected_run, safe='')}" if selected_run else ""
+        history_url = f"/task/{quote(task.name)}?path={path_query}&doc={selected_doc}{active_query}"
+        tabs = " ".join(f"<a href='/task/{quote(task.name)}?path={path_query}&doc={tab}{active_query}{run_query}'>{tab}.md</a>" for tab in doc_tabs)
         done, total = checklist_counts(task.plan)
         crash_state = "available" if (task.path / "crash.log").exists() else "none"
         pr_tracking = tracking_summary(task.plan, "PR") or "none"
@@ -3041,8 +3111,22 @@ class Handler(BaseHTTPRequestHandler):
             f"<p class='tabs'>{tabs}</p><div id='validation-source' class='document'>{render_markdown(content)}</div>"
             f"{self.live_stream_section(task)}"
             f"{self.prototype_failure_logs(task)}"
-            "<h2>Run History</h2><div class='table-wrap'><table><thead><tr><th>Subcommand</th><th>Status</th><th>Backend</th><th>Model</th><th>Started</th><th>Ended</th><th>Exit</th></tr></thead>"
-            f"<tbody>{run_rows(task.path)}</tbody></table></div>"
+            "<h2>Run History</h2><div class='table-wrap'><table><thead><tr><th>Subcommand</th><th>Status</th><th>Backend</th><th>Model</th><th>Started</th><th>Ended</th><th>Exit</th><th>Output</th></tr></thead>"
+            f"<tbody>{run_rows(task.path, history_url)}</tbody></table></div>"
+            f"{self.history_section(task, selected_run, history_url)}"
+        )
+
+    def history_section(self, task: Task, selector: str, history_url: str) -> str:
+        if not selector:
+            return ""
+        logs, message = history_logs(task.path, selector)
+        return (
+            f"<section id='run-logs' data-paw-key='history:{html_attr(selector)}'>"
+            "<h2>Saved Run Logs</h2>"
+            f"<p>{html.escape(selector)} — {html.escape(message)}</p>"
+            f"<p><a class='button' href='{html_attr(history_url)}'>Close logs</a></p>"
+            f"<div class='log-stream'>{self.log_panel('stdout', logs.stdout)}"
+            f"{self.log_panel('stderr', logs.stderr)}</div></section>"
         )
 
     def prototype_failure_logs(self, task: Task) -> str:
