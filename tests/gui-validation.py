@@ -79,6 +79,33 @@ class Validation(unittest.TestCase):
         self.assertIn('validation-attention', gui.validation_cell(
             '## Validation Performed\n' + body, '/task/checks'))
 
+    def test_list_shape_and_vocabulary_invariants(self):
+        outcomes = {'failed': 'attention', 'unavailable': 'attention',
+                    'expected to run later': 'recorded', 'must be rerun': 'recorded',
+                    'should run later': 'recorded', 'will run later': 'recorded',
+                    'unfamiliar outcome': 'recorded', 'passed': 'passed'}
+        for bullet in ('- ', '* ', '1. '):
+            for indent in ('', '  ', '    ', '\t'):
+                for name in ('browser', 'Run browser', 'next check'):
+                    for outcome, expected in outcomes.items():
+                        check = indent + bullet + name + ': ' + outcome
+                        for body in (check, '- unrelated: passed\n' + check):
+                            with self.subTest(body=body):
+                                self.assertEqual(self.state(body), expected)
+
+    def test_metadata_blocks_preserve_case_sensitive_peer_reruns(self):
+        rerun = 'Run browser: passed (rerun; supersedes earlier result)'
+        for indent, deeper in (('  ', '    '), ('\t', '\t\t')):
+            for bullet in ('', '- ', '* ', '1. '):
+                for block in (deeper + rerun,
+                              deeper + '```text\n' + deeper + rerun + '\n' + deeper + '```',
+                              deeper + '<!--\n' + deeper + rerun + '\n' + deeper + '-->'):
+                    body = '- Run browser: failed\n- tests: passed\n' + indent + bullet + 'Log:\n' + block
+                    with self.subTest(body=body):
+                        self.assertEqual(self.state(body), 'attention')
+                        self.assertEqual(self.state(body + '\n' + indent + rerun.lower()), 'attention')
+                        self.assertEqual(self.state(body + '\n' + indent + rerun), 'passed')
+
     def test_metadata_owns_descendants_and_compound_continuations(self):
         rerun = 'browser: passed (rerun; supersedes earlier result)'
         for key in ('Command', 'Tier', 'Log', 'Note', 'Source', 'Provenance', 'Rationale', 'Validation tier chosen'):

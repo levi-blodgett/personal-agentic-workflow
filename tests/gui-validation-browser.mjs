@@ -181,6 +181,7 @@ try {
   const detailUrl = await evaluate('location.href');
   for (const [name, initial] of [
     ['Run browser', '- tests: passed\n- Run browser: failed'],
+    ['next check', '- tests: passed\n  1. next check: failed'],
     ['browser', '- browser: failed\n- tests: passed\n  Log:\n    ' + hostile +
       '\n    browser: passed (rerun; supersedes earlier result)'],
   ]) {

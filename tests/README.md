@@ -144,3 +144,9 @@ cleanup regression checks that an independent fixture stays alive. Cleanup must
 never match processes by port or stop a live dashboard to make tests pass.
 
 The recorded-evidence parser/fragment matrix also covers instruction-like check names, exact-name reruns, all reserved metadata labels with multiline indentation ownership, compound tails, sibling resumption, diagnostic scope headings and movement of reruns into/out of diagnostics. Central/legacy fragments retain escaped history and task identity. The Chrome journey reproduces both reviewed false-Passed cases and checks dashboard/detail agreement, unrelated versus exact reruns and disclosure state through polling.
+
+Formatting invariants cover dash, star and numbered bullets with spaces or tabs,
+future/unknown outcomes and instruction-like names, both alone and beside an
+unrelated success. Metadata cases move exact reruns through plain, fenced and
+commented diagnostics, then back to real peers; case-mismatched reruns cannot
+resolve the original check. Chrome also exercises a numbered nested `next check`.
