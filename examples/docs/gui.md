@@ -117,7 +117,7 @@ See [GUI logs and recovery](gui-recovery.md).
 Completed tasks with current complete A-/A/A+ reviews and no production blockers
 offer **Update PR** and **Archive** under Next. View PR remains a lookup utility.
 Update PR prepares a candidate with repository/head identity, body diff, exact
-content, visual diagnostics and manual code-publication status. **Publish PR body**
+content, publication mode, visual diagnostics and manual code-publication status. **Publish PR body**
 is the separate remote action; success provides a validated link and keeps the task
 active until Archive. Missing prerequisites leave Archive and repair guidance.
 Native forms and JavaScript use identical server-side guards. No GET, polling or

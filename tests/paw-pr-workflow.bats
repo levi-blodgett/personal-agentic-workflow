@@ -87,7 +87,7 @@ write_fake_gh() {
 printf '%s\n' "$@" > "$BATS_TEST_TMPDIR/gh.args"
 
 if [[ "$1" == "pr" && "$2" == "list" ]]; then
-  echo '[]'
+  if [[ -n "${FIXTURE_PR_STATE:-}" && -f "$FIXTURE_PR_STATE" ]]; then cat "$FIXTURE_PR_STATE"; else echo '[]'; fi
   exit 0
 fi
 if [[ "$1" == "pr" && "$2" == "create" ]]; then
@@ -95,6 +95,14 @@ if [[ "$1" == "pr" && "$2" == "create" ]]; then
     if [[ "$1" == --body-file ]]; then cp "$2" "$BATS_TEST_TMPDIR/gh.body"; break; fi
     shift
   done
+  if [[ -n "${FIXTURE_PR_STATE:-}" ]]; then
+    python3 - "$BATS_TEST_TMPDIR/gh.body" "$FIXTURE_PR_STATE" "$(git branch --show-current)" <<'PYREMOTE'
+import json,sys
+from pathlib import Path
+Path(sys.argv[2]).write_text(json.dumps([dict(number=123, url='https://github.com/example/repo/pull/123', body=Path(sys.argv[1]).read_text(), headRefName=sys.argv[3], headRepository=dict(name='repo'), headRepositoryOwner=dict(login='example'))]))
+PYREMOTE
+    echo create >> "$FIXTURE_PR_STATE.mutations"
+  fi
   echo "https://github.com/example/repo/pull/${FIXTURE_PR_NUMBER:-123}"
   exit 0
 fi
@@ -591,4 +599,56 @@ DOC
   [ "$(git -C "$REPO" branch --show-current)" = feature/saved-publication ]
   [ -f "$task_dir/publication-preview.json" ]
   [ ! -f "$BATS_TEST_TMPDIR/gh.body" ]
+}
+
+@test "paw publication tokens cannot cross update and create-only commands" {
+  init_git_repo
+  seed_task_package modes
+  qualify_publication modes
+  write_fake_gh
+  local origin other token before
+  for origin in pr-update pr-submit; do
+    other=pr-submit
+    [[ "$origin" != pr-submit ]] || other=pr-update
+    run "$PAW" "$origin" modes
+    [ "$status" -eq 0 ]
+    token=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$REPO/.agent/modes/publication-preview.json")
+    before=$(shasum "$REPO/.agent/modes/plan.md" "$REPO/.agent/modes/pr.md" "$REPO/.agent/modes/publication-preview.json")
+    run "$PAW" "$other" modes --publish "$token"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *mode* ]]
+    [ ! -f "$BATS_TEST_TMPDIR/gh.body" ]
+    [ "$before" = "$(shasum "$REPO/.agent/modes/plan.md" "$REPO/.agent/modes/pr.md" "$REPO/.agent/modes/publication-preview.json")" ]
+  done
+}
+
+@test "paw both operation receipts refuse cross-command invocation and retry without remote edits" {
+  init_git_repo
+  local origin other task token before index_before refs_before
+  for origin in pr-submit pr-update; do
+    other=pr-submit
+    [[ "$origin" != pr-submit ]] || other=pr-update
+    seed_task_package "retry-$origin"
+    qualify_publication "retry-$origin"
+    write_fake_gh
+    export FIXTURE_PR_STATE="$BATS_TEST_TMPDIR/remote-$origin.json"
+    run "$PAW" "$origin" "retry-$origin"
+    [ "$status" -eq 0 ]
+    task="$REPO/.agent/retry-$origin"
+    token=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$task/publication-preview.json")
+    index_before=$(shasum "$REPO/.git/index")
+    refs_before=$(git show-ref)
+    run "$PAW" "$origin" "retry-$origin" --publish "$token"
+    [ "$status" -eq 0 ]
+    before=$(shasum "$task/plan.md" "$task/pr.md" "$task/publication-result.json" "$REPO/.git/paw-publication/$token.json")
+    run "$PAW" "$other" "retry-$origin" --publish "$token"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *mode* ]]
+    [ "$before" = "$(shasum "$task/plan.md" "$task/pr.md" "$task/publication-result.json" "$REPO/.git/paw-publication/$token.json")" ]
+    run "$PAW" "$origin" "retry-$origin" --publish "$token"
+    [ "$status" -eq 0 ]
+    [ "$(cat "$FIXTURE_PR_STATE.mutations")" = create ]
+    [ "$index_before" = "$(shasum "$REPO/.git/index")" ]
+    [ "$refs_before" = "$(git show-ref)" ]
+  done
 }

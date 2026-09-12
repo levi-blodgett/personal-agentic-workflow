@@ -52,11 +52,20 @@ fence or screenshot image. Prefer Mermaid for nonvisual changes and screenshots
 for visible UI. Images must use HTTPS or exist in the published head at their
 repository-relative path. Local absolute paths, badges and example fences fail.
 Review must assess relevance and rendering; structural checks cannot establish them.
+Refresh currently appends changed shared evidence while preserving existing human
+and legacy visuals. Repeated refresh can accumulate obsolete diagrams; inspect the
+exact candidate diff. Automatic removal needs a separately designed PAW-owned visual
+region and adoption policy, and is deferred.
 
 `paw pr-update TASK` prepares an exact candidate and diff without publishing.
 Inspect it, then run the printed `paw pr-update TASK --publish TOKEN` command.
 An existing exact repository/head PR receives only a body edit; confirmed absence
 creates a draft. `paw pr-submit` uses the same preview/gates but remains create-only.
+Preview tokens and recovery receipts bind the operation (`update-or-create` or
+`create-only`). Publish and retry with the same command that prepared the token;
+cross-command, missing-mode and incompatible receipt requests refuse before writes.
+Old previews without an operation must be prepared again. A PR appearing after a
+create-only preview invalidates it; use a fresh pr-update preview to edit that PR.
 Configure the saved branch's exact remote tracking first. The remote head must
 exist and match local HEAD. Commit/push manually when it does not. Uncommitted
 changes are explicitly identified as absent from the PR. PAW never stages, commits,
@@ -73,7 +82,9 @@ and rereads remote state before mutation. Changed previews require preparation
 again. Candidate bytes and successful remote receipts are retained under the Git
 common directory's `paw-publication/`; task previews/results stay in its package.
 If remote success precedes local bookkeeping failure, inspect the reported PR and
-retry the token. If state changed, prepare anew to resolve the existing PR without
+retry the token with its original command. Recovery verifies operation, token, remote
+head, PR URL and exact candidate body before local bookkeeping. If state changed,
+prepare anew with pr-update to resolve the existing PR without
 creating another. Do not overwrite newer human content to recover. External GitHub
 editors do not share PAW's lock, and GitHub offers no body compare-and-swap: an edit
 in the final read/write gap remains possible and requires human reconciliation.

@@ -54,7 +54,9 @@ neither replaces Markdown. The GUI presents friendly repo grouping over these pa
 See [storage/assignment rules](workflow.md#architecture-of-workflow) and [GUI controls](gui.md).
 
 Reviewed PR publication is a shared Python boundary in `scripts/lib/pr_publication.py`.
-CLI and GUI call the same eligibility, candidate and publication operations. Shell
+CLI and GUI call the same eligibility, candidate and publication operations.
+Hashed previews and recovery receipts bind operation mode; create-only is checked
+before publication writes and again at the remote mutation branch. Shell
 task-store helpers retain canonical body resolution. Branch locks live in the Git
 common directory; immutable preview tokens bind candidate, task/review and remote
 identity. Remote mutation is confined to explicit publish POSTs/CLI invocations.

@@ -277,7 +277,20 @@ def image_in_head(repo: Path, target: dict, path: str) -> bool:
         return False
 
 
+def operation_mode(create_only: bool) -> str:
+    """Entrypoints choose an operation; tokens and receipts preserve that contract."""
+    if type(create_only) is not bool:
+        raise ValueError('Invalid publication mode; use an explicit create-only or update operation.')
+    return 'create-only' if create_only else 'update-or-create'
+
+
+def require_mode(record: dict, operation: str) -> None:
+    if not isinstance(record, dict) or record.get('operation') != operation:
+        raise ValueError('Publication mode mismatch or missing mode; prepare a fresh preview with the same command.')
+
+
 def prepare(task: Path, repo: Path, *, create_only=False) -> dict:
+    operation = operation_mode(create_only)
     repo, branch = assignment(task, repo)
     with branch_lock(repo, branch):
         reason = eligibility(task, repo)
@@ -309,7 +322,7 @@ def prepare(task: Path, repo: Path, *, create_only=False) -> dict:
         code_status = ('Local uncommitted changes are NOT in the PR. Commit/push manually; this action only publishes the body.' if dirty else 'Local HEAD matches the remote branch. This action only publishes the body.')
         result = {'task': str(task.resolve()), 'repo': str(repo), 'branch': branch, 'body_file': str(body),
                   'snapshot': snapshot(task, repo, body), 'target': target, 'current': current,
-                  'candidate': candidate, 'local': local, 'original': original, 'review_identity': digest((task / 'review.md').read_text()), 'identity': identity, 'create_only': create_only,
+                  'candidate': candidate, 'local': local, 'original': original, 'review_identity': digest((task / 'review.md').read_text()), 'identity': identity, 'operation': operation,
                   'code_status': code_status, 'visual': 'Structural visual check passed; independently verify relevance and rendering.',
                   'adoption': 'Unmarked local prose is preserved locally and excluded from publication. Review the complete candidate and diff.',
                   'diff': ''.join(difflib.unified_diff((current['body'] if current else '').splitlines(True), candidate.splitlines(True), fromfile='remote PR body', tofile='candidate'))}
@@ -353,10 +366,12 @@ def record_success(task: Path, repo: Path, preview: dict, url: str) -> None:
     atomic(task / 'publication-result.json', json.dumps({'url': url, 'contributor': preview['identity'], 'token': preview['token']}, indent=2))
 
 
-def publish(task: Path, repo: Path, token: str) -> dict:
+def publish(task: Path, repo: Path, token: str, *, create_only=False) -> dict:
+    operation = operation_mode(create_only)
     repo, branch = assignment(task, repo)
     with branch_lock(repo, branch) as directory:
         preview = json.loads((task / 'publication-preview.json').read_text())
+        require_mode(preview, operation)
         if digest(json.dumps({key: value for key, value in preview.items() if key != 'token'}, sort_keys=True)) != token:
             raise ValueError('Preview bytes changed; prepare and inspect a fresh preview.')
         if preview.get('token') != token or preview.get('task') != str(task.resolve()) or preview.get('repo') != str(repo):
@@ -366,6 +381,9 @@ def publish(task: Path, repo: Path, token: str) -> dict:
             if Path(preview['body_file']).read_text() not in {preview['original'], preview['local']} or digest((task / 'review.md').read_text()) != preview['review_identity']:
                 raise ValueError('Local body/review changed since remote success; inspect result and prepare again.')
             result = json.loads(receipt.read_text())
+            require_mode(result, operation)
+            if result.get('token') != token or remote_identity(repo, branch) != preview['target']:
+                raise ValueError('Receipt identity or remote head changed; prepare again.')
             current = lookup(repo, preview['target'])
             if not current or current['url'] != result['url'] or current['body'] != preview['candidate']:
                 raise ValueError('Remote result changed since partial success; inspect it and prepare a new preview.')
@@ -382,6 +400,8 @@ def publish(task: Path, repo: Path, token: str) -> dict:
         current = lookup(repo, target)
         if target != preview['target'] or current != preview['current']:
             raise ValueError('Remote branch/PR changed since preview; prepare again.')
+        if current and create_only:
+            raise ValueError('Create-only mode cannot edit an existing PR.')
         own_numbers = tracking_number(task)
         if own_numbers and (not current or any(n != str(current['number']) for n in own_numbers)):
             raise ValueError('PR Tracking mismatch (possibly closed/merged); reconcile before publication.')
@@ -395,12 +415,14 @@ def publish(task: Path, repo: Path, token: str) -> dict:
         if snapshot(task, repo, body) != preview['snapshot'] or eligibility(task, repo):
             raise ValueError('Task/body/review changed while checking remote state; prepare again.')
         if current:
+            if operation != 'update-or-create':
+                raise ValueError('Create-only mode cannot edit an existing PR.')
             command(repo, 'gh', 'pr', 'edit', str(current['number']), '--repo', target['repository'], '--body-file', str(candidate_file))
             url = current['url']
         else:
             url = command(repo, 'gh', 'pr', 'create', '--repo', target['repository'], '--head', target['branch'] if target['head_repository'] == target['repository'] else target['head'], '--draft', '--title', 'Feature: ' + task.name.replace('-', ' '), '--body-file', str(candidate_file))
             validate_url(url, target['repository'])
-        result = {'url': url, 'token': token, 'message': 'PR body published; task remains active. ' + preview['code_status']}
+        result = {'url': url, 'token': token, 'operation': operation, 'message': 'PR body published; task remains active. ' + preview['code_status']}
         try:
             atomic(receipt, json.dumps(result, indent=2))
             record_success(task, repo, preview, url)
@@ -418,11 +440,11 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.publish:
-            result = publish(args.task, args.repo, args.publish)
+            result = publish(args.task, args.repo, args.publish, create_only=args.create_only)
             print(result['message'] + '\n' + result['url'])
         else:
             result = prepare(args.task, args.repo, create_only=args.create_only)
-            print(f"Repository: {result['target']['repository']} / head {result['target']['head']}\n{result['code_status']}\n{result['adoption']}\n{result['visual']}\n\n{result['diff']}\nCandidate:\n{result['candidate']}\n")
+            print(f"Mode: {result['operation']}\nRepository: {result['target']['repository']} / head {result['target']['head']}\n{result['code_status']}\n{result['adoption']}\n{result['visual']}\n\n{result['diff']}\nCandidate:\n{result['candidate']}\n")
             command_name = 'pr-submit' if args.create_only else 'pr-update'
             print(f"After inspecting this preview, publish explicitly: paw {command_name} {args.task.name} --publish {result['token']}")
         return 0

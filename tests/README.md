@@ -44,7 +44,7 @@ bats tests/lint-task.bats
 | `paw-codex.bats` | Default codex backend wiring, auth banner, sandbox flags, and usage parsing |
 | `paw-crash.bats` | Crash classification, crash log writing, and prompt-size warnings |
 | `paw-prompt-body.bats` | Stub prompt/launcher contracts, review/prototype planning, immutable cleanup provenance, unusual paths, content/mode/index drift, retries and failure preservation. |
-| `paw-pr-workflow.bats` | Shell-side `paw pr-update` / `paw pr-submit` / `paw pr-review` and shared publication policy coverage |
+| `paw-pr-workflow.bats` | Shell-side `paw pr-update` / `paw pr-submit` / `paw pr-review` and shared publication mode/token/retry policy coverage |
 | `paw-issue-workflow.bats` | Shell-side `paw issue-submit` / `paw issue-review` / `paw to-issues --publish` workflow coverage |
 | `paw-gh-actions-workflow.bats` | Shell-side `paw gh-actions-review` dispatch and flag-forwarding coverage |
 | `paw-compact.bats` | `paw compact` subcommand (archive-on-tick and idempotency) |

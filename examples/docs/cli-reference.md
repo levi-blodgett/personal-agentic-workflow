@@ -51,7 +51,7 @@ paw help
 | implement-batch | Preflight all approved selections, launch normal implement children concurrently; [limits](workflow.md#branch-and-worktree-assignment). |
 | to-issues | Draft `issues/index.md` and one issue file per slice. `--publish` sends reviewed drafts in dependency order, updates per-draft metadata and plan tracking. |
 | pr-update | Preview a completed A-/higher reviewed task contribution; `--publish TOKEN` edits the exact open branch PR or creates a draft after confirmed absence. Manual commit/push only. |
-| pr-submit | Same review, preview and visual gates; create-only, with guidance to use pr-update when a PR exists. [Publication and recovery](publication-workflow.md#reviewed-task-pr-publication). |
+| pr-submit | Same review, preview and visual gates; create-only operation-bound tokens (including retries), with guidance to use pr-update when a PR exists. [Publication and recovery](publication-workflow.md#reviewed-task-pr-publication). |
 | issue-submit | Require `issue.md`, create issue and record number/URL in plan/issue. |
 | pr-review | First fetch comments and save `review.md` for the PR task; later submit that saved draft as a COMMENT review. Separate from task-quality review. |
 | issue-review | Refresh issue title/body into `issue.md` in `<number>-issue-review`; plan only from saved issue body. |

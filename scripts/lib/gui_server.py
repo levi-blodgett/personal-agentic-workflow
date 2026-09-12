@@ -2327,14 +2327,14 @@ class Handler(BaseHTTPRequestHandler):
             if task.running:
                 raise ValueError("A PAW run is active; finish it before publication.")
             if action == "pr-update":
-                result = pr_publication.publish(task.path, task.repo, form.get("token", ""))
+                result = pr_publication.publish(task.path, task.repo, form.get("token", ""), create_only=False)
                 if self.asynchronous_action():
                     return self.action_result(True, result["message"], result["url"])
                 return self.send_html(page_header("PR updated", active_repo=task.repo) +
                                       "<main class='shell'><p>" + html.escape(result["message"]) +
                                       f"</p><p><a href='{html_attr(result['url'])}'>Open PR</a></p>" +
                                       self.archive_form(task) + "</main>")
-            result = pr_publication.prepare(task.path, task.repo)
+            result = pr_publication.prepare(task.path, task.repo, create_only=False)
             content = self.pr_preview_panel(task, result)
             if self.asynchronous_action():
                 return self.action_result(True, "Inspect the candidate before publishing.", preview=content)
@@ -2349,7 +2349,7 @@ class Handler(BaseHTTPRequestHandler):
         return (
             "<div class='modal-panel'><div class='modal-body'><h2>Update PR preview</h2>"
             f"<p>{html.escape(identity)} — {('PR #' + str(remote['number'])) if remote else 'Create draft'}</p>"
-            f"<p>{html.escape(result['code_status'])}</p><p>{html.escape(result['adoption'])}</p>"
+            f"<p>Mode: {html.escape(result['operation'])}</p><p>{html.escape(result['code_status'])}</p><p>{html.escape(result['adoption'])}</p>"
             f"<p>{html.escape(result['visual'])}</p>"
             f"<details><summary>Body changes</summary><pre>{html.escape(result['diff'])}</pre></details>"
             f"<h3>Exact candidate body</h3><pre class='publication-candidate'>{html.escape(result['candidate'])}</pre>"

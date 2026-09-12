@@ -137,11 +137,12 @@ The task's validation contract still determines which checks must run.
 
 PR publication checks: `PYTHONDONTWRITEBYTECODE=1 python3 tests/pr-publication.py`
 exercises eligibility, managed body/visual parsing, two-task ownership, remote
-identity, stale previews, locks, partial success and native/JSON HTTP parity.
+identity, stale previews, mode-bound tokens/receipts, partial success, repeated
+visual preservation, locks and native/JSON HTTP parity.
 `bats tests/paw-pr-workflow.bats tests/task-store.bats` includes this check and
-CLI fixtures. The named `node tests/gui-validation-browser.mjs` entrypoint also
+CLI cross-command refusal fixtures. The named `node tests/gui-validation-browser.mjs` entrypoint also
 runs `tests/gui-pr-browser.mjs`: retained Next/preview/result screenshots, two-task
 contributions, lower grades, duplicate clicks, delayed preview/draft/caret retention,
-errors, native fallback and narrow dark layout. Set `PAW_GUI_EVIDENCE` to retain
+errors, native fallback, visible light desktop controls and narrow dark layout. Set `PAW_GUI_EVIDENCE` to retain
 artifacts. All remote transport is stubbed; no live GitHub publication occurs.
 Required full local validation remains `PYTHONDONTWRITEBYTECODE=1 make check`.

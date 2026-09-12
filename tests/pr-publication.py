@@ -123,6 +123,84 @@ class Publication(Eligibility):
             return self.remote['url']
         self.fail(str(args))
 
+    def test_operation_mode_refusal_preserves_all_publication_bytes(self):
+        for mode in (False, True):
+            with self.subTest(create_only=mode):
+                preview = publication.prepare(self.task, self.repo, create_only=mode)
+                before = {str(p): p.read_bytes() for p in self.repo.rglob('*') if p.is_file()}
+                with self.assertRaisesRegex(ValueError, 'mode'):
+                    publication.publish(self.task, self.repo, preview['token'], create_only=not mode)
+                self.assertEqual(before, {str(p): p.read_bytes() for p in self.repo.rglob('*') if p.is_file()})
+                self.assertFalse(any(c[0] == 'gh' for c in self.calls))
+
+    def test_create_only_receipt_retry_and_wrong_mode_are_idempotent(self):
+        preview = publication.prepare(self.task, self.repo, create_only=True)
+        with patch.object(publication, 'record_success', side_effect=OSError('disk full')):
+            with self.assertRaisesRegex(ValueError, 'Remote publication succeeded'):
+                publication.publish(self.task, self.repo, preview['token'], create_only=True)
+        before = {str(p): p.read_bytes() for p in self.repo.rglob('*') if p.is_file()}
+        with self.assertRaisesRegex(ValueError, 'mode'):
+            publication.publish(self.task, self.repo, preview['token'])
+        self.assertEqual(before, {str(p): p.read_bytes() for p in self.repo.rglob('*') if p.is_file()})
+        publication.publish(self.task, self.repo, preview['token'], create_only=True)
+        publication.publish(self.task, self.repo, preview['token'], create_only=True)
+        self.assertEqual(sum(c[:3] == ('gh', 'pr', 'create') for c in self.calls), 1)
+        self.assertFalse(any(c[:3] == ('gh', 'pr', 'edit') for c in self.calls))
+
+    def test_missing_invalid_mode_refuses_even_with_rehashed_token(self):
+        for mode in (None, 'create', 1, {}, 'update'):
+            preview = publication.prepare(self.task, self.repo)
+            preview['operation'] = mode
+            preview.pop('token')
+            token = publication.digest(json.dumps(preview, sort_keys=True))
+            preview['token'] = token
+            (self.task / 'publication-preview.json').write_text(json.dumps(preview))
+            with self.assertRaisesRegex(ValueError, 'mode'):
+                publication.publish(self.task, self.repo, token)
+            self.assertEqual(list(self.directory.iterdir()), [])
+        self.assertFalse(any(c[0] == 'gh' for c in self.calls))
+
+    def test_receipt_mode_and_remote_head_must_still_match(self):
+        preview = publication.prepare(self.task, self.repo)
+        with patch.object(publication, 'record_success', side_effect=OSError('disk full')):
+            with self.assertRaises(ValueError):
+                publication.publish(self.task, self.repo, preview['token'])
+        receipt = self.directory / (preview['token'] + '.json')
+        original = receipt.read_text()
+        for operation in (None, 'create-only', 'bogus'):
+            receipt.write_text(json.dumps(dict(json.loads(original), operation=operation)))
+            before = {str(p): p.read_bytes() for p in self.repo.rglob('*') if p.is_file()}
+            with self.assertRaisesRegex(ValueError, 'mode'):
+                publication.publish(self.task, self.repo, preview['token'])
+            self.assertEqual(before, {str(p): p.read_bytes() for p in self.repo.rglob('*') if p.is_file()})
+        receipt.write_text(original)
+        self.target['sha'] = 'changed-head'
+        with self.assertRaisesRegex(ValueError, 'remote head changed'):
+            publication.publish(self.task, self.repo, preview['token'])
+        self.assertNotIn('## PR Tracking', (self.task / 'plan.md').read_text())
+        self.assertEqual(sum(c[0] == 'gh' for c in self.calls), 1)
+
+    def test_new_pr_invalidates_create_only_before_candidate_writes(self):
+        preview = publication.prepare(self.task, self.repo, create_only=True)
+        self.remote = dict(number=123, url='https://github.com/org/repo/pull/123', body='New human PR')
+        with self.assertRaisesRegex(ValueError, 'Remote branch/PR changed'):
+            publication.publish(self.task, self.repo, preview['token'], create_only=True)
+        self.assertEqual(list(self.directory.iterdir()), [])
+        self.assertFalse(any(c[0] == 'gh' for c in self.calls))
+
+    def test_repeated_visual_refresh_preserves_legacy_and_human_bytes(self):
+        human = 'Human introduction.\n\nThis explains the legacy diagram.\n```mermaid\nflowchart LR\n X --> Y\n```\n'
+        self.remote = dict(number=123, url='https://github.com/org/repo/pull/123', body=human)
+        for node in ('C', 'D', 'E'):
+            original_remote = self.remote['body']
+            self.body.write_text(self.body.read_text().replace(' A --> B', f' A --> {node}\n {node} --> B'))
+            preview = publication.prepare(self.task, self.repo)
+            self.assertTrue(preview['candidate'].startswith(human))
+            for visual in (' X --> Y', *[line for line in original_remote.splitlines() if '-->' in line]):
+                self.assertIn(visual, preview['candidate'])
+            publication.publish(self.task, self.repo, preview['token'])
+            self.body.write_text(self.body.read_text().replace(f' A --> {node}\n {node} --> B', ' A --> B'))
+
     def test_oversized_current_and_proposed_body_can_publish(self):
         self.body.write_text(self.body.read_text() + '\n' * 151)
         preview = publication.prepare(self.task, self.repo)
@@ -306,6 +384,11 @@ class HttpPublication(Publication):
         native = post('pr-preview', native=True)
         self.assertIn('publication-panel', native)
         self.assertIn('Publish PR body', native)
+        wrong_mode = publication.prepare(self.task, self.repo, create_only=True)
+        blocked_mode = post('pr-update', wrong_mode['token'])
+        self.assertFalse(blocked_mode['ok'])
+        self.assertIn('mode', blocked_mode['message'])
+        self.assertIsNone(self.remote)
         candidate = post('pr-preview')
         self.assertTrue(candidate['ok'])
         self.assertIn('Exact candidate body', candidate['preview'])

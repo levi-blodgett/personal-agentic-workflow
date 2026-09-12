@@ -139,10 +139,22 @@ gui.main()
     writeFileSync(join(process.env.PAW_GUI_EVIDENCE, name + '.png'), Buffer.from(shot.data, 'base64'));
   };
   await call('Page.enable');
+  await call('Emulation.setDeviceMetricsOverride', {width:1440,height:900,deviceScaleFactor:1,mobile:false});
+  await call('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme',value:'light'}]});
   await call('Page.navigate', {url});
   await until('eligible Next', () => evaluate("!!document.querySelector('form[action=\"/task/checks/pr-preview\"]')"));
   assert.equal(await evaluate("!!document.querySelector('form[action=\"/task/lower/pr-preview\"]')"), false);
   assert.equal(existsSync(join(root, 'remote.json')), false);
+  const bounds = await evaluate(`(() => {
+    const button = document.querySelector('form[action="/task/checks/pr-preview"] button');
+    button.scrollIntoView({block:'center'});
+    const r = button.getBoundingClientRect();
+    return {visible:r.width > 0 && r.height > 0 && r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth,
+      light:matchMedia('(prefers-color-scheme: light)').matches, label:button.textContent};
+  })()`);
+  assert.equal(bounds.visible, true);
+  assert.equal(bounds.light, true);
+  assert.match(bounds.label, /Update PR/);
   await screenshot('pr-next-light');
   await evaluate("document.querySelector('form[action=\"/task/checks/pr-preview\"] button').click()");
   await until('candidate', () => evaluate("!!document.querySelector('[data-doc-preview] form[action$=pr-update]')"));
