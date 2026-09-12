@@ -40,7 +40,7 @@ bats tests/lint-task.bats
 | `makefile.bats` | Make targets, conservative install ownership, spaces, launcher chains, source checks and relocation recovery |
 | `plugin-install.bats` | Real copied external-plugin Makefile; install lifecycle, conflicts, overrides, source resources, capture/stream, failures, optional hooks and executable discovery |
 | `paw-dispatcher.bats` | `scripts/paw` subcommand dispatch, review/prototype/archive command surfaces, `implement-batch`, worktree resume, and launcher behavior |
-| `paw-completion-docs.bats` | Durable docs coverage for `paw completion zsh` and the narrowed `zsh`-only scope |
+| `paw-completion-docs.bats` | Each required completion setup/scope and command-authoring topic across maintained guides; missing topics fail independently. |
 | `paw-codex.bats` | Default codex backend wiring, auth banner, sandbox flags, and usage parsing |
 | `paw-crash.bats` | Crash classification, crash log writing, and prompt-size warnings |
 | `paw-prompt-body.bats` | Stub prompt/launcher contracts, review/prototype planning, immutable cleanup provenance, unusual paths, content/mode/index drift, retries and failure preservation. |
@@ -82,6 +82,25 @@ See [fixture catalog and extension rules](fixtures/README.md).
 
 See [Focused regression checks](focused-testing.md).
 
+### Standalone suite routing
+
+`make check` runs all Bats files, repository task lint and ShellCheck. CI runs the
+same Bats directory and shell sources, plus sample-fixture lint. A Bats wrapper
+is one Bats case even when its Python child runs many cases; browser assertions
+are a separate supplemental gate. Do not report wrapper totals as total coverage.
+
+| Standalone suite | Automatic caller | Focused command |
+|---|---|---|
+| `gui-validation.py`, `gui-prototype.py`, `gui-performance.py` | `gui-server.bats` | `python3 tests/<file>` |
+| `review-record.py` | `task-store.bats` | `python3 tests/review-record.py` |
+| `pr-publication.py` | `paw-pr-workflow.bats` | `python3 tests/pr-publication.py` |
+| `markdown-budget.py` | `lint-task.bats` | `python3 tests/markdown-budget.py` |
+| `markdown-documents.py` | `paw-compact.bats` | `python3 tests/markdown-documents.py` |
+| `gui-validation-browser.mjs` | Separate required browser entrypoint when applicable | `node tests/gui-validation-browser.mjs` |
+| `gui-ux-browser.mjs`, `gui-pr-browser.mjs` | `gui-validation-browser.mjs` | `node tests/<file>` |
+
+Use `PYTHONDONTWRITEBYTECODE=1` and retain browser screenshots/version as described
+in [browser checks](browser-testing.md). Browser checks supplement `make check`.
 
 Counting boundaries and oversized-task success run through `lint-task.bats`.
 CLI, GUI and publication journeys verify that length never blocks workflows. Historical validation links retain named failures;
@@ -89,3 +108,8 @@ CLI, GUI and publication journeys verify that length never blocks workflows. His
 `markdown-documents.py` covers the exact reviewed fenced-example regression, fence
 type/length/indentation and false boundaries, complete oversized records, failed writes,
 collisions/symlinks, concurrent edits, retries and task-local evidence preservation.
+
+Documentation assertions normalize prose whitespace so reflow is harmless; machine-consumed
+anchors and markers remain literal. Required topics are checked individually, not with
+an OR expression that can pass on an unrelated topic. Prompt checks establish guidance
+presence and routing, not model compliance.

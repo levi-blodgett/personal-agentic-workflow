@@ -20,6 +20,8 @@ Independent grading and production sign-off follow implementation; inherited thr
 remain in the Review requirement. A review never substitutes for required implementation
 checks. Runnable suites, prerequisites, fixtures and browser harness instructions belong
 to the [test-suite guide](../../tests/README.md).
+Its [standalone suite table](../../tests/README.md#standalone-suite-routing) identifies
+Bats wrappers and separate browser gates; wrapper totals are not Python/browser case totals.
 ## Recorded validation in the GUI
 
 The dashboard and task details summarize `plan.md` → **Validation Performed**.

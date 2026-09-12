@@ -80,6 +80,7 @@ boundaries meet 3:1. Hover, disabled, feedback and grade states are sampled too.
 Inspect screenshots for clipping and missed surfaces; this is scoped Chromium
 coverage, not a complete accessibility audit or cross-browser certification.
 The combined `PYTHONDONTWRITEBYTECODE=1 node tests/gui-validation-browser.mjs`
-retains the existing light-mode workflows and invokes the theme UX journeys.
+retains the existing light-mode workflows and invokes both the theme UX and PR
+publication journeys. Standalone-to-wrapper routing is listed in [README](README.md#standalone-suite-routing).
 Run `PYTHONDONTWRITEBYTECODE=1 bats tests/gui-server.bats` for HTTP regressions and
 `PYTHONDONTWRITEBYTECODE=1 make check` for required final full local validation.

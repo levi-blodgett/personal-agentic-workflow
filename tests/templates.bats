@@ -3,6 +3,8 @@
 
 # shellcheck source=helpers/hermetic.bash
 source "$(dirname "$BATS_TEST_FILENAME")/helpers/hermetic.bash"
+# shellcheck source=helpers/documentation.bash
+source "$(dirname "$BATS_TEST_FILENAME")/helpers/documentation.bash"
 
 SCRIPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../scripts" && pwd)"
 REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -34,12 +36,12 @@ TEMPLATES_DIR="$REPO_ROOT/templates"
 }
 
 @test "templates: prompt_instructions.md mentions vertical slices and canonical TDD guidance" {
-  grep -qF "Use enough vertical slices for the scope." "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "Repeat red-green-refactor per vertical slice" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "red-green-refactor" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "one failing behavior test" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "behavior tests that survive refactoring" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "defer test cleanup until then" "$REPO_ROOT/prompts/prompt_instructions.md"
+  local topic
+  for topic in 'vertical slices' 'red-green-refactor per vertical slice' \
+    'one failing behavior test' 'behavior tests that survive refactoring' \
+    'defer test cleanup until then'; do
+    doc_contains "$topic" "$REPO_ROOT/prompts/prompt_instructions.md" || return 1
+  done
 }
 
 @test "templates: prompt_instructions.md requires adjacent Progress notes for completed items" {
