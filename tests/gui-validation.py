@@ -32,6 +32,126 @@ class Validation(unittest.TestCase):
                 self.assertEqual(self.state('- browser: ' + result), 'recorded')
                 self.assertEqual(self.state('- tests: passed\n- browser: ' + result), 'recorded')
 
+    def test_named_future_outcomes_stay_recorded(self):
+        for result in ('expected to run later', 'must run later', 'should run later',
+                       'will run later', 'run later', 'next run pending'):
+            for shape in ('- browser: {}', '- tests: passed; browser: {}',
+                          '- tests: passed\n  browser: {}'):
+                with self.subTest(result=result, shape=shape):
+                    body = shape.format(result)
+                    self.assertEqual(self.state(body), 'recorded')
+                    self.assertIn('validation-recorded', gui.validation_cell(
+                        '## Validation Performed\n' + body, '/task/checks'))
+
+    def test_instruction_like_check_names_preserve_outcomes(self):
+        for name in ('Run browser', 'next check', 'will check', 'must check',
+                     'should check', 'planning-only checks', 'Planning validation only checks'):
+            for shape in ('- tests: passed\n- {}: failed',
+                          '- tests: passed\n  - {}: failed',
+                          '- tests: passed; {}: failed'):
+                with self.subTest(name=name, shape=shape):
+                    body = shape.format(name)
+                    self.assertEqual(self.state(body), 'attention')
+                    self.assertIn('validation-attention', gui.validation_cell(
+                        '## Validation Performed\n' + body, '/task/checks'))
+                    self.assertEqual(self.state(body.replace(': failed', ': unknown')), 'recorded')
+
+    def test_instruction_names_resolve_only_exact_reruns(self):
+        rerun = 'passed (rerun; supersedes earlier result)'
+        for name in ('Run browser', 'next check', 'will check', 'must check',
+                     'should check', 'planning-only checks'):
+            for shape in ('- tests: passed; {}: failed', '- tests: passed\n  {}: failed'):
+                body = shape.format(name) + '\n- tests: ' + rerun
+                with self.subTest(name=name, shape=shape):
+                    self.assertEqual(self.state(body), 'attention')
+                    self.assertEqual(self.state(body + '\n- ' + name + ': ' + rerun), 'passed')
+                    with tempfile.TemporaryDirectory() as directory:
+                        path = Path(directory)
+                        (path / 'plan.md').write_text('## Validation Performed\n' + body)
+                        detail = gui.validation_details(gui.Task('checks', 'legacy', path, path))
+                        self.assertIn('validation-attention', detail)
+                        self.assertIn(name + ': failed', detail)
+                        self.assertIn('Partially superseded record', detail)
+
+    def test_multiline_log_does_not_resolve_failure(self):
+        body = '- browser: failed\n- tests: passed\n  Log:\n    browser: passed (rerun; supersedes earlier result)'
+        self.assertEqual(self.state(body), 'attention')
+        self.assertIn('validation-attention', gui.validation_cell(
+            '## Validation Performed\n' + body, '/task/checks'))
+
+    def test_metadata_owns_descendants_and_compound_continuations(self):
+        rerun = 'browser: passed (rerun; supersedes earlier result)'
+        for key in ('Command', 'Tier', 'Log', 'Note', 'Source', 'Provenance', 'Rationale', 'Validation tier chosen'):
+            for label in (key + ':', '- ' + key + ': inline; ' + rerun,
+                          key + ': inline', '- tests: passed; ' + key + ':'):
+                for descendants in ('    ' + rerun,
+                                    '    - deeper:\n\n      - ' + rerun,
+                                    '    ### Context\n    - ' + rerun,
+                                    '    ### Implementation results\n    - ' + rerun):
+                    body = '- browser: failed\n- tests: passed\n  ' + label + '\n' + descendants
+                    with self.subTest(key=key, label=label, descendants=descendants):
+                        self.assertEqual(self.state(body), 'attention')
+                        self.assertEqual(self.state(body + '\n  - ' + rerun), 'passed')
+                        self.assertEqual(self.state(body + '\n- ' + rerun), 'passed')
+        # A compound metadata tail owns the following indented continuation.
+        body = '- browser: failed\n- tests: passed; Log: inline\n  ' + rerun
+        self.assertEqual(self.state(body), 'attention')
+        # Initial indentation must survive even when a section has no parent bullet.
+        self.assertEqual(self.state('  Log:\n    browser: failed\n  tests: passed'), 'passed')
+
+    def test_metadata_scope_and_real_sibling_boundaries(self):
+        rerun = 'browser: passed (rerun; supersedes earlier result)'
+        for prefix in ('', '- '):
+            body = '- browser: failed\n- tests: passed\n  ' + prefix + 'Log:\n    ### Context\n    - ' + rerun
+            self.assertEqual(self.state(body + '\n  sibling: failed\n- ' + rerun), 'attention')
+            self.assertEqual(self.state(body + '\n  tests: passed\n- ' + rerun), 'passed')
+            scoped = '### Context\n- tests: passed\n  Log:\n    ### Implementation results\n    - browser: failed'
+            self.assertEqual(self.state(scoped), 'missing')
+            self.assertEqual(self.state(scoped + '\n### Implementation results\n- tests: passed'), 'passed')
+        self.assertEqual(self.state('- tests: passed; Log: note; browser: failed'), 'passed')
+        self.assertEqual(self.state('- tests: failed; Log: note; tests: passed (rerun; supersedes earlier result)'), 'attention')
+
+    def test_diagnostic_rerun_movement_preserves_fragment_history(self):
+        rerun = 'Run browser: passed (rerun; supersedes earlier result)'
+        hostile = '<script>alert("diagnostic")</script>'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            for store in ('central', 'legacy'):
+                path = root / store / 'same'
+                path.mkdir(parents=True)
+                for metadata in ('  Log:', '  - Note: inline', '  tests: passed; Source: inline'):
+                    first = '- tests: passed; Run browser: failed'
+                    body = first + '\n' + metadata + '\n    ' + hostile + '\n    ' + rerun
+                    for later, expected in (('', 'attention'),
+                                            ('\n- tests: passed (rerun; supersedes earlier result)', 'attention'),
+                                            ('\n  ' + rerun, 'passed')):
+                        plan = '## Validation Performed\n' + body + later
+                        (path / 'plan.md').write_text(plan)
+                        task = gui.Task('same', store, path, root)
+                        detail = gui.validation_details(task)
+                        for fragment in (gui.validation_cell(plan, '/task/same'), detail):
+                            self.assertIn('validation-' + expected, fragment)
+                        self.assertIn(html.escape(body), detail)
+                        self.assertNotIn('<script>', detail)
+                        self.assertIn('path=' + quote(str(path), safe=''), detail)
+                        self.assertIn('active_repo=' + quote(str(root), safe=''), detail)
+                        if 'tests: passed (rerun' in later:
+                            self.assertIn('Partially superseded record', detail)
+                        # An independent peer failure cannot disappear on browser resolution.
+                        self.assertEqual(gui.validation_state(plan + '\n  sibling: failed'), 'attention')
+
+    def test_unnamed_instruction_tail_cannot_resolve_failure(self):
+        body = '- browser: failed\n- Run tests; browser: passed (rerun; supersedes earlier result)'
+        self.assertEqual(self.state(body), 'attention')
+        self.assertEqual(self.state(body + '\n- browser: passed (rerun; supersedes earlier result)'), 'passed')
+
+    def test_nested_legacy_list_results_are_not_discarded(self):
+        for result, expected in (('lint failed', 'attention'), ('lint passed', 'passed'),
+                                 ('lint something unfamiliar', 'recorded')):
+            for indent in ('', '  ', '    '):
+                with self.subTest(result=result, indent=indent):
+                    self.assertEqual(self.state('- tests: passed\n' + indent + '- ' + result), expected)
+
     def test_fragment_incomplete_reason(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
@@ -55,7 +175,11 @@ class Validation(unittest.TestCase):
                     'exit 1': 'attention', 'exit 0': 'passed', 'unknown': 'recorded',
                     'not executed': 'recorded', 'not verified': 'recorded', 'pending': 'recorded',
                     'unavailable': 'attention', 'blocked': 'attention', 'skipped': 'recorded',
-                    'unfamiliar wording': 'recorded'}
+                    'unfamiliar wording': 'recorded', 'exit code 2': 'attention',
+                    'exit status: 3': 'attention', 'not OK': 'attention',
+                    'not successful': 'attention', 'passed?': 'recorded',
+                    'OK': 'passed', 'succeeded': 'passed', 'successful': 'passed',
+                    'failed — planning-only expected output': 'attention'}
         for result, expected in outcomes.items():
             for shape in ('- browser: {}', '- tests: passed; browser: {}',
                           '- tests: passed\n  browser: {}', '- tests: passed\n  - browser: {}'):
@@ -90,6 +214,22 @@ class Validation(unittest.TestCase):
         self.assertEqual(self.state('- tests and browser: failed\n- tests and browser: ' + rerun), 'attention')
         self.assertEqual(self.state('- : failed\n- : passed (rerun; supersedes earlier result)'), 'attention')
 
+    def test_partial_resolution_preserves_record_and_active_reason(self):
+        body = '- tests: passed\n  browser: failed\n- tests: passed (rerun; supersedes earlier result)'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / 'plan.md').write_text('## Validation Performed\n' + body)
+            detail = gui.validation_details(gui.Task('checks', 'legacy', path, path))
+            self.assertIn('Partially superseded record — Needs attention', detail)
+            self.assertIn('browser: failed', detail)
+            self.assertIn(html.escape(body.split('\n- tests:')[0]), detail)
+
+    def test_metadata_cannot_inject_compound_reruns(self):
+        for key in ('Command', 'Log', 'Source', 'Tier', 'Note'):
+            body = '- browser: failed\n- ' + key + ': diagnostic; browser: passed (rerun; supersedes earlier result)'
+            with self.subTest(key=key):
+                self.assertEqual(self.state(body), 'attention')
+
     def test_sequential_scope_boundaries(self):
         rerun = '- tests: passed (rerun; supersedes earlier result)'
         for boundary in ('### Context', '### Development history', '- Context:',
@@ -116,6 +256,8 @@ class Validation(unittest.TestCase):
                         ('- tests: passed; browser: failed\n- tests: passed (rerun; supersedes earlier result)', 'attention', 'browser: failed'),
                         ('- tests: passed\n  browser: exit 1\n### Development history\n- browser: passed (rerun; supersedes earlier result)', 'attention', 'browser: exit 1'),
                         ('- browser: not executed\n- substitute: passed — approved substitution', 'recorded', 'browser: not executed'),
+                        ('- tests: passed\n  - lint failed', 'attention', 'lint failed'),
+                        ('- tests: passed\n  browser: expected to run later', 'recorded', 'browser: expected'),
                         ('### Context\n- tests: passed', 'missing', 'No executed'),
                     ):
                         plan = '## Validation Performed\n' + body
@@ -137,7 +279,7 @@ class Validation(unittest.TestCase):
                      '- tests: passed\n  browser — unknown'):
             with self.subTest(body=body):
                 self.assertEqual(self.state(body), 'recorded')
-        for body in ('- Run tests: passed', '- Note: not run', '- Command: echo failed'):
+        for body in ('- Run tests', '- Note: not run', '- Command: echo failed'):
             self.assertEqual(self.state(body), 'missing')
 
     def test_fenced_headings_cannot_truncate_evidence(self):
@@ -151,7 +293,7 @@ class Validation(unittest.TestCase):
             self.assertNotIn('other: failed', detail)
 
     def test_no_evidence(self):
-        for body in ('', '- <commands/results>', '- TODO', '- Pending.', '- <command> — <result, including counts/output highlights>\n- Code best-practices checklist applied — see `prompts/prompt_instructions.md` "Code Best Practices".'):
+        for body in ('', '- <check-name>: <outcome>\n  Command: <command>\n  Tier: <tier>\n  Log: <log>', '- <commands/results>', '- TODO', '- Pending.', '- <command> — <result, including counts/output highlights>\n- Code best-practices checklist applied — see `prompts/prompt_instructions.md` "Code Best Practices".'):
             with self.subTest(body=body):
                 self.assertEqual(self.state(body), 'missing')
         self.assertIn('Unvalidated', gui.validation_chip('missing'))
@@ -166,10 +308,10 @@ class Validation(unittest.TestCase):
             '- make check passed with 0 failures and 0 errors.': 'passed',
             '- tokens': 'recorded', '- `check-passed-errors.sh`': 'recorded',
             '- Run make check; expected passed.': 'missing',
-            '- Planning-only package/document checks: passed.': 'missing',
+            '- Planning-only package/document checks: passed.': 'passed',
             '- Tests did not pass.': 'attention', '- Tests: not passed.': 'attention',
             '- Tests: 0 failures, 0 errors.': 'recorded',
-            '- Tests: expected passed after implementation.': 'missing',
+            '- Tests: expected passed after implementation.': 'recorded',
             '- Tests: passed?': 'recorded', '- Tests: not successful.': 'attention',
             '- `make check`: not OK.': 'attention',
             '- Tests: not all passed.': 'attention',

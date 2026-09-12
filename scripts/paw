@@ -594,6 +594,9 @@ _validation_policy_prompt_note() {
 Validation policy reminder:
 - Run the validation decision ladder from the task plan before handoff.
 - Start with targeted changed-area validation, then escalate when the plan or risk requires it.
+- Run the named full local validation command after the final implementation change before implement/diagnose completion, including batch, GUI, and docs-only runs.
+- Discover and record the repository full command in preflight if an older plan omits it; missing tools or failed checks block completion. Reuse a successful full run on final code; later implementation changes require another full run.
+- Record one named outcome per required check with Command/Tier/Log metadata; only an explicit successful same-name rerun supersedes earlier evidence.
 - Record `Validation tier chosen: <targeted|broader|full>` and the rationale in `plan.md`.
 EOF
 }

@@ -1,5 +1,7 @@
 # PAW Test Suite
 
+Implement/diagnose completion requires full local validation after final changes, including batch, GUI and docs-only tasks. See [validation policy and recorded evidence](../examples/docs/testing.md).
+
 Bash tests for the PAW scripts, written with [bats-core](https://github.com/bats-core/bats-core).
 
 ## Install bats-core
@@ -140,3 +142,5 @@ GUI Bats fixtures likewise use ephemeral ports and per-test state. Default-port
 behavior is asserted at the launcher boundary without binding port 8765; a
 cleanup regression checks that an independent fixture stays alive. Cleanup must
 never match processes by port or stop a live dashboard to make tests pass.
+
+The recorded-evidence parser/fragment matrix also covers instruction-like check names, exact-name reruns, all reserved metadata labels with multiline indentation ownership, compound tails, sibling resumption, diagnostic scope headings and movement of reruns into/out of diagnostics. Central/legacy fragments retain escaped history and task identity. The Chrome journey reproduces both reviewed false-Passed cases and checks dashboard/detail agreement, unrelated versus exact reruns and disclosure state through polling.

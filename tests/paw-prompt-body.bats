@@ -634,6 +634,7 @@ capture_prototype_source() {
   prompt_contains "Run the validation decision ladder"
   prompt_contains "targeted changed-area validation"
   prompt_contains "Validation tier chosen"
+  prompt_contains "Run the named full local validation command after the final implementation change"
 }
 
 @test "paw implement: records prototype ownership for tracked paths changed during implementation" {
@@ -825,6 +826,9 @@ MD
   prompt_contains "Run the validation decision ladder"
   prompt_contains "targeted changed-area validation"
   prompt_contains "Validation tier chosen"
+  prompt_contains "Run the named full local validation command after the final implementation change"
+  prompt_contains "including batch, GUI, and docs-only runs"
+  prompt_contains "missing tools or failed checks block completion"
 }
 
 @test "paw diagnose: haiku is rejected by quality guardrail on claude backend" {

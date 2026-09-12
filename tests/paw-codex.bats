@@ -130,7 +130,7 @@ args_not_contain() {
   run "$PAW" implement my-task
   [ "$status" -eq 0 ]
   args_not_contain "--max-turns"
-  args_not_contain "100"
+  ! grep -qxF "100" "$BATS_TEST_TMPDIR/codex.args"
 }
 
 @test "codex: --ephemeral flag present in every invocation" {

@@ -50,7 +50,7 @@ Future top-level `paw` commands should extend the shared shell scaffolding inste
 - Reuse `scripts/lib/task_store.sh` for task package creation, lookup, repo-wide listing, archive moves, migration, current-status field extraction, and task eligibility/running-state predicates; do not hard-code new `$PWD/.agent/<task>` lookups.
 - Reuse `scripts/lib/gui_lifecycle.sh` for managed GUI PID/URL metadata and process signalling; keep browser-facing GUI actions local-only, routed through existing `scripts/paw` commands, and constrained to task packages resolved from the central/legacy task listing.
 - Preserve existing task-package semantics unless the task plan explicitly changes them; shared scaffolding should not silently widen workflow behavior.
-- Preserve the targeted-first validation contract: prompt and template changes should name changed-area checks, escalation triggers, and the recorded validation tier/rationale while keeping `make check` as the canonical full-suite gate.
+- Implement/diagnose completion requires full local validation on final changes, including batch, GUI and docs-only runs. See [canonical validation policy and evidence format](../examples/docs/testing.md).
 - If a command introduces a command-specific task artifact (for example `review.md` for `paw review`), seed it deterministically and document the lifecycle contract in the operator docs.
 - When a command adapts an upstream skill or workflow, record the exact upstream skill files inspected and the repo touchpoints inspected in the child task package so future resumes know what source material actually informed the implementation.
 - Keep task-package semantics single-task and deterministic unless an approved plan explicitly changes that contract.

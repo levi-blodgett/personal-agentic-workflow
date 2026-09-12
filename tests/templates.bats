@@ -115,6 +115,13 @@ TEMPLATES_DIR="$REPO_ROOT/templates"
   grep -qF -- "- Next work: <next concrete step; use \"Review.\" when Estimated completion is 100%>" "$TEMPLATES_DIR/plan.md"
 }
 
+@test "templates: completion requires final full validation and old-plan discovery" {
+  grep -qF "Every implement/diagnose completion" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "discover and record" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Full local validation:" "$TEMPLATES_DIR/plan.md"
+  grep -qF "after the final implementation change" "$TEMPLATES_DIR/plan.md"
+}
+
 @test "templates: plan template seeds targeted validation contract shape" {
   grep -qF "Targeted validation:" "$TEMPLATES_DIR/plan.md"
   grep -qF "Escalate to broader/full validation when:" "$TEMPLATES_DIR/plan.md"

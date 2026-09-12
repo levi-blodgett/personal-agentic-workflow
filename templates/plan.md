@@ -58,6 +58,7 @@ Stop and ask before:
 <!-- `paw afk` replays runnable backticked commands from this section. Prefer
      one runnable command per bullet. -->
 - Targeted validation: `<changed-area command>` — <why this covers the changed behavior>
+- Full local validation: `<repository full command>` — required after the final implementation change for every implement/diagnose completion, including batch, GUI and docs-only work; missing tools/failures block completion. Reuse a successful full run on final code.
 - Escalate to broader/full validation when: <shared/high-risk files, workflow/CI/security changes, targeted failures, unclear blast radius, explicit user/reviewer request, or PR-ready handoff>
 - Record the validation tier chosen and rationale in Validation Performed.
 - `git status` review before handoff.
@@ -73,7 +74,14 @@ Stop and ask before:
 
 ## Validation Performed
 
-- <command> — <result, including counts/output highlights>
+### Implementation results
+
+- <check-name>: <outcome>
+  Command: <command>
+  Tier: <targeted|broader|full>
+  Log: <result details or log path>
+<!-- Keep Context/Development history separate. Preserve original required checks;
+     only an explicit successful same-name rerun supersedes prior evidence. -->
 - Code best-practices checklist applied — see `prompts/prompt_instructions.md` "Code Best Practices".
 
 ## Remaining Work

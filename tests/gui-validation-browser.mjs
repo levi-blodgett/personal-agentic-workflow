@@ -167,7 +167,42 @@ try {
     record(nested + '\n- browser: passed (rerun; supersedes earlier result)');
     await state('passed', true);
   }
+  for (const [check, expected] of [
+    ['browser: unknown', 'recorded'], ['browser: expected to run later', 'recorded'],
+    ['browser: blocked', 'attention'], ['lint failed', 'attention'],
+  ]) {
+    record('- tests: passed\n  - ' + check);
+    await until('new uncertain/adverse evidence', () => evaluate(
+      `document.querySelector('.validation-evidence')?.textContent.includes(${JSON.stringify(check)})`));
+    await state(expected, true);
+  }
   console.log('PASS: parent reruns preserve nested/compound failures until an exact browser rerun');
+
+  const detailUrl = await evaluate('location.href');
+  for (const [name, initial] of [
+    ['Run browser', '- tests: passed\n- Run browser: failed'],
+    ['browser', '- browser: failed\n- tests: passed\n  Log:\n    ' + hostile +
+      '\n    browser: passed (rerun; supersedes earlier result)'],
+  ]) {
+    const unrelated = initial + '\n- tests: passed (rerun; supersedes earlier result)';
+    for (const [body, expected] of [
+      [initial, 'attention'], [unrelated, 'attention'],
+      [unrelated + '\n- ' + name + ': passed (rerun; supersedes earlier result)', 'passed'],
+    ]) {
+      record(body);
+      await until('review regression evidence polls into detail', () => evaluate(
+        `Array.from(document.querySelectorAll('.validation-evidence')).map(e => e.textContent).join('\\n') === ${JSON.stringify(body)}`));
+      await state(expected, true);
+      assert.equal(await evaluate("document.querySelector('#validation').open"), true);
+      assert.equal(await evaluate("document.querySelector('#validation script') === null && !globalThis.pawHostileExecuted"), true);
+      await call('Page.navigate', { url });
+      await state(expected);
+      await call('Page.navigate', { url: detailUrl });
+      await state(expected, true);
+      await until('review regression disclosure reopens from hash', () => evaluate("document.querySelector('#validation').open"));
+    }
+  }
+  console.log('PASS: reviewed name/Log failures agree across dashboard and detail; only real exact reruns resolve');
 
   await evaluate("Array.from(document.querySelectorAll('a')).find(a => a.textContent === 'Open plan.md source').focus()");
   await key('Enter', 'Enter', 13);

@@ -107,7 +107,7 @@ Stop only for approval-boundary crossings or when the approved plan no longer gi
 
 When the last `- [ ]` flips to `- [x]`, run the **Post-Implementation Wrap-Up** gate:
 
-1. Run the validation decision ladder from the plan's "Validation Contract"; record `Validation tier chosen: <targeted|broader|full>` and the rationale in `plan.md` → "Validation Performed". Failures block wrap-up.
+1. Every implement/diagnose completion (including batch, GUI and docs-only work) requires the named full local validation command after the final implementation change. Reuse a successful full run on final code; subsequent implementation changes require a new full run. Missing tools or failed checks block 100%/Review. Run the validation decision ladder from the plan's "Validation Contract"; record `Validation tier chosen: <targeted|broader|full>` and the rationale in `plan.md` → "Validation Performed". Failures block wrap-up.
    - Start with targeted changed-area validation for the files and behavior changed.
    - Escalate to broader or full validation for shared/high-risk changes, workflow/CI edits, security-sensitive areas, failures in targeted checks, explicit user/reviewer request, unclear blast radius, or PR-ready handoff when full validation has not otherwise been run.
 2. Walk "Durable Documentation Requirements"; update stale docs.
@@ -126,7 +126,7 @@ When stopping: summarize boundary, impacted files, options, recommended next ste
 
 ## Implementation Preflight
 
-Before any implementation run: read task docs, inspect `git status` and diff, inspect outward as needed, identify the validation entrypoint, and confirm which durable project docs must change.
+Before any implementation run: read task docs, inspect `git status` and diff, inspect outward as needed, identify the validation entrypoint, and confirm which durable project docs must change. For older plans without a full command, discover and record the canonical repository full local validation command from repository documentation/build targets, or report a specific blocker if none can be established. Routine local checks remain pre-authorized; do not install dependencies or cross external-service boundaries to clear a blocker.
 
 ## Risk Classification
 
@@ -171,7 +171,7 @@ Apply before flipping any `- [ ]` to `- [x]` in `<!-- PAW:IMPLEMENT -->`/`<!-- P
 
 ## Validation Contract
 
-Prefer existing reusable targets. Plans must name targeted changed-area validation first, then explicit escalation triggers for broader or full validation. Full validation remains required for shared/high-risk changes, workflow/CI edits, security-sensitive areas, targeted-check failures, explicit user/reviewer request, unclear blast radius, or PR-ready handoff when full validation has not otherwise been run. Run relevant file-type checks (YAML, shell, JSON, workflow, unit, integration). Record commands run, results, unavailable tools, validation tier chosen with rationale, and the final `git status` plus diff review.
+Prefer existing reusable targets. Plans must name targeted changed-area validation first, the full local command required after final implement/diagnose changes, and explicit escalation triggers for earlier broader or full validation. Plan/edit/read-only review remains proportionate. Record one named outcome per required check, with indented Command/Tier/Log metadata. Preserve failures and missing original checks when substitutes pass; only an explicit successful same-name rerun supersedes that check. Context/Development history is distinct from Implementation results; see examples/docs/testing.md for evidence semantics. Full validation remains required for shared/high-risk changes, workflow/CI edits, security-sensitive areas, targeted-check failures, explicit user/reviewer request, unclear blast radius, or PR-ready handoff when full validation has not otherwise been run. Run relevant file-type checks (YAML, shell, JSON, workflow, unit, integration). Record commands run, results, unavailable tools, validation tier chosen with rationale, and the final `git status` plus diff review.
 
 ## Acceptance Criteria
 

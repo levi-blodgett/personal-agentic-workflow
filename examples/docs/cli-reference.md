@@ -1,5 +1,7 @@
 # CLI Reference
 
+Implement/diagnose completion requires full local validation after final changes, including batch, GUI and docs-only tasks. See [validation policy and recorded evidence](testing.md).
+
 Complete reference for the `paw` CLI subcommands, environment overrides, Makefile targets, and operator-facing runtime behavior.
 
 ## `paw` CLI

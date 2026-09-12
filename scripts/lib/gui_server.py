@@ -400,7 +400,7 @@ def validation_entries(body: str) -> list[str]:
     for line in body.splitlines():
         marker = re.match(r"^\s*(`{3,}|~{3,})", line)
         if current and not fence and not comment and line and not line[0].isspace():
-            entries.append("\n".join(current).strip())
+            entries.append("\n".join(current).strip("\n"))
             current = []
         current.append(line)
         if marker:
@@ -415,8 +415,8 @@ def validation_entries(body: str) -> list[str]:
             if "-->" in line:
                 comment = False
     if current:
-        entries.append("\n".join(current).strip())
-    return [entry for entry in entries if entry]
+        entries.append("\n".join(current).strip("\n"))
+    return [entry for entry in entries if entry.strip()]
 
 
 def _validation_lines(source: str):
@@ -449,14 +449,17 @@ class _ValidationCheck:
     superseded: bool = False
 
 
+_VALIDATION_METADATA = {"note", "provenance", "source", "rationale", "command", "tier", "log", "validation tier chosen"}
+
+
 def _validation_check(text: str, source_index: int, scope: str) -> _ValidationCheck:
     clean = re.sub(r"^(?:[-*]|\d+\.)\s+", "", text.strip())
     named = re.match(r"([^:]*):\s*(.*)", clean)
     name = named[1].strip(" `") if named else ""
     result = named[2] if named else clean
     outcome, diagnostic = _validation_outcome(result, named=bool(name))
-    metadata = {"note", "provenance", "source", "rationale", "command", "tier", "log", "validation tier chosen"}
-    if name.lower() in metadata or re.match(r"(?:run |will |must |should |next |planning[- ]only)", clean, re.I):
+    if (re.fullmatch(r"<[^>]+>:\s*<[^>]+>", clean)
+            or name.lower() in _VALIDATION_METADATA):
         outcome = "missing"
     kind = "context" if outcome == "missing" else "check"
     rerun = (diagnostic.strip().lower().rstrip(".") == "(rerun; supersedes earlier result)"
@@ -476,10 +479,10 @@ def _validation_outcome(text: str, *, named: bool) -> tuple[str, str]:
         if match:
             tail = text[match.end():].strip()
             return ("recorded" if outcome == "passed" and tail.startswith("?") else outcome), tail
-    if re.match(r"(?:run |will |must |should |expected |next |code best-practices checklist applied)", text, re.I):
-        return "missing", text
     if named:
         return "recorded", text
+    if re.match(r"(?:run |will |must |should |expected |next |code best-practices checklist applied)", text, re.I):
+        return "missing", text
     if re.fullmatch(r"(?:<[^>]+>(?:\s*—\s*<[^>]+>)?|todo|pending|not yet recorded)[.]?", text, re.I):
         return "missing", text
     if re.search(r"\bplanning[- ]only\b|\bplanning (?:investigation|validation) only\b", text, re.I):
@@ -507,27 +510,51 @@ def _validation_scope(line: str) -> str:
         return marker
     if marker == "implementation results":
         return "implementation"
-    if re.match(r"planning (?:investigation|validation) only\b", marker):
+    if re.fullmatch(r"planning (?:investigation|validation) only", marker):
         return "context"
     return ""
+
+
+def _validation_records(sources: list[str]):
+    """Yield real records with source identity after diagnostic ownership is resolved."""
+    metadata_indent = None
+    for index, source in enumerate(sources):
+        for line in _validation_lines(source):
+            indent = len(line.expandtabs(4)) - len(line.expandtabs(4).lstrip())
+            if metadata_indent is not None:
+                if indent > metadata_indent:
+                    continue
+                metadata_indent = None
+            parts = []
+            # A semicolon starts another check only with an explicit named result.
+            for part in re.split(r";\s*(?=[^;():]+:)", line):
+                clean = re.sub(r"^(?:[-*]|\d+\.)\s+", "", part.strip())
+                name = clean.partition(":")[0].strip(" `").lower()
+                if ":" in clean and name in _VALIDATION_METADATA:
+                    metadata_indent = indent
+                    break
+                parts.append(part)
+            yield index, parts, indent
 
 
 def _validation_checks(sources: list[str]) -> list[_ValidationCheck]:
     checks = []
     scope = "implementation"
-    for index, source in enumerate(sources):
-        for line in _validation_lines(source):
-            boundary = _validation_scope(line) if not line[0].isspace() else ""
+    for index, parts, indent in _validation_records(sources):
+        for line in parts:
+            boundary = _validation_scope(line) if indent == 0 else ""
             if boundary:
                 scope = boundary
-            if boundary or line.startswith("#"):
+            if boundary or line.lstrip().startswith("#"):
                 checks.append(_ValidationCheck(index, "context", scope, "", "missing", "", line))
+                break
+            if (indent and not re.match(r"\s*(?:[-*]|\d+\.)\s+", line)
+                    and not re.search(r":| [—–] ", line)):
                 continue
-            if line != source.splitlines()[0] and not re.search(r":| [—–] ", line):
-                continue
-            # A semicolon starts another check only with an explicit named result.
-            for part in re.split(r";\s*(?=[^;():]+:)", line):
-                checks.append(_validation_check(part, index, scope))
+            check = _validation_check(line, index, scope)
+            checks.append(check)
+            if check.kind == "context":
+                break  # Unnamed instructions cannot introduce compound execution tails.
     return checks
 
 
@@ -539,7 +566,7 @@ def _validation_sources(plan: str) -> list[str]:
         headline = next(_validation_lines(source), "")
         if headline == "## Validation Performed":
             active = True
-            remainder = source.partition("\n")[2].strip()
+            remainder = source.partition("\n")[2].strip("\n")
             if remainder:
                 sources.append(remainder)
         elif active and headline.startswith("## "):
@@ -563,7 +590,8 @@ def validation_summary(plan: str) -> dict:
         owned = [check for check in executed if check.source_index == index]
         active = [check for check in owned if not check.superseded]
         entries.append({"source": source, "outcome": validation_aggregate({check.outcome for check in active}),
-                        "superseded": bool(owned) and not active})
+                        "superseded": bool(owned) and not active,
+                        "partially_superseded": bool(active) and len(active) < len(owned)})
     state = validation_aggregate({check.outcome for check in executed if not check.superseded})
     return {"state": state, "entries": entries, "checks": checks}
 
@@ -605,6 +633,8 @@ def validation_details(task: Task) -> str:
             "attention": "Needs attention", "passed": "Recorded success",
             "recorded": "Unclassified / skipped", "missing": "No execution evidence / context",
         }[entry["outcome"]]
+        if entry["partially_superseded"]:
+            label = "Partially superseded record — " + label
         records.append(f"<li><strong>{label}</strong><pre class='validation-evidence'>{html.escape(entry['source'])}</pre></li>")
     return (
         "<details id='validation' aria-labelledby='validation-heading'>"

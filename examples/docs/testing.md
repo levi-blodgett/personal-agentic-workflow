@@ -17,7 +17,9 @@ make shellcheck
 make check   # canonical full validation: test + lint + shellcheck
 ```
 
-For day-to-day implementation wrap-up, start with the task plan's targeted changed-area validation and record the validation tier plus rationale in `plan.md`. Escalate to broader or full validation when the change touches shared/high-risk code, workflow or CI files, security-sensitive behavior, targeted checks fail, the blast radius is unclear, a user or reviewer asks for it, or the task is PR-ready and full validation has not otherwise run. `make check` remains the reusable full-suite gate, followed by manual `git status` / `git diff` review. See [`tests/README.md`](../../tests/README.md) for fixture details and per-file coverage.
+Every implement/diagnose completion requires the named full local validation command after the final implementation change, including batch, GUI and docs-only tasks. Start with targeted changed-area checks, escalate earlier for shared/high-risk behavior or failures, then run `PYTHONDONTWRITEBYTECODE=1 make check` on final code. Reuse a successful full run on that final implementation; later implementation changes require another full run. Missing tools and failed checks block completion, including 100%/Review status. Record `Validation tier chosen: full` and the rationale in `plan.md`, followed by status/diff review.
+
+New plans name both targeted and full commands. For older plans, discover and record the canonical repository command from build targets/docs in preflight; if none can be established, report a specific blocker. Routine local validation needs no repeated approval, but this policy does not authorize dependencies or external services. Plan/edit/read-only review stays proportionate. These are agent instructions, not a machine-enforced execution attestation. See [`tests/README.md`](../../tests/README.md) for fixtures and coverage.
 
 Key implementation details:
 
@@ -85,10 +87,42 @@ Supported explicit results include `passed`, `OK`, `succeeded`, `successful`,
 `exit 0`, `failed`, `error`, `blocked`, `unavailable`, `did not pass`,
 `not passed`, `not successful`, and `exit 1` (any nonzero exit). Named `not run`,
 `not yet run`, `not executed`, `has not run`, `skipped` and other incomplete
-results remain Recorded, even alongside success. An explicit result is read
+results remain Recorded, even alongside success. Named future wording such as
+`browser: expected to run later` also remains Recorded. An explicit result is read
 before its diagnostic tail: `failed because expected output differs` remains
 Attention. Unknown results cannot borrow “passed” from their explanations.
 Commands, instructions and `0 failures, 0 errors` alone do not prove success.
+
+Named syntax takes precedence over instruction vocabulary: `Run browser: failed`,
+`next check: failed`, and `planning-only checks: failed` all require Attention.
+Renaming an ordinary check does not change its outcome; keep names stable so
+exact, case-sensitive reruns can resolve their own earlier results.
+
+Reserved metadata labels (case-insensitive, optionally backticked) are `Command`,
+`Tier`, `Log`, `Note`, `Source`, `Provenance`, `Rationale`, and `Validation tier chosen`.
+They are not check names. A plain or bulleted metadata label owns its entire inline
+value and all more-indented following lines, including blank-separated nested lists,
+headings and rerun markers. Parsing resumes at the next nonblank line at the label's
+indentation or less. Tabs use four-column stops. A compound metadata tail also owns
+more-indented continuation lines; real checks before that tail remain active.
+
+```markdown
+- browser: failed
+- tests: passed
+  Log: diagnostic output; browser: passed (rerun; supersedes earlier result)
+    ### Implementation results
+    browser: passed (rerun; supersedes earlier result)
+
+    - deeper diagnostic: passed
+  sibling: failed
+- browser: passed (rerun; supersedes earlier result)
+```
+
+The logged reruns and heading are inert. The dedented real browser rerun resolves
+browser, but the peer `sibling: failed` keeps Attention. Indentation is the supported
+ownership boundary: put every diagnostic continuation deeper than its metadata
+label, or use a fenced block. A same-level named result is a real peer check, not an
+inferred diagnostic continuation. Complete source text remains available in details.
 
 Scope is forward-only. `### Context` and `### Development history` exclude
 subsequent checks from the implementation aggregate until `### Implementation
@@ -106,12 +140,15 @@ names cannot supersede results. Top-level, indented and semicolon-separated
 named checks share the same outcome rules. A tests rerun cannot clear a browser
 failure nested beneath it or in the same compound record. Standalone `OK` and
 legacy command/check results such as `make check passed` remain supported;
-canonical named bullets provide reliable rerun identity. Unsupported result-like
+canonical named bullets provide reliable rerun identity. Indented legacy list
+results use the same recognizer; unfamiliar list results remain Recorded. Unsupported result-like
 lines stay uncertain. Command/Tier/Log and Note/Source/Provenance/Rationale
 metadata, fenced blocks and HTML comments do not invent execution results.
 
 The **Validation details** disclosure retains complete escaped source records,
-including historical failures, diagnostics and scope markers. Reasons identify
+including historical failures, diagnostics and scope markers. A record containing
+both resolved and active checks is labelled partially superseded; its active
+failure remains Attention. Reasons identify
 unresolved checks; the source link opens the exact task's plan. It starts closed
 on ordinary navigation, opens from dashboard evidence links, and supports
 keyboard toggling and polling without losing the open/closed choice.
