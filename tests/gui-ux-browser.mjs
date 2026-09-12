@@ -94,11 +94,17 @@ try {
     if (name === 'reviewed') writeFileSync(join(directory, 'review.md'), '## Review Metadata\n- Task: reviewed\n- Grade: B+\n- Scope Reviewed: fixture delta\n- Quality Threshold: B+\n- Threshold Result: met\n\n## Blocking Production-Readiness Issues\n- None.\n');
     if (name === 'running') { mkdirSync(join(directory, 'runs')); writeFileSync(join(directory, 'runs', 'fixture.gitconfig'), '[paw]\nstatus = running\n'); }
   }
+  const runningLogs = join(repo, '.agent/running/runs');
+  writeFileSync(join(runningLogs, `zz-fixture-${process.pid}.gitconfig`), '[paw]\nstatus = running\nsubcommand = implement\n');
+  writeFileSync(join(runningLogs, 'fixture-gui-implement-running.stdout.log'), 'Output <escaped>\n' + 'long log '.repeat(300));
+  writeFileSync(join(runningLogs, 'fixture-gui-implement-running.stderr.log'), 'Diagnostic text');
+  writeFileSync(join(repo, '.agent/reviewed/contract.md'), '# Document\n\nA [link](https://example.com) and `inline code`.\n\n> Quoted text\n\n```text\n' + 'long code '.repeat(200) + '\n```\n\n| Name | Value |\n| --- | --- |\n| First | One |\n| Second | Two |\n');
   mkdirSync(join(root, 'tasks'));
   if (baseline) writeFileSync(join(root, 'gui_server.py'), execFileSync('git', ['show', 'HEAD:scripts/lib/gui_server.py'], {cwd:checkout}));
   const server = launch('python3', ['-B', '-u', '-c',
     `import sys
 from pathlib import Path
+sys.path.insert(0, ${JSON.stringify(join(checkout, 'scripts/lib'))})
 sys.path.insert(0, ${JSON.stringify(baseline ? root : join(checkout, 'scripts/lib'))})
 import gui_server as gui
 gui.add_repo_to_registry(gui.registry_path(), Path(${JSON.stringify(repo)}), Path(${JSON.stringify(secondRepo)}))
@@ -156,6 +162,142 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
     await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
     await capture('before-mobile');
   } else {
+    await call('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme',value:'dark'}]});
+    assert.equal(await evaluate('getComputedStyle(document.documentElement).colorScheme'), 'dark', 'system dark native controls');
+    await call('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme',value:'light'}]});
+    assert.equal(await evaluate('getComputedStyle(document.documentElement).colorScheme'), 'light');
+    await call('Emulation.setScriptExecutionDisabled', {value:true});
+    await call('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme',value:'dark'}]});
+    await navigate('/');
+    assert.equal(await evaluate('getComputedStyle(document.documentElement).colorScheme'), 'dark');
+    await call('Emulation.setScriptExecutionDisabled', {value:false});
+    await navigate('/');
+    console.log('PASS: Theme system dark/light and no-JavaScript native scheme');
+    assert.equal(await evaluate("document.querySelector('[data-theme-select]')?.value"), 'system', 'labelled theme selector');
+    const scheme = () => evaluate('getComputedStyle(document.documentElement).colorScheme');
+    const os = async value => {
+      await call('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme',value}]});
+      await sleep(50);
+    };
+    const choose = async value => evaluate(`const select = document.querySelector('[data-theme-select]'); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event('change',{bubbles:true}))`);
+    // Native keyboard selection, including persistence before body content is parsed.
+    await evaluate("document.querySelector('[data-theme-select]').focus()");
+    await call('Input.dispatchKeyEvent', {type:'keyDown',key:'d',code:'KeyD',windowsVirtualKeyCode:68,text:'d'});
+    await call('Input.dispatchKeyEvent', {type:'keyUp',key:'d',code:'KeyD',windowsVirtualKeyCode:68});
+
+    await key('Tab','Tab',9);
+    assert.equal(await evaluate("document.querySelector('[data-theme-select]').value"), 'dark');
+    await os('light');
+    assert.equal(await scheme(), 'dark');
+    const probe = await call('Page.addScriptToEvaluateOnNewDocument', {source:`new MutationObserver(() => {
+      if (document.body && !window.firstBodyScheme) window.firstBodyScheme = getComputedStyle(document.documentElement).colorScheme;
+    }).observe(document, {childList:true,subtree:true});`});
+    await navigate('/');
+    assert.equal(await evaluate('window.firstBodyScheme'), 'dark', 'saved Dark precedes body');
+    await call('Page.removeScriptToEvaluateOnNewDocument', {identifier:probe.identifier});
+    await choose('light');
+    await os('dark');
+    assert.equal(await scheme(), 'light');
+    await navigate('/');
+    assert.equal(await scheme(), 'light');
+    await choose('system');
+    assert.equal(await scheme(), 'dark');
+    await os('light');
+    assert.equal(await scheme(), 'light');
+    await evaluate("localStorage.setItem('paw.gui.theme','unexpected')");
+    await navigate('/');
+    assert.equal(await evaluate("document.querySelector('[data-theme-select]').value"), 'system');
+    for (const operation of ['getItem','setItem']) {
+      const failure = await call('Page.addScriptToEvaluateOnNewDocument', {source:`Storage.prototype.${operation} = () => { throw new Error('fixture storage blocked'); };`});
+      await navigate('/');
+      await choose('dark');
+      assert.equal(await scheme(), 'dark');
+      await evaluate("document.querySelector('[data-new-plan] summary').click()");
+      await until('storage failure leaves dialogs usable', () => evaluate("document.querySelector('[data-new-plan] .modal-body').contains(document.activeElement)"));
+      await key('Escape','Escape',27);
+      writeFileSync(join(task, 'plan.md'), plan('Storage failure '+operation).replace('Ready.', 'Storage polling '+operation));
+      await until('storage failure leaves polling usable', () => evaluate(`document.querySelector('#task-list').textContent.includes('Storage polling ${operation}')`));
+      assert.equal(await scheme(), 'dark');
+      await call('Page.removeScriptToEvaluateOnNewDocument', {identifier:failure.identifier});
+    }
+    await navigate('/');
+    await choose('dark');
+    console.log('PASS: Theme keyboard, early saved preference, OS matrix, invalid values and storage read/write failures');
+
+    // Inspect real rendered text and essential boundaries, resolving transparent ancestors.
+    const contrast = async label => {
+      const failures = await evaluate(`(() => {
+        const rgb = value => (value.match(/[\\d.]+/g) || []).map(Number);
+        const luminance = color => rgb(color).slice(0,3).map(v => {v /= 255; return v <= .04045 ? v / 12.92 : ((v+.055)/1.055)**2.4}).reduce((sum,v,i) => sum+v*[.2126,.7152,.0722][i],0);
+        const ratio = (a,b) => {const x=luminance(a),y=luminance(b); return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)};
+        const background = node => {while(node) {const color=getComputedStyle(node).backgroundColor; if(rgb(color).length===3 || rgb(color)[3]===1) return color; node=node.parentElement;} return getComputedStyle(document.body).backgroundColor};
+        const failures=[];
+        for(const node of document.querySelectorAll('body *')) {
+          if(!node.getClientRects().length || getComputedStyle(node).visibility==='hidden') continue;
+          const style=getComputedStyle(node), bg=background(node);
+          if([...node.childNodes].some(n=>n.nodeType===3 && n.textContent.trim()) || node.matches('input:not([type=hidden]),textarea,select')) {
+            const threshold=parseFloat(style.fontSize)>=24 || (parseFloat(style.fontSize)>=18.66 && parseInt(style.fontWeight)>=700) ? 3 : 4.5;
+            if(ratio(style.color,bg)<threshold) failures.push(node.tagName+'.'+node.className+' text '+ratio(style.color,bg).toFixed(2));
+          }
+          if(node.matches('button,input:not([type=hidden]):not([type=checkbox]),textarea,select,.button,.disabled-action') && parseFloat(style.borderWidth)>0) {
+            if(Math.max(ratio(style.borderTopColor,background(node.parentElement)),ratio(bg,background(node.parentElement)))<3) failures.push(node.tagName+'.'+node.className+' boundary');
+          }
+          if(style.outlineStyle!=='none' && parseFloat(style.outlineWidth)>0 && ratio(style.outlineColor,background(node.parentElement))<3) failures.push(node.tagName+' focus');
+        }
+        return failures;
+      })()`);
+      assert.deepEqual(failures, [], label + ' contrast');
+    };
+    for (const palette of ['light','dark']) {
+      await choose(palette);
+      await contrast(palette + ' dashboard');
+      await evaluate(`const sample = document.createElement('div'); sample.id='theme-samples'; sample.innerHTML =
+        ['a','b','c','d','f','unknown'].map(grade => '<span class="review-grade grade-'+grade+'">Grade '+grade+'</span>').join('')+
+        '<span class="disabled-action">Unavailable</span><button disabled>Disabled</button><input disabled value="Disabled input"><div class="flash">Success feedback</div><div class="flash-error">Error feedback</div>';
+        document.querySelector('main').prepend(sample)`);
+      await contrast(palette+' grade/feedback/disabled states');
+      await evaluate("document.querySelector('#theme-samples').remove()");
+      for (const selector of ['.primary','.archive','.danger','button']) {
+        const point = await evaluate(`const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); ({x:r.x+r.width/2,y:r.y+r.height/2})`);
+        await call('Input.dispatchMouseEvent', {type:'mouseMoved',...point});
+        await contrast(palette+' hover '+selector);
+      }
+      await evaluate("document.querySelector('[data-theme-select]').focus()");
+      await contrast(palette + ' focused selector');
+      for (const [width,height,label] of [[1440,900,'desktop'],[1024,768,'laptop'],[390,844,'mobile'],[720,450,'zoom-200']]) {
+        await call('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:label==='zoom-200'?2:1,mobile:false});
+        assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, palette+' '+label+' overflow');
+        await capture('theme-'+palette+'-'+label);
+        await evaluate("document.querySelector('[data-new-plan] summary').click()");
+        await until('theme dialog focus', () => evaluate("document.querySelector('[data-new-plan] .modal-body').contains(document.activeElement)"));
+        await contrast(palette+' dialog');
+        await capture('theme-'+palette+'-dialog-'+label);
+        await key('Escape','Escape',27);
+      }
+    }
+    await call('Emulation.setDeviceMetricsOverride', {width:1440,height:900,deviceScaleFactor:1,mobile:false});
+    await choose('dark');
+    console.log('PASS: Theme contrast and both palettes at desktop/laptop/mobile/200%');
+    for (const palette of ['light','dark']) {
+      await choose(palette);
+      for (const route of ['archive','task/reviewed?doc=contract&path='+encodeURIComponent(join(repo,'.agent/reviewed')),
+        'task/running?path='+encodeURIComponent(join(repo,'.agent/running')),
+        'task/running/stream?path='+encodeURIComponent(join(repo,'.agent/running')), 'missing-theme-page']) {
+        await navigateTo(url + route);
+        assert.equal(await scheme(), palette, palette+' route '+route);
+        await contrast(palette+' route '+route);
+        if (route.includes('running')) {
+          assert.equal(await evaluate("document.querySelector('.log-panel pre')?.textContent.includes('Output <escaped>')"), true);
+        }
+        await capture('theme-'+palette+'-'+route.split('?')[0].replaceAll('/','-'));
+      }
+      await navigate('/');
+    }
+    await choose('dark');
+    console.log('PASS: Theme archive, Markdown, embedded/standalone logs and HTML errors in both palettes');
+
+
+
     assert.equal(await evaluate("document.querySelector('#task-list th').getBoundingClientRect().top <= 240"), true);
     assert.equal(await evaluate("!!document.querySelector('[data-new-plan]')"), true);
     await evaluate("document.querySelector('[data-new-plan] summary').click()");
@@ -186,8 +328,12 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
     await close();
     await openPlan();
     await evaluate("document.querySelector('[data-new-plan] textarea').focus()");
-    writeFileSync(join(task, 'plan.md'), plan('Updated by polling'));
-    await sleep(5500);
+    writeFileSync(join(task, 'plan.md'), plan('Updated by polling') + '\n## Validation Performed\n- Theme fixture: passed.\n');
+    await sleep(11000);
+    assert.equal(await scheme(), 'dark');
+    assert.equal(await evaluate("!!document.querySelector('.validation-passed')"), true);
+    await contrast('dark refreshed validation');
+    assert.equal(await evaluate("document.querySelector('[data-theme-select]').value"), 'dark');
     assert.equal(await evaluate("document.querySelector('[data-new-plan] textarea').value"), 'Unsent draft');
     assert.equal(await evaluate("document.activeElement === document.querySelector('[data-new-plan] textarea')"), true);
     // Focus remains in the dialog in both directions at its keyboard boundaries.
@@ -227,6 +373,7 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
     await evaluate("document.querySelector('[data-doc-preview] [data-modal-close]').click(); window.fetch = window.originalFetch");
     await evaluate(`document.querySelector(${JSON.stringify(previewSelector)}).focus(); document.querySelector(${JSON.stringify(previewSelector)}).click()`);
     await until('real preview', () => evaluate("!!document.querySelector('[data-doc-preview] .document')"));
+    await contrast('dark Markdown preview');
     await capture('after-preview');
     await close();
     assert.equal(await evaluate(`document.activeElement.matches(${JSON.stringify(previewSelector)})`), true);
@@ -257,6 +404,25 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
     assert.equal(await evaluate("document.querySelector('[data-new-plan] textarea').value"), '');
     await evaluate('window.fetch = window.originalFetch');
     console.log('PASS: duplicate submit guard, pending draft freeze and persistent dismissed-action results');
+    await evaluate(`window.postReplies = []; window.fetch = (url, options) => options?.method === 'POST' ?
+      new Promise(resolve => window.postReplies.push(resolve)) : window.originalFetch(url, options);
+      document.querySelector('#task-list form[action$="/edit"]').closest('details').querySelector('summary').click()`);
+    await until('pending edit focused', () => evaluate("document.querySelector('#task-list form[action$=edit]').closest('.modal-body').contains(document.activeElement)"));
+    await evaluate("document.querySelector('#task-list form[action$=edit] button').click()");
+    await close();
+    await openPlan();
+    const replacementDraft = 'Replacement draft\n  exact bytes <&> 🌓';
+    await evaluate(`document.querySelector('[data-new-plan] textarea').value = ${JSON.stringify(replacementDraft)}`);
+    await evaluate("window.postReplies.shift()(Response.json({ok:true,message:'Old edit accepted'}))");
+    await until('old edit completed', () => evaluate("document.querySelector('[data-action-feedback]').textContent === 'Old edit accepted'"));
+    assert.equal(await evaluate("document.querySelector('[data-new-plan]').open"), true);
+    assert.equal(await evaluate("document.querySelector('[data-new-plan] textarea').value"), replacementDraft);
+    assert.equal(await scheme(), 'dark');
+    await close();
+    assert.equal(await evaluate("document.activeElement.matches('[data-new-plan] summary')"), true);
+    await evaluate('window.fetch = window.originalFetch');
+    console.log('PASS: Theme delayed response preserves replacement dialog, exact draft, focus return and mode');
+
 
     // A submitted approval belongs to its own preview, even if another preview opens before its result.
     await evaluate(`window.postReplies = []; window.fetch = (url, options) => options?.method === 'POST' ?
@@ -376,9 +542,12 @@ gui.main()`, '--repo', repo, '--task-home', join(root,'tasks'), '--port','0','--
     console.log('PASS: all-repo listing preserved across switching, exact Plan destination and guarded bulk task identity');
 
     // No-JavaScript fallback uses ordinary GET and POST forms.
+    await os('dark');
     await call('Emulation.setScriptExecutionDisabled', {value:true});
     await navigateTo(url);
     await until('fallback page', () => evaluate("document.readyState === 'complete' && !!document.querySelector('[data-repo-switch]')"));
+    assert.equal(await scheme(), 'dark');
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('.theme-control')).display"), 'none');
     assert.equal(await evaluate("getComputedStyle(document.querySelector('.switch-fallback')).display !== 'none'"), true);
     assert.equal(await evaluate("getComputedStyle(document.querySelector('.selection-fallback')).display !== 'none'"), true);
     await evaluate(`document.querySelector('[data-repo-switch] select').value = ${JSON.stringify(secondRepo)}; document.querySelector('.switch-fallback').focus()`);

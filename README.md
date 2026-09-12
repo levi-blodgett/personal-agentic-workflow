@@ -153,6 +153,8 @@ Live polling preserves eligible task selections, open disclosures and overlays, 
 Dashboard actions stay inline, including Plan/Queue, Edit/Answer Questions, approval previews, Review, Use as Prototype, Archive/Delete/Cancel, selected actions, queue editing/removal, Add repo, and View PR lookup. Feedback reports launch acceptance, not subprocess completion. Filters and the active repo remain selected; successful Add repo switches to that repo. A pending submission blocks overlapping submissions and freezes its submitted inputs until the result arrives, including after dismissal/reopening. Errors retain drafts for deliberate retry; after an uncertain network result, check task state before retrying. Task names, Stream, Home, Archived, and the returned PR link remain explicit navigation links. Ordinary POST fallback remains available; task-detail actions also show inline feedback with JavaScript.
 
 
+The GUI header’s **Theme** selector offers **System** (default), **Light**, and **Dark**. System follows live OS appearance changes. Explicit choices persist in browser storage for the current origin; changing the host or port uses a separate preference. If storage is unavailable, switching still works on the current page. Without JavaScript, pages follow the system appearance and retain native forms.
+
 ## Documentation
 
 - [examples/docs/workflow.md](examples/docs/workflow.md) — end-to-end workflow, task-package contract, review gates, and operational constraints

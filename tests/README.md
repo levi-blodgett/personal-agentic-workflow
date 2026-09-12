@@ -166,3 +166,24 @@ No real model launch or live task is used. Producer regressions cover independen
 review after implementation and canonical plain Grade metadata with pending seeds.
 
 Review quality coverage: `review-record.py` checks completion, exact history bytes, interrupted attempts and archived/ambiguous lineage; the `quality lifecycle` Bats case uses a hermetic reviewer fixture through real CLI dispatch. `gui-prototype.py` exercises row/control/POST refusal and formatted grades; `gui-validation-browser.mjs` retains pending-review recovery alongside delayed-input UX and exact-rerun journeys. The post-spawn reaping example is a planning mechanism demonstration, not a historical launcher fix. Prompt assertions are routing evidence, not model compliance or fresh grades.
+
+### GUI theme evidence
+
+`PYTHONDONTWRITEBYTECODE=1 node tests/gui-ux-browser.mjs` covers System/Light/Dark,
+keyboard selection, preference before body rendering, reload/navigation, live OS
+changes, invalid storage and independent read/write failures, polling, exact dialog
+drafts, Markdown, archive, embedded/standalone logs and HTML errors. It uses the
+existing installed Chrome (`CHROME_PATH` override), Node 22+ and Python/Git fixture;
+no npm packages are needed. Model launches are stubbed and only fixture processes
+are reaped. `--baseline` captures the HEAD renderer with its local import path.
+
+Set `PAW_GUI_EVIDENCE=/absolute/output/directory` to retain PNGs. Both palettes are
+sampled at 1440px, 1024px, 390px and 720px with 2x scale (200%-equivalent layout).
+Computed rendered text must meet 4.5:1 (large text 3:1); essential control and focus
+boundaries meet 3:1. Hover, disabled, feedback and grade states are sampled too.
+Inspect screenshots for clipping and missed surfaces; this is scoped Chromium
+coverage, not a complete accessibility audit or cross-browser certification.
+The combined `PYTHONDONTWRITEBYTECODE=1 node tests/gui-validation-browser.mjs`
+retains the existing light-mode workflows and invokes the theme UX journeys.
+Run `PYTHONDONTWRITEBYTECODE=1 bats tests/gui-server.bats` for HTTP regressions and
+`PYTHONDONTWRITEBYTECODE=1 make check` for required final full local validation.

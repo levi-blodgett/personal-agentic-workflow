@@ -109,9 +109,10 @@ gui.main()`,
   const state = async (value, detail = false) => until(`rendered ${value}`, () =>
     evaluate(`!!document.querySelector(${JSON.stringify((detail ? '#validation ' : '') + '.validation-' + value)})`));
   await call('Page.enable');
+  await call('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme',value:'light'}]});
   await call('Page.navigate', { url });
   await state('missing');
-  assert.equal(await evaluate("getComputedStyle(document.querySelector('.validation-missing')).color"), 'rgb(102, 112, 133)');
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('.validation-missing')).color"), await evaluate("getComputedStyle(document.querySelector('.muted')).color"));
   console.log(`Browser: ${version}; fixture: ${root}; URL: ${url}`);
   console.log('PASS: initial Unvalidated badge is gray');
 
@@ -228,7 +229,7 @@ gui.main()`,
   console.log('PASS: heading-only review retains Run Review recovery and no prototype form');
   writeFileSync(join(task, 'review.md'), `## Review Metadata\n- Task: ${task.split('/').at(-1)}\n- Grade: **B+**.\n- Scope Reviewed: fixture delta\n- Quality Threshold: B+\n- Threshold Result: met\n\n## Blocking Production-Readiness Issues\n- None.\n`);
   await until('clean B+ badge', () => evaluate("document.querySelector('.review-grade.grade-b')?.textContent === 'Review grade: B+'"));
-  assert.equal(await evaluate("getComputedStyle(document.querySelector('.grade-b')).color"), 'rgb(29, 78, 216)');
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('.grade-b')).color"), await evaluate("getComputedStyle(document.querySelector('a:not(.home-link):not(.button)')).color"));
   await sleep(5500);
   assert.equal(await evaluate("document.querySelector('.review-grade').textContent"), 'Review grade: B+');
   writeFileSync(join(task, 'review.md'), `## Review Metadata\n- Task: ${task.split('/').at(-1)}\n- Grade: **A-**.\n- Scope Reviewed: fixture delta\n- Quality Threshold: B+\n- Threshold Result: met\n\n## Blocking Production-Readiness Issues\n- None.\n`);

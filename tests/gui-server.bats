@@ -568,7 +568,7 @@ PYTHON
   grep -q "<span class='validation-chip validation-passed'>Passed</span>" "$BATS_TEST_TMPDIR/polish-index.html"
   grep -q "button:focus-visible,.button:focus-visible,.home-link:focus-visible" "$BATS_TEST_TMPDIR/polish-index.html"
   grep -q ".flash,.flash-error" "$BATS_TEST_TMPDIR/polish-index.html"
-  grep -q ".document table{border:1px solid #dfe3ea}" "$BATS_TEST_TMPDIR/polish-detail.html"
+  grep -q ".document table{border:1px solid var(--line)}" "$BATS_TEST_TMPDIR/polish-detail.html"
 }
 
 @test "paw gui: task detail fragment reflects updated plan and run metadata" {
@@ -2111,4 +2111,23 @@ assert 'approve=implementation' not in utilities.split("<div class='task-utiliti
 assert lifecycle.index('/archive') < lifecycle.index('/delete')
 assert "class='archive'" in lifecycle
 PY
+}
+
+@test "paw gui: shared theme shell initializes before content without server preference forms" {
+  local port=0
+  start_gui "$port"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/theme.html"
+  python3 - "$BATS_TEST_TMPDIR/theme.html" <<'PYTHON'
+from pathlib import Path
+import sys
+page = Path(sys.argv[1]).read_text()
+assert page.index("localStorage.getItem('paw.gui.theme')") < page.index('<body>')
+assert 'name="viewport"' in page
+assert "<label class='theme-control'>Theme <select data-theme-select aria-label='Theme'>" in page
+for preference in ('system', 'light', 'dark'):
+    assert f"<option value='{preference}'>" in page
+assert '@media(prefers-color-scheme:dark)' in page
+assert '.theme-control{display:none' in page
+assert "name='theme'" not in page
+PYTHON
 }
