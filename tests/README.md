@@ -85,4 +85,7 @@ See [Focused regression checks](focused-testing.md).
 
 Counting boundaries and oversized-task success run through `lint-task.bats`.
 CLI, GUI and publication journeys verify that length never blocks workflows. Historical validation links retain named failures;
-`paw-compact.bats` covers interrupted compaction and evidence-reader compatibility.
+`paw-compact.bats` covers fence-safe CLI compaction and retry idempotency.
+`markdown-documents.py` covers the exact reviewed fenced-example regression, fence
+type/length/indentation and false boundaries, complete oversized records, failed writes,
+collisions/symlinks, concurrent edits, retries and task-local evidence preservation.

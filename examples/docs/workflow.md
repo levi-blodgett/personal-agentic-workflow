@@ -54,7 +54,8 @@ adjacent Progress note in the same edit before moving on:
 
 `paw lint` checks sections/status and adjacent progress. AI authors count all physical
 lines and keep Markdown within 150 by shortening or linking valuable detail. Length
-never blocks commands or changes a successful run to failure. `paw compact <task>` moves completed detail to linked bounded files.
+never blocks commands or changes a successful run to failure. `paw compact <task>` moves real completed records to linked history, preserving fenced
+examples and oversized indivisible records intact. AI authors shorten oversized records.
 PAW owns repo-level `.agent/cost-log.md`.
 
 ```markdown

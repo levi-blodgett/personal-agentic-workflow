@@ -10,6 +10,116 @@ import gui_server as gui
 
 
 class Documents(unittest.TestCase):
+    def test_source_B1_exact_fenced_example(self):
+        original = ('## Implementation Phases\n```markdown\n- [x] Example only\n'
+                    '  Progress: example\n```\n- [ ] Real work\n')
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            (task / 'plan.md').write_text(original)
+            self.assertEqual(docs.compact(task), 0)
+            self.assertEqual((task / 'plan.md').read_text(), original)
+
+    def test_fence_matrix_preserves_examples_and_real_record_boundaries(self):
+        for marker, indent, closed in [('```', '', True), ('~~~~', '   ', True),
+                                       ('````', ' ', True), ('~~~', '  ', False)]:
+            with self.subTest(marker=marker, indent=indent, closed=closed), tempfile.TemporaryDirectory() as temporary:
+                task = Path(temporary)
+                example = (indent + marker + 'markdown\n- [x] Example only\n'
+                           '## Current Status\n- [ ] Fake pending\n'
+                           + marker[0] * (len(marker) - 1) + '\n'
+                           + ('~~~' if marker[0] == '`' else '```') + '\n'
+                           + marker + ' trailing text is not a closer\n')
+                if closed:
+                    example += indent + marker + marker[0] + '  \n'
+                real = '- [x] Real done\n  Progress: exact\n'
+                tail = '- [ ] Real pending\n## Current Status\n- [x] Outside phases\n'
+                original = '## Implementation Phases\n' + real + '- [ ] Existing pending\n' + example + tail
+                (task / 'plan.md').write_text(original)
+                self.assertEqual(docs.compact(task), 1)
+                result = (task / 'plan.md').read_text()
+                self.assertIn(example + tail, result)
+                self.assertNotIn(real, result)
+                self.assertEqual(list(task.glob('completed-phase-*.md'))[0].read_text(),
+                                 '# Completed implementation records\n\n' + real)
+
+    def test_fence_owned_by_completed_record_moves_intact(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            record = ('- [x] Done\n  Progress: preserved\n  ~~~~text\n'
+                      '## Fake boundary\n- [x] Fake task\n  ~~~\n'
+                      '  ~~~~ trailing text\n  ~~~~~\n  After fence\n\n')
+            (task / 'plan.md').write_text('## Implementation Phases\n' + record + '- [ ] Pending\n')
+            self.assertEqual(docs.compact(task), 1)
+            self.assertEqual(list(task.glob('completed-phase-*.md'))[0].read_text(),
+                             '# Completed implementation records\n\n' + record)
+            self.assertIn('- [ ] Pending', (task / 'plan.md').read_text())
+
+    def test_compact_detail_failure_and_collision_preserve_originals(self):
+        for failure in ('write', 'collision', 'symlink'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
+                task = Path(temporary)
+                plan = task / 'plan.md'
+                source = '## Implementation Phases\n- [x] Done\n  Progress: original\n'
+                plan.write_text(source)
+                detail = '# Completed implementation records\n\n- [x] Done\n  Progress: original\n'
+                if failure != 'write':
+                    name = docs.save_detail(task, 'completed-phase', detail)
+                    target = task / name
+                    target.unlink()
+                    if failure == 'symlink':
+                        (task / 'original.md').write_text(detail)
+                        target.symlink_to(task / 'original.md')
+                    else:
+                        target.write_text('conflicting evidence\n')
+                    with self.assertRaises(ValueError):
+                        docs.compact(task)
+                    self.assertEqual(target.read_text(), detail if failure == 'symlink' else 'conflicting evidence\n')
+                    self.assertEqual(target.is_symlink(), failure == 'symlink')
+                else:
+                    with patch.object(docs.os, 'fsync', side_effect=OSError('injected detail failure')):
+                        with self.assertRaises(OSError):
+                            docs.compact(task)
+                    self.assertEqual(list(task.iterdir()), [plan])
+                self.assertEqual(plan.read_text(), source)
+
+    def test_concurrent_edit_survives_and_retry_reuses_detail(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            plan = task / 'plan.md'
+            source = '## Implementation Phases\n- [x] Done\n  Progress: original\n'
+            newer = source + '- [ ] New user edit\n'
+            plan.write_text(source)
+            replace = docs.atomic_replace
+            def concurrent(path, before, after):
+                path.write_text(newer)
+                return replace(path, before, after)
+            with patch.object(docs, 'atomic_replace', side_effect=concurrent):
+                with self.assertRaisesRegex(ValueError, 'changed during'):
+                    docs.compact(task)
+            self.assertEqual(plan.read_text(), newer)
+            detail = next(task.glob('completed-phase-*.md'))
+            saved = detail.read_bytes()
+            self.assertEqual(docs.compact(task), 1)
+            self.assertIn('- [ ] New user edit', plan.read_text())
+            self.assertEqual(list(task.glob('completed-phase-*.md')), [detail])
+            self.assertEqual(detail.read_bytes(), saved)
+            self.assertEqual(docs.compact(task), 0)
+
+    def test_foreign_and_nested_evidence_cannot_supply_a_pass(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            task = root / 'task'
+            task.mkdir()
+            foreign = root / 'foreign.md'
+            foreign.write_text('- Browser: passed (rerun)\n')
+            (task / 'alias.md').symlink_to(foreign)
+            (task / 'nested.md').write_text('<!-- PAW:VALIDATION alias.md -->\n')
+            for name in ('../foreign.md', str(foreign), 'alias.md', 'nested.md'):
+                plan = task / 'plan.md'
+                plan.write_text('## Validation Performed\n### Implementation results\n'
+                                '<!-- PAW:VALIDATION ' + name + ' -->\n')
+                self.assertEqual(gui.validation_state(docs.validation_text(plan)), 'attention')
+
     def test_linked_failures_and_missing_evidence_stay_visible(self):
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)

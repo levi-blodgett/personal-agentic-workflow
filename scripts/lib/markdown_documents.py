@@ -69,18 +69,23 @@ def save_detail(parent: Path, label: str, content: str) -> str:
     return name
 
 
-def compact(task: Path) -> int:
-    path = task / 'plan.md'
-    before = path.read_bytes()
-    lines = before.decode().splitlines(keepends=True)
+def completed_records(lines: list[str]) -> tuple[list[str], list[str]]:
+    """Select phase records outside fences; indented fences stay with their record."""
     kept, completed, current = [], [], []
-    active = False
+    active, fence = False, ''
     for line in lines:
+        if fence:
+            (current if current else kept).append(line)
+            if re.fullmatch(r'[ \t]*' + re.escape(fence[0]) +
+                            '{' + str(len(fence)) + r',}[ \t]*(?:\r?\n)?', line):
+                fence = ''
+            continue
+        marker = re.match(r'^[ \t]*(`{3,}|~{3,})([^\r\n]*)', line)
+        if marker and not (marker[1][0] == '`' and '`' in marker[2]):
+            fence = marker[1]
         if line.startswith('## '):
-            if current:
-                completed.append(''.join(current)); current = []
             active = line.startswith('## Implementation Phases')
-        if active and line.startswith('- [x]'):
+        if active and re.match(r'^- \[x\](?:[ \t]|$)', line):
             if current:
                 completed.append(''.join(current))
             current = [line]
@@ -88,10 +93,18 @@ def compact(task: Path) -> int:
             current.append(line)
         else:
             if current:
-                completed.append(''.join(current)); current = []
+                completed.append(''.join(current))
+                current = []
             kept.append(line)
     if current:
         completed.append(''.join(current))
+    return kept, completed
+
+
+def compact(task: Path) -> int:
+    path = task / 'plan.md'
+    before = path.read_bytes()
+    kept, completed = completed_records(before.decode().splitlines(keepends=True))
     if not completed:
         return 0
     # Write each complete checklist record first. Interrupted retries reuse its identity.
@@ -103,9 +116,9 @@ def compact(task: Path) -> int:
         group += record
     groups.append(group)
     for group in groups:
-        name = save_detail(task, 'completed-phase', group.rstrip() + '\n')
+        name = save_detail(task, 'completed-phase', group)
         links.append(f'- [Completed phases]({name})\n')
-    after = ''.join(kept).rstrip() + '\n\n### Completed phase details\n' + ''.join(links)
+    after = ''.join(kept) + '\n\n### Completed phase details\n' + ''.join(links)
     atomic_replace(path, before, after.encode())
     return len(completed)
 

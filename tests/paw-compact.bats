@@ -112,3 +112,35 @@ MD
   run python3 -B "$SCRIPTS_DIR/../tests/markdown-documents.py"
   [ "$status" -eq 0 ]
 }
+
+@test "paw compact: fenced examples remain exact beside archived real records" {
+  local task_dir="$REPO/.agent/fenced"
+  mkdir -p "$task_dir"
+  cat > "$task_dir/plan.md" <<'MD'
+## Implementation Phases
+~~~markdown
+- [x] Example
+## Fake boundary
+~~~
+- [x] Real completed
+  Progress: finished
+- [ ] Real pending
+MD
+  run "$PAW" compact fenced
+  [ "$status" -eq 0 ]
+  run python3 - "$task_dir" <<'PYTEST'
+from pathlib import Path
+import sys
+task = Path(sys.argv[1])
+plan = (task / 'plan.md').read_text()
+assert '~~~markdown\n- [x] Example\n## Fake boundary\n~~~\n' in plan
+assert '- [ ] Real pending\n' in plan
+assert '- [x] Real completed' not in plan
+assert 'Real completed' in next(task.glob('completed-phase-*.md')).read_text()
+PYTEST
+  [ "$status" -eq 0 ]
+  cp "$task_dir/plan.md" "$task_dir/before"
+  run "$PAW" compact fenced
+  [ "$status" -eq 0 ]
+  cmp "$task_dir/before" "$task_dir/plan.md"
+}
