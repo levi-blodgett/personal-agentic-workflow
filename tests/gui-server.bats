@@ -2131,3 +2131,22 @@ assert '.theme-control{display:none' in page
 assert "name='theme'" not in page
 PYTHON
 }
+
+@test "paw gui: transient navigation messages are escaped and marked on every route" {
+  local port=0
+  start_gui "$port"
+  for route in / /archive /task/gui-task; do
+    for level in notice error; do
+      fetch_gui "$port" "$route?message=%3Cscript%3Ealert(1)%3C%2Fscript%3E&level=$level" "$BATS_TEST_TMPDIR/message.html"
+      python3 - "$BATS_TEST_TMPDIR/message.html" "$level" <<'PYTHON'
+import sys
+from pathlib import Path
+page = Path(sys.argv[1]).read_text()
+kind = 'flash-error' if sys.argv[2] == 'error' else 'flash'
+assert f"<p class='{kind}' data-transient-message role='status'>&lt;script&gt;alert(1)&lt;/script&gt;" in page
+assert "<button type='button' data-message-dismiss aria-label='Dismiss message'></button>" in page
+assert '<script>alert(1)</script>' not in page
+PYTHON
+    done
+  done
+}

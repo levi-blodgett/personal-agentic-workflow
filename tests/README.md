@@ -187,3 +187,16 @@ The combined `PYTHONDONTWRITEBYTECODE=1 node tests/gui-validation-browser.mjs`
 retains the existing light-mode workflows and invokes the theme UX journeys.
 Run `PYTHONDONTWRITEBYTECODE=1 bats tests/gui-server.bats` for HTTP regressions and
 `PYTHONDONTWRITEBYTECODE=1 make check` for required final full local validation.
+
+### Transient GUI messages
+
+The UX harness also checks keyboard dismissal, navigation route/type parity,
+4999/5000 ms boundaries using controlled message timers, and a foreground elapsed
+smoke (100 ms observation interval, at most 1 second scheduling tolerance).
+It covers inline retry/replacement, identical text, dismissal followed by a new
+result, empty live regions, real polling without deadline reset/resurrection,
+draft/selection/focus preservation, escaped long text, PR links, narrow light/dark
+layouts and readable no-JavaScript POST feedback with hidden close controls.
+Use the installed-browser prerequisites above; combined browser validation includes
+these checks. Controlled time intercepts only five-second timers; real fetch and
+2500 ms polling continue. Fixture POST replies avoid real launches or PR requests.

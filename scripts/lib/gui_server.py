@@ -1430,7 +1430,7 @@ th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vert
 .action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid var(--control);border-radius:6px;padding:5px 9px;background:var(--subtle);color:var(--muted)}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.queued-prompt{white-space:pre-wrap;overflow-wrap:anywhere;min-width:18ch;max-width:60ch;margin:0}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
 body{color:var(--ink);background:var(--canvas)}*{box-sizing:border-box}main.shell{padding-block:16px}.site-header{background:var(--surface);color:var(--ink);border-bottom:1px solid var(--line);padding:14px 0}.site-header h1{order:-1;font-size:18px}.home-link{color:var(--muted);border:0;padding:4px}.home-link:hover{background:var(--canvas)}.header-context{color:var(--muted)}
 button,.button,input,select,textarea{border-radius:7px}button,.button{white-space:nowrap}button,.button{padding:6px 10px}a:hover{text-decoration:underline}:focus-visible{outline:3px solid var(--focus);outline-offset:3px}.primary{background:var(--accent);border-color:var(--focus);color:#fff}.primary:hover{background:var(--accent-hover)}.archive{background:var(--amber-bg);border-color:var(--amber);color:var(--amber)}.archive:hover{background:var(--amber-hover)}.danger{background:var(--red-bg)}.lifecycle-actions{margin-top:10px;flex-wrap:nowrap}.task-utilities{font-size:13px}
-#dashboard-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}#dashboard-controls>.repo-toolbar{margin:0}.repo-toolbar select{width:clamp(160px,30vw,420px);max-width:100%}.repo-management,.filter-disclosure{margin:0;font-size:13px}.repo-management>summary,.filter-disclosure>summary{cursor:pointer;padding:7px}.repo-management[open],.filter-disclosure[open]{flex-basis:100%}.dashboard-actions{margin:0;gap:var(--space)}.selected-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.js .switch-fallback,.js .selection-fallback{display:none}.selection-enhanced{display:none}.js .selection-enhanced{display:inline-block}[hidden]{display:none!important}.queue-trigger{font-size:13px}.toolbar label{max-width:100%;min-width:0}.toolbar input{max-width:100%}[data-action-feedback]:empty{display:none}.table-wrap{max-width:100%;border-radius:8px}#task-list table{min-width:1180px}.modal-body .table-wrap table{min-width:560px}th{background:var(--subtle);letter-spacing:.035em}th,td{padding:10px}.task-title{overflow-wrap:anywhere}.modal-panel{padding:16px}.modal-body{border-radius:12px;max-height:calc(100dvh - 32px);width:min(760px,100%);padding:20px;overscroll-behavior:contain;overflow-wrap:anywhere}.modal-body h2{font-size:19px;margin:0 0 12px}.modal-body input{max-width:100%}.modal-body code{overflow-wrap:anywhere}.modal-body .document{padding:14px}.modal-body .action-row{position:sticky;bottom:-20px;padding-block:12px;background:var(--surface)}.plan-destination{font-size:13px;color:var(--muted)}.plan-destination code{font-size:12px}.task-metadata{margin:14px 0}.task-metadata>summary{cursor:pointer;font-weight:600}.tabs{display:flex;gap:16px;flex-wrap:wrap}.tabs a{margin:0}
+#dashboard-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}#dashboard-controls>.repo-toolbar{margin:0}.repo-toolbar select{width:clamp(160px,30vw,420px);max-width:100%}.repo-management,.filter-disclosure{margin:0;font-size:13px}.repo-management>summary,.filter-disclosure>summary{cursor:pointer;padding:7px}.repo-management[open],.filter-disclosure[open]{flex-basis:100%}.dashboard-actions{margin:0;gap:var(--space)}.selected-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.js .switch-fallback,.js .selection-fallback{display:none}.selection-enhanced{display:none}.js .selection-enhanced{display:inline-block}[hidden]{display:none!important}.queue-trigger{font-size:13px}.toolbar label{max-width:100%;min-width:0}.toolbar input{max-width:100%}[data-action-feedback]:empty{display:none}[data-transient-message],[data-action-feedback]{position:relative;overflow-wrap:anywhere;padding-right:48px}[data-message-dismiss]{display:none;position:absolute;right:6px;top:4px;min-width:32px;min-height:32px;padding:2px;color:inherit;background:transparent;border:0}.js [data-message-dismiss]{display:block}[data-message-dismiss]::before{content:"×";font-size:22px}.table-wrap{max-width:100%;border-radius:8px}#task-list table{min-width:1180px}.modal-body .table-wrap table{min-width:560px}th{background:var(--subtle);letter-spacing:.035em}th,td{padding:10px}.task-title{overflow-wrap:anywhere}.modal-panel{padding:16px}.modal-body{border-radius:12px;max-height:calc(100dvh - 32px);width:min(760px,100%);padding:20px;overscroll-behavior:contain;overflow-wrap:anywhere}.modal-body h2{font-size:19px;margin:0 0 12px}.modal-body input{max-width:100%}.modal-body code{overflow-wrap:anywhere}.modal-body .document{padding:14px}.modal-body .action-row{position:sticky;bottom:-20px;padding-block:12px;background:var(--surface)}.plan-destination{font-size:13px;color:var(--muted)}.plan-destination code{font-size:12px}.task-metadata{margin:14px 0}.task-metadata>summary{cursor:pointer;font-weight:600}.tabs{display:flex;gap:16px;flex-wrap:wrap}.tabs a{margin:0}
 @media(max-width:640px){#dashboard-controls{gap:8px}.repo-toolbar{width:100%}.repo-toolbar label{flex:1}.repo-toolbar select{width:100%}.dashboard-actions{width:100%}.modal-panel{padding:10px}.modal-body{max-height:calc(100dvh - 20px);padding:14px}.modal-body .action-row{bottom:-14px}.header-row{gap:12px}.site-header h1{overflow-wrap:anywhere}.toolbar-fields{max-width:100%}}
 @media (max-width:640px){.shell{width:min(100% - 20px,1600px)}.header-context{margin-left:0;flex-basis:100%}}
 """
@@ -1743,8 +1743,32 @@ document.addEventListener("DOMContentLoaded", () => {
       if (request === previewRequest) preview.querySelector('[role=status]').textContent = error.message;
     }
   });
+  const messageTimers = new WeakMap();
+  function clearMessage(target) {
+    clearTimeout(messageTimers.get(target));
+    messageTimers.delete(target);
+    if (target.contains(document.activeElement)) {
+      document.querySelector('[data-new-plan] summary, .home-link, header a')?.focus({preventScroll: true});
+    }
+    if (target.hasAttribute('data-action-feedback')) {
+      target.replaceChildren();
+      target.className = '';
+    } else target.remove();
+  }
+  function armMessage(target) {
+    clearTimeout(messageTimers.get(target));
+    const timer = setTimeout(() => {
+      if (messageTimers.get(target) === timer) clearMessage(target);
+    }, 5000);
+    messageTimers.set(target, timer);
+    target.querySelector('[data-message-dismiss]').onclick = () => clearMessage(target);
+  }
+  document.querySelectorAll('[data-transient-message]').forEach(armMessage);
+
   function feedback(message, ok, link = '') {
     const target = document.querySelector('[data-action-feedback]');
+    clearMessage(target);
+    if (!message && !link) return;
     target.className = ok ? 'flash' : 'flash-error';
     target.replaceChildren(document.createTextNode(message));
     if (link) {
@@ -1753,6 +1777,12 @@ document.addEventListener("DOMContentLoaded", () => {
       anchor.textContent = 'Open PR';
       target.append(' ', anchor);
     }
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.dataset.messageDismiss = '';
+    close.setAttribute('aria-label', 'Dismiss message');
+    target.append(close);
+    armMessage(target);
   }
 
   function switchRepo(repo) {
@@ -2793,7 +2823,8 @@ class Handler(BaseHTTPRequestHandler):
         if not message:
             return ""
         class_name = "flash-error" if level == "error" else "flash"
-        return f"<p class='{class_name}'>{html.escape(message)}</p>"
+        return (f"<p class='{class_name}' data-transient-message role='status'>{html.escape(message)}"
+                "<button type='button' data-message-dismiss aria-label='Dismiss message'></button></p>")
 
     def task(self, name: str, doc: str, path_value: str = "", active_repo_value: str = "", message: str = "", level: str = "notice") -> None:
         active_repo, _ = self.selected_repo({"active_repo": [active_repo_value]})

@@ -114,10 +114,18 @@ Use `paw crash-log <task>` for backend failure records.
 | Close, Escape or backdrop click | Dismisses overlay; inside clicks keep it open. Focus stays in the labelled dialog and returns to opener/navigation fallback on close; background scrolling is restored. |
 | Dismiss/reopen an input dialog | Unsent input survives within the current page. Deliberate reload or repo navigation ends that lifetime. |
 | Submit | Inline feedback reports **launch acceptance**, not subprocess completion. Check task/run state and logs. |
-| Pending submission | Overlapping submissions blocked, submitted inputs frozen even after dismissal/reopening. Closing does not cancel work; eventual feedback remains. |
+| Pending submission | Overlapping submissions blocked, submitted inputs frozen even after dismissal/reopening. Closing does not cancel work; eventual feedback appears for five seconds. |
 | Error / uncertain network result | Drafts remain for deliberate retry. Check task state before retrying an uncertain launch. |
 | Late preview/action response | A dismissed/replaced preview is not reopened; an old completion must not discard a newer dialog's draft. |
 | JavaScript disabled | Native GET/POST forms and navigation remain available. Task/Stream/Home/Archived/PR links explicitly navigate. |
+
+Top-of-page notices and errors have a **Dismiss message** button and clear after
+five seconds with JavaScript enabled. Each result gets a fresh countdown; polling
+does not extend it. Dismissal only clears the message, leaving actions, drafts,
+workflow warnings and logs intact. PR links remain usable while displayed; use
+**View PR** again after expiry. Without JavaScript, native feedback stays readable
+and close controls are hidden. A suspended/background browser can delay timers;
+five seconds is the foreground deadline, not a guarantee while suspended.
 
 **Validation details** shows complete escaped evidence and its exact plan source, initially
 collapsed on normal navigation. Dashboard evidence links open it; keyboard Space toggles
@@ -128,7 +136,7 @@ to [recorded evidence](testing.md#recorded-validation-in-the-gui).
 `gh pr view <branch> --json url --jq .url` returns an inline PR link (local result page without
 JavaScript). It does not publish or mutate remote/task state. Errors distinguish missing gh,
 deleted branch, authentication/configuration, no PR, invalid URL and other CLI failures;
-CLI diagnostics remain visible and escaped, with an exit-status fallback for empty output.
+CLI diagnostics are escaped, with an exit-status fallback for empty output.
 
 **Theme: System / Light / Dark** defaults to live OS appearance. Explicit choices persist
 per browser origin; a different host/port has separate preferences. Storage failure still

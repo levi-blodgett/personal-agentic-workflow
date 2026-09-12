@@ -162,6 +162,133 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
     await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
     await capture('before-mobile');
   } else {
+    await navigate('/?message=Dismiss%20me');
+    assert.equal(await evaluate("document.querySelector('[data-message-dismiss]')?.getAttribute('aria-label')"), 'Dismiss message');
+    await evaluate("document.querySelector('[data-message-dismiss]').focus()");
+    await key('Enter','Enter',13);
+    assert.equal(await evaluate("!!document.querySelector('[data-transient-message]')"), false);
+    assert.equal(await evaluate("document.activeElement === document.querySelector('.home-link')"), true);
+    console.log('PASS: Message keyboard dismissal');
+    // Control only five-second message timers; real network/polling clocks keep running.
+    const clockScript = await call('Page.addScriptToEvaluateOnNewDocument', {source:`
+      window.messageClock = 0; window.messageJobs = new Map(); let nextMessageJob = -1;
+      const nativeTimeout = window.setTimeout, nativeClear = window.clearTimeout;
+      window.setTimeout = (fn, delay, ...args) => {
+        if (delay !== 5000) return nativeTimeout(fn, delay, ...args);
+        const id = nextMessageJob--; messageJobs.set(id, {at:messageClock + delay, fn}); return id;
+      };
+      window.clearTimeout = id => messageJobs.delete(id) || nativeClear(id);
+      window.advanceMessages = ms => {
+        messageClock += ms;
+        for (const [id, job] of [...messageJobs]) if (job.at <= messageClock) {messageJobs.delete(id); job.fn();}
+      };`});
+    const advance = ms => evaluate(`advanceMessages(${ms})`);
+    const transient = () => evaluate("!!document.querySelector('[data-transient-message]')");
+    for (const route of ['', 'archive', 'task/checks']) {
+      for (const level of ['notice','error']) {
+        await navigateTo(url + route + '?level=' + level + '&message=Timed%20message');
+        await advance(4999);
+        assert.equal(await transient(), true, route + level + ' before deadline');
+        await advance(1);
+        assert.equal(await transient(), false, route + level + ' at deadline');
+        await navigateTo(url + route + '?level=' + level + '&message=Close%20me');
+        await evaluate("document.querySelector('[data-message-dismiss]').click()");
+        assert.equal(await transient(), false, route + level + ' manually dismissed');
+      }
+    }
+    console.log('PASS: Message route/type exact deadline matrix');
+
+    await navigate('/');
+    await evaluate(`window.realMessageFetch = window.fetch;
+      window.fetch = (url, options) => options?.method === 'POST' ? Promise.resolve({json:async () => window.messageReply}) : realMessageFetch(url, options);
+      const form = document.createElement('form'); form.id = 'message-fixture'; form.method = 'post'; document.body.append(form);`);
+    const showMessage = async (message, ok = false, link = '') => {
+      await evaluate(`window.messageReply = ${JSON.stringify({message,ok,link})}; document.querySelector('#message-fixture').requestSubmit()`);
+      await until('fixture message displayed', () => evaluate(`document.querySelector('[data-action-feedback]').textContent.startsWith(${JSON.stringify(message)}) && !document.querySelector('[data-action-feedback]').textContent.includes('Submitting')`));
+    };
+    const feedbackText = () => evaluate("document.querySelector('[data-action-feedback]').textContent");
+    await showMessage('A');
+    assert.equal(await evaluate("!!document.querySelector('[data-action-feedback] [data-message-dismiss]')"), true);
+    await evaluate("document.querySelector('[data-action-feedback] [data-message-dismiss]').click()");
+    assert.equal(await feedbackText(), '');
+    await showMessage('B');
+    await advance(4999);
+    assert.equal(await feedbackText(), 'B');
+    await advance(1);
+    assert.equal(await feedbackText(), '');
+    assert.equal(await evaluate("document.querySelector('[data-action-feedback]').className"), '');
+    console.log('PASS: Message inline dismissal and exact expiry with reusable live region');
+    await showMessage('Old error');
+    await advance(3000);
+    await showMessage('Retry accepted', true);
+    await advance(2000);
+    assert.equal(await feedbackText(), 'Retry accepted', 'old deadline cannot expire retry');
+    await advance(2999);
+    assert.equal(await feedbackText(), 'Retry accepted');
+    await advance(1);
+    assert.equal(await feedbackText(), '');
+    console.log('PASS: Message replacement across old deadline and error/success retry');
+    await showMessage('Same');
+    await advance(4000);
+    await showMessage('Same');
+    await advance(1000);
+    assert.equal(await feedbackText(), 'Same', 'identical repeated text gets a fresh deadline');
+    await evaluate("document.querySelector('[data-action-feedback] [data-message-dismiss]').click()");
+    await showMessage('C');
+    await advance(4000);
+    assert.equal(await feedbackText(), 'C', 'dismissed timer cannot clear C');
+    await advance(1000);
+    assert.equal(await feedbackText(), '');
+    await showMessage('');
+    assert.equal(await evaluate("document.querySelector('[data-action-feedback]').getBoundingClientRect().height"), 0);
+    console.log('PASS: Message identical replacement, dismissal/new result and empty feedback');
+    const hostileMessage = '<img src=x onerror=window.messageInjected=true>' + 'long'.repeat(250);
+    await showMessage(hostileMessage, true, 'https://example.com/pull/123');
+    assert.equal(await evaluate("!!document.querySelector('[data-action-feedback] img') || !!window.messageInjected"), false);
+    assert.equal(await evaluate("document.querySelector('[data-action-feedback] a').href"), 'https://example.com/pull/123');
+    await evaluate("document.querySelector('[data-action-feedback] a').focus()");
+    await advance(5000);
+    assert.equal(await evaluate("document.activeElement === document.querySelector('.home-link')"), true, 'expired focused link returns to stable navigation');
+    for (const palette of ['light', 'dark']) {
+      await call('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:false});
+      await evaluate(`document.documentElement.dataset.theme = '${palette}'`);
+      await showMessage(hostileMessage);
+      assert.equal(await evaluate(`const b=document.querySelector('[data-message-dismiss]').getBoundingClientRect(); b.width>=32 && b.left>=0 && b.right<=innerWidth`), true, palette + ' narrow close target');
+      assert.equal(await evaluate(`const b=document.querySelector('[data-action-feedback]'); b.scrollWidth<=b.clientWidth`), true, 'long text wraps');
+    }
+    await call('Emulation.setDeviceMetricsOverride', {width:1440,height:900,deviceScaleFactor:1,mobile:false});
+    await evaluate(`document.querySelector('[name=task]:not(:disabled)').checked = true;
+      window.messageSelection = document.querySelector('[name=task]:checked').value;
+      document.querySelector('[data-new-plan] summary').click();
+      const prompt = document.querySelector('[data-new-plan] textarea'); prompt.value = 'Retain exact draft'; prompt.focus();
+      window.messagePolls = 0;
+      window.fetch = (url, options) => options?.method === 'POST' ? Promise.resolve({json:async () => window.messageReply}) : (window.messagePolls++, realMessageFetch(url, options));`);
+    await until('message draft dialog open', () => evaluate("!!document.querySelector('[data-new-plan] .modal-body[role=dialog]')"));
+    await evaluate("document.querySelector('[data-new-plan] textarea').focus()");
+    await showMessage('Polling error');
+    await advance(4999);
+    await sleep(5500);
+    assert.equal(await feedbackText(), 'Polling error', 'polling does not replace live message');
+    assert.ok(await evaluate('window.messagePolls') >= 2, 'real polls observed');
+    await advance(1);
+    assert.equal(await feedbackText(), '', 'polling did not reset deadline');
+    assert.equal(await evaluate("document.querySelector('[data-new-plan] textarea').value"), 'Retain exact draft');
+    assert.equal(await evaluate("document.activeElement === document.querySelector('[data-new-plan] textarea')"), true, 'expiry does not steal unrelated focus');
+    assert.equal(await evaluate("document.querySelector('[name=task]:checked')?.value === window.messageSelection"), true);
+    await evaluate("document.querySelector('[data-new-plan] [data-modal-close]').click()");
+    await showMessage('Dismiss and poll');
+    await evaluate("document.querySelector('[data-action-feedback] [data-message-dismiss]').click()");
+    await sleep(5500);
+    assert.equal(await feedbackText(), '', 'two polls cannot resurrect dismissed feedback');
+    console.log('PASS: Message hostile text, PR link/focus, narrow palettes and polling/draft/selection boundaries');
+    await call('Page.removeScriptToEvaluateOnNewDocument', {identifier:clockScript.identifier});
+    await navigate('/?message=Elapsed');
+    const elapsedStart = Date.now();
+    await until('foreground five-second expiry', async () => !await transient());
+    const elapsed = Date.now() - elapsedStart;
+    assert.ok(elapsed >= 4500 && elapsed <= 6000, `foreground elapsed ${elapsed}ms (100ms observer; 1s scheduler tolerance)`);
+    console.log(`PASS: Message foreground expiry ${elapsed}ms`);
+
     await call('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme',value:'dark'}]});
     assert.equal(await evaluate('getComputedStyle(document.documentElement).colorScheme'), 'dark', 'system dark native controls');
     await call('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme',value:'light'}]});
@@ -392,18 +519,21 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
     await openPlan();
     assert.equal(await evaluate("document.querySelector('[data-new-plan] textarea').disabled"), true);
     await close();
+    await until('pending presentation expires', () => evaluate("document.querySelector('[data-action-feedback]').textContent === ''"));
+    assert.equal(await evaluate('window.postCount'), 1);
+    assert.equal(await evaluate("document.querySelector('[data-new-plan] textarea').disabled"), true);
     await evaluate("window.postReplies.shift()(Response.json({ok:false,message:'Fixture rejection'}))");
-    await until('persistent rejection', () => evaluate("document.querySelector('[data-action-feedback]').textContent === 'Fixture rejection'"));
+    await until('inline rejection', () => evaluate("document.querySelector('[data-action-feedback]').textContent === 'Fixture rejection'"));
     await openPlan();
     assert.equal(await evaluate("document.querySelector('[data-new-plan] textarea').value"), 'Submitted draft');
     assert.equal(await evaluate("document.querySelector('[data-new-plan] textarea').disabled"), false);
     await evaluate("document.querySelector('[data-new-plan] form button').click()");
     await close();
     await evaluate("window.postReplies.shift()(Response.json({ok:true,message:'Launch accepted (fixture)'}))");
-    await until('persistent acceptance', () => evaluate("document.querySelector('[data-action-feedback]').textContent === 'Launch accepted (fixture)'"));
+    await until('inline acceptance', () => evaluate("document.querySelector('[data-action-feedback]').textContent === 'Launch accepted (fixture)'"));
     assert.equal(await evaluate("document.querySelector('[data-new-plan] textarea').value"), '');
     await evaluate('window.fetch = window.originalFetch');
-    console.log('PASS: duplicate submit guard, pending draft freeze and persistent dismissed-action results');
+    console.log('PASS: duplicate submit guard, pending draft freeze and transient dismissed-action results');
     await evaluate(`window.postReplies = []; window.fetch = (url, options) => options?.method === 'POST' ?
       new Promise(resolve => window.postReplies.push(resolve)) : window.originalFetch(url, options);
       document.querySelector('#task-list form[action$="/edit"]').closest('details').querySelector('summary').click()`);
@@ -498,7 +628,7 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
     await until('archive page', () => evaluate("document.querySelector('h1')?.textContent === 'Archived Tasks'"));
     await capture('after-archived');
     assert.equal(await evaluate("!!document.querySelector('form[action$=unarchive]')"), true);
-    // Detail shares the dialog lifecycle and persistent feedback, with metadata collapsed.
+    // Detail shares the dialog lifecycle and transient feedback, with metadata collapsed.
     await navigateTo(url + 'task/reviewed?path=' + encodeURIComponent(join(repo,'.agent/reviewed')));
     await until('detail navigation', () => evaluate("!!document.querySelector('#task-detail')"));
     assert.equal(await evaluate("document.querySelector('.task-metadata').open"), false);
@@ -513,6 +643,8 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
     assert.equal(await evaluate("document.querySelector('form[action$=review] textarea').value"), 'Review draft');
     await evaluate("document.querySelector('form[action$=review] button').click()");
     await until('detail acceptance', () => evaluate("document.querySelector('[data-action-feedback]').textContent.includes('Launch accepted')"));
+    await until('detail feedback expiry', () => evaluate("document.querySelector('[data-action-feedback]').textContent === ''"));
+    assert.equal(await evaluate("document.querySelector('[data-action-feedback]').getAttribute('aria-live')"), 'polite');
     assert.equal(await evaluate("!!document.querySelector('#task-detail')"), true);
     console.log('PASS: detail metadata, single Archive, Review draft and inline acceptance');
 
@@ -558,6 +690,9 @@ gui.main()`, '--repo', repo, '--task-home', join(root,'tasks'), '--port','0','--
     await evaluate("const f = document.querySelector('[data-new-plan] form'); f.elements.task_name.value = 'fallback-target'; f.elements.prompt.value = 'Native POST'; f.querySelector('button').focus()");
     await key('Enter','Enter',13);
     await until('native POST accepted', () => evaluate(`document.readyState === 'complete' && document.querySelector('.flash')?.textContent.includes(${JSON.stringify(secondRepo)})`));
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('[data-message-dismiss]')).display"), 'none');
+    await sleep(5100);
+    assert.ok(await evaluate("document.querySelector('[data-transient-message]').textContent.includes('fallback-target')"));
     await call('Emulation.setScriptExecutionDisabled', {value:false});
     console.log('PASS: desktop/laptop/mobile/200% equivalent layout, reachable dialogs, archived recovery and fallback forms');
 

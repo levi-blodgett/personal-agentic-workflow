@@ -2,6 +2,9 @@
 
 How to configure, compare, and extend PAW's pluggable AI backend system.
 
+For selective-read guidance and optional tool evaluation, see the
+[context minimization decision](context-minimization.md).
+
 ## `PAW_BACKEND`
 
 By default `paw` wraps the `codex` CLI. Set `PAW_BACKEND` to swap to a
