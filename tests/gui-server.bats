@@ -8,6 +8,7 @@ REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 PAW="$REPO_ROOT/scripts/paw"
 
 setup() {
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
   export PAW_HOME="$REPO_ROOT"
   export PAW_BACKEND=stub
   export PAW_TASK_HOME="$BATS_TEST_TMPDIR/paw-state/tasks"
@@ -34,6 +35,13 @@ MD
 
 teardown() {
   stop_gui
+  if [[ -n "${GUI_COMPANION_PID:-}" ]]; then
+    GUI_PID="$GUI_COMPANION_PID"
+    stop_gui
+  fi
+  if [[ -f "$XDG_STATE_HOME/paw/gui/active.gitconfig" ]]; then
+    "$PAW" gui kill >/dev/null 2>&1 || true
+  fi
   if [[ -n "${SLEEPER_PID:-}" ]]; then
     kill "$SLEEPER_PID" 2>/dev/null || true
     wait "$SLEEPER_PID" 2>/dev/null || true
@@ -41,17 +49,25 @@ teardown() {
 }
 
 start_gui() {
-  GUI_PORT="$1"
-  "$PAW" gui --repo "$REPO" --port "$GUI_PORT" > "$BATS_TEST_TMPDIR/gui-$GUI_PORT.out" 2> "$BATS_TEST_TMPDIR/gui-$GUI_PORT.err" &
+  shift # Callers receive the OS-assigned port through Bash's dynamically scoped port.
+  "$PAW" gui --repo "$REPO" --port 0 "$@" > "$BATS_TEST_TMPDIR/gui.out" 2> "$BATS_TEST_TMPDIR/gui.err" &
   GUI_PID="$!"
+  for _ in {1..100}; do
+    port="$(sed -n 's|^paw gui: http://127.0.0.1:\([0-9]*\)/$|\1|p' "$BATS_TEST_TMPDIR/gui.out")"
+    [[ -n "$port" ]] && return 0
+    kill -0 "$GUI_PID" 2>/dev/null || break
+    sleep 0.1
+  done
+  cat "$BATS_TEST_TMPDIR/gui.err" >&2
+  return 1
 }
 
 stop_gui() {
   if [[ -n "${GUI_PID:-}" ]]; then
     pkill -P "$GUI_PID" 2>/dev/null || true
-    pkill -f "gui_server.py .*--port $GUI_PORT" 2>/dev/null || true
     kill "$GUI_PID" 2>/dev/null || true
     wait "$GUI_PID" 2>/dev/null || true
+    GUI_PID=""
   fi
 }
 
@@ -401,9 +417,7 @@ PY
   git config --file "$old_task/runs/old.gitconfig" paw.end-time "2026-01-01T00:00:00Z"
   git config --file "$new_task/runs/new.gitconfig" paw.end-time "2026-03-01T00:00:00Z"
 
-  "$PAW" gui --all --repo "$REPO" --port "$port" > "$BATS_TEST_TMPDIR/gui-all-sort.out" 2> "$BATS_TEST_TMPDIR/gui-all-sort.err" &
-  GUI_PID="$!"
-  GUI_PORT="$port"
+  start_gui "$port" --all
   fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/all-sorted.html"
   stop_gui
 
@@ -1453,16 +1467,16 @@ MD
 @test "paw gui start: launches background dashboard and records metadata" {
   export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
 
-  run "$PAW" gui start --repo "$REPO"
+  run "$PAW" gui start --repo "$REPO" --port 0
 
   [ "$status" -eq 0 ]
-  [[ "$output" == "paw gui: http://127.0.0.1:8765/" ]]
+  [[ "$output" == "paw gui: http://127.0.0.1:"* ]]
   local meta="$XDG_STATE_HOME/paw/gui/active.gitconfig"
   [ -f "$meta" ]
   local url
   url="$(git config --file "$meta" --get paw.url)"
-  [[ "$url" == "http://127.0.0.1:8765/" ]]
-  [[ "$(git config --file "$meta" --get paw.port)" == "8765" ]]
+  [[ "$url" == "http://127.0.0.1:"* ]]
+  [[ "$(git config --file "$meta" --get paw.port)" != "0" ]]
   git config --file "$meta" --get paw.pid > "$BATS_TEST_TMPDIR/gui.pid"
 
   python3 - "$url" > "$BATS_TEST_TMPDIR/page.html" <<'PY'
@@ -1634,25 +1648,9 @@ MD
   bash -c 'source "$1"; paw_task_write_metadata "$2" "$3" shared-task created ""; paw_task_write_metadata "$4" "$5" shared-task created ""' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$central_one" "$REPO" "$central_two" "$repo_two"
 
   local port=18766
-  "$PAW" gui --all --repo "$REPO" --port "$port" > "$BATS_TEST_TMPDIR/gui-all.out" 2> "$BATS_TEST_TMPDIR/gui-all.err" &
-  local pid="$!"
-
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if python3 - "$port" > "$BATS_TEST_TMPDIR/all.html" <<'PY'
-import sys
-from urllib.request import urlopen
-print(urlopen(f"http://127.0.0.1:{sys.argv[1]}/", timeout=1).read().decode())
-PY
-    then
-      break
-    fi
-    sleep 0.2
-  done
-
-  pkill -P "$pid" 2>/dev/null || true
-  pkill -f "gui_server.py .*--port $port" 2>/dev/null || true
-  kill "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  start_gui "$port" --all
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/all.html"
+  stop_gui
 
   grep -q "Repo one task" "$BATS_TEST_TMPDIR/all.html"
   grep -q "Repo two task" "$BATS_TEST_TMPDIR/all.html"
@@ -1693,9 +1691,7 @@ MD
   repo_two_path="$(real_path "$repo_two")"
   encoded_repo_two="$(url_encode "$repo_two_path")"
   created="$(bash -c 'source "$1"; paw_task_create_dir "$2" all-selected-plan' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$repo_two")"
-  "$PAW" gui --all --repo "$REPO" --port "$port" > "$BATS_TEST_TMPDIR/gui-all-active.out" 2> "$BATS_TEST_TMPDIR/gui-all-active.err" &
-  GUI_PID="$!"
-  GUI_PORT="$port"
+  start_gui "$port" --all
 
   post_gui "$port" "/actions/repos/add" "$(form_encode "repo_path=$repo_two_path")" "$BATS_TEST_TMPDIR/all-add-post.html"
   fetch_gui "$port" "/?active_repo=$encoded_repo_two" "$BATS_TEST_TMPDIR/all-active-index.html"
@@ -2026,4 +2022,29 @@ PY
 
 @test "paw gui: request work bounds and freshness regressions" {
   python3 "$REPO_ROOT/tests/gui-performance.py"
+}
+
+@test "paw gui: default port is passed to foreground and background launchers" {
+  run bash -c '
+    source "$1"
+    _cmd_gui_foreground() { printf "foreground:%s\n" "$2"; }
+    _cmd_gui_start() { printf "background:%s\n" "$2"; }
+    cmd_gui --repo "$2"
+    cmd_gui start --repo "$2"
+  ' _ "$PAW" "$REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == $'foreground:8765\nbackground:8765' ]]
+}
+
+@test "paw gui: fixture cleanup preserves an independent ephemeral server" {
+  local port=0 companion_pid companion_port
+  start_gui "$port"
+  companion_pid="$GUI_PID"
+  GUI_COMPANION_PID="$companion_pid"
+  companion_port="$port"
+  start_gui "$port"
+  stop_gui
+  GUI_PID="$companion_pid"
+  fetch_gui "$companion_port" "/" "$BATS_TEST_TMPDIR/companion.html"
+  grep -q "gui-task" "$BATS_TEST_TMPDIR/companion.html"
 }

@@ -394,69 +394,103 @@ def checklist_counts(plan: str) -> tuple[int, int]:
 
 def validation_entries(body: str) -> list[str]:
     """Keep complete source records, including indented/fenced diagnostics."""
-    entries = []
-    current = []
-    fenced = False
+    entries, current = [], []
+    fence = ""
+    comment = False
     for line in body.splitlines():
-        if line.lstrip().startswith("```"):
-            fenced = not fenced
-        if current and not fenced and line and not line[0].isspace() and not line.startswith("```"):
+        marker = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if current and not fence and not comment and line and not line[0].isspace():
             entries.append("\n".join(current).strip())
             current = []
         current.append(line)
+        if marker:
+            token = marker[1]
+            if not fence:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence):
+                fence = ""
+        if not fence:
+            if "<!--" in line:
+                comment = True
+            if "-->" in line:
+                comment = False
     if current:
         entries.append("\n".join(current).strip())
     return [entry for entry in entries if entry]
 
 
-def validation_outcome(entry: str) -> str:
-    headline, *diagnostics = entry.splitlines()
-    headline = headline.replace("(rerun; supersedes earlier result)", "")
-    if "; " in headline:
-        return validation_aggregate({validation_outcome(part) for part in headline.split("; ")})
-    nested = [line.strip() for line in diagnostics
-              if re.match(r"^\s+[^:]+: (?:failed|blocked|unavailable|not run|skipped)\b", line, re.I)]
-    if nested:
-        return validation_aggregate({validation_outcome(headline), *(validation_outcome(line) for line in nested)})
-    return validation_headline_outcome(headline)
+def _validation_lines(source: str):
+    """Exclude diagnostic blocks from parsing, never from displayed source."""
+    source = re.sub(r"<!--.*?(?:-->|$)", "", source, flags=re.S)
+    fence = ""
+    for line in source.splitlines():
+        marker = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if marker:
+            token = marker[1]
+            if not fence:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence):
+                fence = ""
+            continue
+        if not fence and line.strip():
+            yield line
 
 
-def validation_headline_outcome(headline: str) -> str:
-    """Recognize supported result wording; keep unfamiliar evidence neutral."""
-    text = re.sub(r"^(?:[-*]|\d+\.)\s+", "", headline).strip().lower().rstrip(".")
-    if re.fullmatch(r"(?:<[^>]+>(?:\s*—\s*<[^>]+>)?|todo|pending|not yet recorded)", text):
-        return "missing"
-    if text.startswith("code best-practices checklist applied") or re.match(r"(?:note|provenance|source|rationale):", text):
-        return "missing"
-    if re.match(r"(?:reviewed|read|inspected)\b", text):
-        return "recorded"
-    text = re.sub(r"`[^`]*`", "CHECK", text)
-    if re.search(r"\bplanning[- ]only\b|\bplanning (?:investigation|validation) only\b", text):
-        return "missing"
-    if re.match(r"(?:run |will |must |should |expected |next |validation tier chosen:)", text):
-        return "missing"
-    if re.search(r"\b(?:not (?:yet )?run|has not run|no validation (?:has been )?(?:run|executed)|not executed)\b", text):
-        return "missing"
-    if re.search(r"\b(?:expected|will|must|should|would)\b", text):
-        return "missing"
-    if "?" in text:
-        return "recorded"
-    if ": " in text:
-        text = text.split(": ", 1)[1]
-    text = re.sub(r"\b(?:0|zero|no) (?:failed|failures?|errors?)\b", "", text)
-    if re.search(r"\b(?:not|never|no)\b[^.;]*\b(?:passed|ok|succeeded|successful)\b", text):
-        return "attention"
-    if re.search(r"\bexit(?: code| status)?[ :=]+[1-9]\d*\b", text):
-        return "attention"
-    boundary = r"(?<![\w/.-])"
-    ending = r"(?![\w/.-])"
-    if re.search(boundary + r"(?:failed|failures?|error|errors|blocked|unavailable|did not pass|not (?:all )?passed|not ok|not successful|not succeeded)" + ending, text):
-        return "attention"
-    if re.search(r"\b(?:skipped|unknown|uncertain|pending|not verified)\b", text):
-        return "recorded"
-    if re.search(boundary + r"(?:passed|ok|succeeded|exit(?: code| status)?[ :=]+0)" + ending, text):
-        return "passed"
-    return "recorded"
+@dataclass
+class _ValidationCheck:
+    source_index: int
+    kind: str
+    scope: str
+    name: str
+    outcome: str
+    diagnostic: str
+    text: str
+    rerun: bool = False
+    superseded: bool = False
+
+
+def _validation_check(text: str, source_index: int, scope: str) -> _ValidationCheck:
+    clean = re.sub(r"^(?:[-*]|\d+\.)\s+", "", text.strip())
+    named = re.match(r"([^:]*):\s*(.*)", clean)
+    name = named[1].strip(" `") if named else ""
+    result = named[2] if named else clean
+    outcome, diagnostic = _validation_outcome(result, named=bool(name))
+    metadata = {"note", "provenance", "source", "rationale", "command", "tier", "log", "validation tier chosen"}
+    if name.lower() in metadata or re.match(r"(?:run |will |must |should |next |planning[- ]only)", clean, re.I):
+        outcome = "missing"
+    kind = "context" if outcome == "missing" else "check"
+    rerun = (diagnostic.strip().lower().rstrip(".") == "(rerun; supersedes earlier result)"
+             and not re.search(r",|\s(?:and|or|/|&)\s", name, re.I))
+    return _ValidationCheck(source_index, kind, scope, name, outcome, diagnostic, clean, rerun)
+
+
+def _validation_outcome(text: str, *, named: bool) -> tuple[str, str]:
+    """Read an explicit prefix; unknown named results cannot borrow tail outcomes."""
+    text = text.strip()
+    adverse = (r"failed|failures?|errors?|blocked|unavailable|did not pass|not (?:all (?:checks )?)?passed|"
+               r"not (?:ok|successful|succeeded)|[1-9]\d* (?:failures?|errors?)|"
+               r"exit(?: code| status)?[ :=]+[1-9]\d*")
+    success = r"passed|ok|succeeded|successful|exit(?: code| status)?[ :=]+0"
+    for pattern, outcome in ((adverse, "attention"), (success, "passed")):
+        match = re.match(r"(?:" + pattern + r")(?![\w/-]|\.(?=\S))", text.rstrip("."), re.I)
+        if match:
+            tail = text[match.end():].strip()
+            return ("recorded" if outcome == "passed" and tail.startswith("?") else outcome), tail
+    if re.match(r"(?:run |will |must |should |expected |next |code best-practices checklist applied)", text, re.I):
+        return "missing", text
+    if named:
+        return "recorded", text
+    if re.fullmatch(r"(?:<[^>]+>(?:\s*—\s*<[^>]+>)?|todo|pending|not yet recorded)[.]?", text, re.I):
+        return "missing", text
+    if re.search(r"\bplanning[- ]only\b|\bplanning (?:investigation|validation) only\b", text, re.I):
+        return "missing", text
+    if re.search(r"\b(?:not (?:yet )?(?:run|executed)|has not run|no validation (?:has been )?(?:run|executed))\b", text, re.I):
+        return "missing", text
+    # Limited legacy command/check + outcome form, with the same prefix recognizer.
+    legacy = re.match(r"^(`[^`]+`|(?:make|bats|python3?|node|lint|tests?)\b[^:;]*?)\s+(" + adverse + "|" + success + r")(?![\w/-]|\.(?=\S))", text.rstrip("."), re.I)
+    if legacy and not re.search(r"\b(?:expected|will|must|should|would|not)\b", legacy[1], re.I):
+        return _validation_outcome(text[legacy.start(2):], named=True)
+    return "recorded", text
 
 
 def validation_aggregate(states: set[str]) -> str:
@@ -467,33 +501,71 @@ def validation_aggregate(states: set[str]) -> str:
     return "passed" if "passed" in states else "missing"
 
 
-def validation_check_name(entry: str) -> str:
-    headline = re.sub(r"^(?:[-*]|\d+\.)\s+", "", entry.splitlines()[0])
-    # Explicit name: outcome form is also the identity for replacement evidence.
-    return headline.split(": ", 1)[0].strip(" `") if ": " in headline else ""
+def _validation_scope(line: str) -> str:
+    marker = re.sub(r"^(?:#{3,6}|[-*])\s+", "", line).strip().strip("* :.").lower()
+    if marker in {"context", "development history"}:
+        return marker
+    if marker == "implementation results":
+        return "implementation"
+    if re.match(r"planning (?:investigation|validation) only\b", marker):
+        return "context"
+    return ""
+
+
+def _validation_checks(sources: list[str]) -> list[_ValidationCheck]:
+    checks = []
+    scope = "implementation"
+    for index, source in enumerate(sources):
+        for line in _validation_lines(source):
+            boundary = _validation_scope(line) if not line[0].isspace() else ""
+            if boundary:
+                scope = boundary
+            if boundary or line.startswith("#"):
+                checks.append(_ValidationCheck(index, "context", scope, "", "missing", "", line))
+                continue
+            if line != source.splitlines()[0] and not re.search(r":| [—–] ", line):
+                continue
+            # A semicolon starts another check only with an explicit named result.
+            for part in re.split(r";\s*(?=[^;():]+:)", line):
+                checks.append(_validation_check(part, index, scope))
+    return checks
+
+
+def _validation_sources(plan: str) -> list[str]:
+    # Section boundaries apply only outside fenced/commented diagnostic records.
+    sources = []
+    active = False
+    for source in validation_entries(plan):
+        headline = next(_validation_lines(source), "")
+        if headline == "## Validation Performed":
+            active = True
+            remainder = source.partition("\n")[2].strip()
+            if remainder:
+                sources.append(remainder)
+        elif active and headline.startswith("## "):
+            break
+        elif active:
+            sources.append(source)
+    return sources
 
 
 def validation_summary(plan: str) -> dict:
-    body = section_body(plan, "Validation Performed")
+    sources = _validation_sources(plan)
+    checks = _validation_checks(sources)
+    executed = [check for check in checks if check.scope == "implementation" and check.kind == "check"]
+    for position, check in enumerate(executed):
+        if check.name and check.outcome == "passed" and check.rerun:
+            for previous in executed[:position]:
+                if previous.name == check.name:
+                    previous.superseded = True
     entries = []
-    planning_only = bool(re.search(r"(?im)^[-*]?\s*planning (?:investigation|validation) only\b", body))
-    for source in validation_entries(body):
-        outcome = validation_outcome(source)
-        if planning_only and outcome == "passed":
-            outcome = "missing"
-        name = validation_check_name(source)
-        if name and outcome == "passed" and "(rerun; supersedes earlier result)" in source.lower():
-            for previous in entries:
-                if previous["name"] == name:
-                    previous["superseded"] = True
-        entries.append({"source": source, "outcome": outcome, "name": name, "superseded": False})
-    states = {entry["outcome"] for entry in entries if not entry["superseded"]} - {"missing"}
-    if "passed" in states and any(entry["outcome"] == "missing" and entry["name"]
-                                  and re.search(r"\bnot (?:yet )?run\b", entry["source"], re.I)
-                                  for entry in entries if not entry["superseded"]):
-        states.add("recorded")
-    state = next((value for value in ("attention", "recorded", "passed") if value in states), "missing")
-    return {"state": state, "entries": entries}
+    for index, source in enumerate(sources):
+        owned = [check for check in executed if check.source_index == index]
+        active = [check for check in owned if not check.superseded]
+        entries.append({"source": source, "outcome": validation_aggregate({check.outcome for check in active}),
+                        "superseded": bool(owned) and not active})
+    state = validation_aggregate({check.outcome for check in executed if not check.superseded})
+    return {"state": state, "entries": entries, "checks": checks}
 
 
 def validation_state(plan: str) -> str:
@@ -502,16 +574,17 @@ def validation_state(plan: str) -> str:
 
 def validation_reason(summary: dict) -> str:
     state = summary["state"]
-    if state == "attention":
-        adverse = [entry for entry in summary["entries"]
-                   if entry["outcome"] == "attention" and not entry["superseded"]]
-        headline = " ".join(adverse[0]["source"].split()).lstrip("-* ")
-        suffix = f" (+{len(adverse) - 1} more)" if len(adverse) > 1 else ""
-        return headline[:180] + ("…" if len(headline) > 180 else "") + suffix
+    if state in {"attention", "recorded"}:
+        unresolved = [check for check in summary["checks"]
+                      if check.scope == "implementation" and check.kind == "check"
+                      and check.outcome == state and not check.superseded]
+        headline = " ".join(unresolved[0].text.split())
+        suffix = f" (+{len(unresolved) - 1} more)" if len(unresolved) > 1 else ""
+        prefix = "Unresolved / ambiguous: " if state == "recorded" else ""
+        return prefix + headline[:180] + ("…" if len(headline) > 180 else "") + suffix
     return {
         "missing": "No executed implementation validation results recorded.",
         "passed": "Recorded checks passed; current-run freshness is not established.",
-        "recorded": "Evidence is ambiguous, skipped, or has unresolved check outcomes.",
     }[state]
 
 

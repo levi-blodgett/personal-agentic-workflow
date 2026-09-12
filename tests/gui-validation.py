@@ -18,6 +18,138 @@ class Validation(unittest.TestCase):
     def state(self, body):
         return gui.validation_state('## Validation Performed\n' + body)
 
+    def test_diagnostic_invariance(self):
+        for tail in ('', ' because expected output differs', ' — will need a fix',
+                     ' because tests should pass?', ' — browser not executed', '. Expected output differs'):
+            with self.subTest(tail=tail):
+                self.assertEqual(self.state('- tests: failed' + tail + '\n- lint: passed'), 'attention')
+
+    def test_explicit_incomplete_and_negated_results(self):
+        self.assertEqual(self.state('- tests: not passed as expected\n- lint: passed'), 'attention')
+        for result in ('not executed', 'not yet executed', 'not run', 'not yet run',
+                       'has not run', 'has not been executed', 'skipped', 'unknown'):
+            with self.subTest(result=result):
+                self.assertEqual(self.state('- browser: ' + result), 'recorded')
+                self.assertEqual(self.state('- tests: passed\n- browser: ' + result), 'recorded')
+
+    def test_fragment_incomplete_reason(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            path = repo / '.agent' / 'checks'
+            path.mkdir(parents=True)
+            for body, state, reason in (
+                ('- tests: passed\n- browser: not executed', 'recorded', 'browser'),
+                ('- tests: passed\n- browser: blocked', 'attention', 'browser'),
+                ('- tests: passed', 'passed', 'freshness'),
+                ('', 'missing', 'No executed'),
+            ):
+                plan = '## Validation Performed\n' + body
+                (path / 'plan.md').write_text(plan)
+                for fragment in (gui.validation_cell(plan, '/task/checks'),
+                                 gui.validation_details(gui.Task('checks', 'legacy', path, repo))):
+                    self.assertIn('validation-' + state, fragment)
+                    self.assertIn(reason, fragment)
+
+    def test_nested_outcomes_and_diagnostic_exclusions(self):
+        outcomes = {'passed': 'passed', 'failed': 'attention', 'did not pass': 'attention',
+                    'exit 1': 'attention', 'exit 0': 'passed', 'unknown': 'recorded',
+                    'not executed': 'recorded', 'not verified': 'recorded', 'pending': 'recorded',
+                    'unavailable': 'attention', 'blocked': 'attention', 'skipped': 'recorded',
+                    'unfamiliar wording': 'recorded'}
+        for result, expected in outcomes.items():
+            for shape in ('- browser: {}', '- tests: passed; browser: {}',
+                          '- tests: passed\n  browser: {}', '- tests: passed\n  - browser: {}'):
+                with self.subTest(result=result, shape=shape):
+                    self.assertEqual(self.state(shape.format(result)), expected)
+        for diagnostic in ('  ```text\n  browser: failed\n  ```',
+                           '  ~~~text\n  browser: failed\n  ~~~',
+                           '  <!--\n  browser: failed\n  -->',
+                           '  <!-- browser: failed -->',
+                           '  Command: false\n  Tier: full\n  Log: failed.log'):
+            with self.subTest(diagnostic=diagnostic):
+                self.assertEqual(self.state('- tests: passed\n' + diagnostic), 'passed')
+        self.assertEqual(self.state('```text\nbrowser: failed\n```'), 'missing')
+
+    def test_exact_rerun_identity_and_intent(self):
+        rerun = 'passed (rerun; supersedes earlier result)'
+        for first in ('- tests: passed; browser: failed', '- tests: passed\n  browser: failed'):
+            evidence = first + '\n- tests: ' + rerun
+            self.assertEqual(self.state(evidence), 'attention')
+            self.assertEqual(self.state(evidence + '\n- browser: ' + rerun), 'passed')
+        for later in ('- tests: passed\n  Diagnostic: (rerun; supersedes earlier result)',
+                      '- tests: passed because the log says (rerun; supersedes earlier result)',
+                      '- tests: passed (rerun; supersedes earlier result); browser: failed',
+                      '- tests: passed; browser: passed (rerun; supersedes earlier result)',
+                      '- passed (rerun; supersedes earlier result)',
+                      '- tests/browser: passed (rerun; supersedes earlier result)'):
+            with self.subTest(later=later):
+                self.assertEqual(self.state('- tests: failed\n' + later), 'attention')
+        self.assertEqual(self.state('- tests: failed\n- tests: passed? (rerun; supersedes earlier result)'), 'attention')
+        self.assertEqual(self.state('- tests: failed\n- tests: passed (rerun; supersedes earlier result).'), 'passed')
+        self.assertEqual(self.state('- tests: failed\n- tests: passed (RERUN; supersedes earlier result)'), 'passed')
+        self.assertEqual(self.state('- tests and browser: failed\n- tests and browser: ' + rerun), 'attention')
+        self.assertEqual(self.state('- : failed\n- : passed (rerun; supersedes earlier result)'), 'attention')
+
+    def test_sequential_scope_boundaries(self):
+        rerun = '- tests: passed (rerun; supersedes earlier result)'
+        for boundary in ('### Context', '### Development history', '- Context:',
+                         '- Development history:', '- Planning investigation only.',
+                         '- Planning validation only.'):
+            with self.subTest(boundary=boundary):
+                self.assertEqual(self.state('- tests: passed\n' + boundary), 'passed')
+                self.assertEqual(self.state(boundary + '\n- tests: failed'), 'missing')
+                self.assertEqual(self.state('- tests: failed\n' + boundary + '\n' + rerun), 'attention')
+                for resume in ('### Implementation results', '- Implementation results:'):
+                    self.assertEqual(self.state(boundary + '\n- tests: failed\n' + resume + '\n- tests: passed'), 'passed')
+        self.assertEqual(self.state('### Context\nRead the old plan.\n### Development history\n- lint: passed'), 'missing')
+        self.assertEqual(self.state('- tests: failed\n### Context\n### Notes\n' + rerun), 'attention')
+
+    def test_fragment_identity_scope_and_substitution_invariants(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            for store in ('legacy', 'central'):
+                for repo_name in ('one', 'two'):
+                    repo = root / repo_name
+                    path = repo / store / 'same'
+                    path.mkdir(parents=True)
+                    for body, state, reason in (
+                        ('- tests: passed; browser: failed\n- tests: passed (rerun; supersedes earlier result)', 'attention', 'browser: failed'),
+                        ('- tests: passed\n  browser: exit 1\n### Development history\n- browser: passed (rerun; supersedes earlier result)', 'attention', 'browser: exit 1'),
+                        ('- browser: not executed\n- substitute: passed — approved substitution', 'recorded', 'browser: not executed'),
+                        ('### Context\n- tests: passed', 'missing', 'No executed'),
+                    ):
+                        plan = '## Validation Performed\n' + body
+                        (path / 'plan.md').write_text(plan)
+                        task = gui.Task('same', store, path, repo)
+                        for rendered in (gui.validation_cell(plan, '/task/same'), gui.validation_details(task)):
+                            self.assertIn('validation-' + state, rendered)
+                            self.assertIn(reason, rendered)
+                        detail = gui.validation_details(task)
+                        self.assertIn(html.escape(body.splitlines()[0]), detail)
+                        self.assertIn('active_repo=' + quote(str(repo), safe=''), detail)
+
+    def test_unknown_results_do_not_borrow_diagnostic_success(self):
+        for body in ('- tests: unknown — earlier log said passed',
+                     '- tests: unfamiliar wording about passed checks',
+                     '- tests: `echo passed`', '- tests: skipped because lint passed',
+                     '- tests: passed\n  browser:unrecognized',
+                     '- tests: passed\n  browser:',
+                     '- tests: passed\n  browser — unknown'):
+            with self.subTest(body=body):
+                self.assertEqual(self.state(body), 'recorded')
+        for body in ('- Run tests: passed', '- Note: not run', '- Command: echo failed'):
+            self.assertEqual(self.state(body), 'missing')
+
+    def test_fenced_headings_cannot_truncate_evidence(self):
+        body = '- tests: passed\n  ```text\n## Diagnostic heading\n  browser: failed\n  ```\n- browser: failed'
+        self.assertEqual(self.state(body), 'attention')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / 'plan.md').write_text('## Validation Performed\n' + body + '\n## Remaining Work\n- other: failed')
+            detail = gui.validation_details(gui.Task('checks', 'legacy', path, path))
+            self.assertIn('## Diagnostic heading', detail)
+            self.assertNotIn('other: failed', detail)
+
     def test_no_evidence(self):
         for body in ('', '- <commands/results>', '- TODO', '- Pending.', '- <command> — <result, including counts/output highlights>\n- Code best-practices checklist applied — see `prompts/prompt_instructions.md` "Code Best Practices".'):
             with self.subTest(body=body):

@@ -84,7 +84,7 @@ bats tests/lint-task.bats
 
 Prototype journey coverage in `gui-server.bats` includes `gui-prototype.py` behavior checks for replacement/source roles, instructions, immediate and linked run tracking, duplicate starts, cancellation, stale approval, failure logs, reuse and same-repo navigation. `paw-prompt-body.bats` verifies failed planning preserves source work, retry retains replacement notes, successful cleanup follows planning, and source archival preserves the replacement. Fixtures use isolated task stores and stub/local subprocesses; no model service is called.
 
-`gui-validation.py`, invoked by `gui-server.bats`, covers conservative recorded validation states, negation and zero failures, planning-only evidence, mixed and explicitly superseded outcomes, complete escaped diagnostics/source links, central/legacy task identity, and dashboard/detail fragment transitions.
+`gui-validation.py`, invoked by `gui-server.bats`, covers diagnostic-invariant outcomes, named incomplete results, shared nested/compound vocabulary, exact per-check reruns, forward scope, unknown evidence, fenced/commented diagnostics, full escaped source, central/legacy task identity, substitutions and dashboard/detail fragments. [Canonical evidence semantics](../examples/docs/testing.md#recorded-validation-in-the-gui) describe the supported writing format.
 
 ### GUI live-state browser regression
 
@@ -113,3 +113,30 @@ Close only fixture browser tabs, stop/reap fixture servers and sleeper processes
 Run `PYTHONDONTWRITEBYTECODE=1 python3 tests/gui-performance.py --measure` for an isolated 12-task / 36-run fixture with reviewed sources and existing replacements. It reports a complete render's discovery/subprocess counts, cold HTTP response, five warm full-page responses and five task-list fragment responses. Compare the same fixture and machine before/after; timings are measurements, not CI thresholds. `gui-server.bats` runs the helper's deterministic discovery/read bounds, Git metadata semantics, concurrent isolation and next-request freshness tests without timing assertions.
 
 Using the isolated browser fixture procedure above, record homepage time to a usable 12-row table separately from HTTP response time. Open task details normally and confirm the validation summary and badge are visible while evidence is closed. Focus the summary and press Space, then toggle with a mouse. Follow a dashboard `#validation` link and confirm it opens; close it and wait through two polls to ensure the hash does not repeatedly reopen it. Change the fixture's validation evidence and verify both open and closed states survive polling with updated escaped content. Check long multiline diagnostics at desktop and 390px widths, the plan source link, and native disclosure toggling with JavaScript disabled. Use an isolated Chrome profile/headless DevTools session if available; install no browser dependency or change existing browser permissions.
+
+### Recorded validation browser regression
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 node tests/gui-validation-browser.mjs
+# For another installed Chrome/Chromium location:
+CHROME_PATH=/path/to/chrome PYTHONDONTWRITEBYTECODE=1 node tests/gui-validation-browser.mjs
+```
+
+Requires Python 3, Git, Node 22+ with built-in WebSocket, and an installed Chrome
+or Chromium supporting headless CDP. The default browser path is the macOS
+Google Chrome application. No npm packages or permission changes are needed.
+Missing prerequisites or failed required browser assertions block handoff;
+record the blocker rather than waiving it.
+
+The harness creates a temporary Git repo, task store, state directory and Chrome
+profile. Both HTTP and DevTools request OS-assigned ports. It checks gray initial
+state, scope and live badge transitions, exact reruns, unresolved nested/compound
+checks, full hostile/long evidence, 390px wrapping, keyboard detail/source links,
+and open/closed disclosure preservation across two polls. It reports the browser
+version, fixture path and each assertion group, then reaps only its launched
+children and removes only its temporary directory, on success or failure.
+
+GUI Bats fixtures likewise use ephemeral ports and per-test state. Default-port
+behavior is asserted at the launcher boundary without binding port 8765; a
+cleanup regression checks that an independent fixture stays alive. Cleanup must
+never match processes by port or stop a live dashboard to make tests pass.
