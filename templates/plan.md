@@ -20,6 +20,11 @@ user replies, then run `paw edit <task>` before `paw implement`. -->
 - [ ] <step>
   Progress: <one-line note added only when the item is complete>
 
+<!-- Independent grading and production sign-off belong in a post-implementation
+     Review requirement, outside implementation checkboxes. After approved work
+     and final full validation pass, record 100% and Next work: Review.
+     Preserve explicit task-specific gates; reconcile conflicts before proceeding. -->
+
 ## Acceptance Criteria
 
 - [ ] <testable / reviewable criterion>

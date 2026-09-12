@@ -690,28 +690,32 @@ def review_grade(review: str) -> str:
         match = re.match(r"^\s*[-*]\s+Grade:\s*(.*?)\s*$", line, re.IGNORECASE)
         if match:
             grade = match.group(1).strip()
-            return "" if not grade or grade.lower() == "pending" else grade
+            return "" if not grade or grade.lower() == "pending" else (_normalized_grade(grade) or grade)
     return ""
 
 
+def _normalized_grade(value: str) -> str:
+    candidate = value.strip().removesuffix('.').rstrip()
+    for wrapper in ('**', '__', '*', '_', '`'):
+        if candidate.startswith(wrapper) and candidate.endswith(wrapper):
+            candidate = candidate[len(wrapper):-len(wrapper)].strip()
+            break
+    return candidate.upper() if re.fullmatch(r'[ABCDFabcdf][+-]?', candidate) else ''
+
+
 def review_grade_class(grade: str) -> str:
-    match = re.match(r"^\s*([A-Fa-f])(?:\b|[-+]|/|$)", grade)
-    if not match:
-        return "grade-unknown"
-    return f"grade-{match.group(1).lower()}"
+    token = _normalized_grade(grade)
+    return f"grade-{token[0].lower()}" if token else "grade-unknown"
 
 
 def grade_rank(grade: str) -> int | None:
-    match = re.match(r"^\s*([A-Fa-f])\s*([+-]?)", grade)
-    if not match:
+    token = _normalized_grade(grade)
+    if not token:
         return None
-    base = {"A": 12, "B": 9, "C": 6, "D": 3, "F": 0}.get(match.group(1).upper())
-    if base is None:
-        return None
-    suffix = match.group(2)
-    if suffix == "+" and match.group(1).upper() != "A":
+    base = {"A": 12, "B": 9, "C": 6, "D": 3, "F": 0}[token[0]]
+    if token.endswith('+') and token[0] != 'A':
         base += 1
-    elif suffix == "-":
+    elif token.endswith('-'):
         base -= 1
     return base
 

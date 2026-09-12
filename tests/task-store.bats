@@ -167,3 +167,19 @@ MD
   [[ "$output" == *"$REPO"* ]]
   [[ "$output" == *"$repo_two"* ]]
 }
+
+@test "task store: batch completion requires 100 percent Review for replacement packages" {
+  for task_dir in "$REPO/.agent/replacement" "$PAW_TASK_HOME/replacement"; do
+    mkdir -p "$task_dir"
+    git config --file "$task_dir/metadata.gitconfig" paw.prototype-status planned
+    for percent in 95 100; do
+      printf '## Current Status\n- Estimated completion: %s%%\n- Next work: Review.\n' "$percent" > "$task_dir/plan.md"
+      run bash -c 'source "$1"; paw_task_is_finished "$2"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$task_dir"
+      if [[ "$percent" = 100 ]]; then
+        [ "$status" -eq 0 ]
+      else
+        [ "$status" -ne 0 ]
+      fi
+    done
+  done
+}

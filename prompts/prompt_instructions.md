@@ -80,9 +80,10 @@ When present, keep concise, derived from `plan.md`, and update when reviewer-fac
 1. Create or update `.agent/<task>/` and the branch PR body file when present.
 2. Inspect `git status` and `git diff`.
 3. Read only files needed for the plan.
-4. Ask the user the highest-value task-specific clarifying questions whenever better answers would materially improve the plan; ask as many follow-ups as the task needs. Skip this only when the task is already well-specified or genuinely trivial.
-5. Update `contract.md`, `plan.md`, and the branch PR body file when present.
-6. Stop; ask user to review. Do not modify project files outside `.agent/<task>/` except the branch PR body file.
+4. In new plans, place independent grading and production sign-off (including inherited prototype quality thresholds/recommendations) in a post-implementation Review requirement, outside implementation checkboxes. Keep self-checks and required validation inside implementation.
+5. Ask the user the highest-value task-specific clarifying questions whenever better answers would materially improve the plan; ask as many follow-ups as the task needs. Skip this only when the task is already well-specified or genuinely trivial.
+6. Update `contract.md`, `plan.md`, and the branch PR body file when present.
+7. Stop; ask user to review. Do not modify project files outside `.agent/<task>/` except the branch PR body file.
 
 <!-- PAW:EDIT -->
 ### Edit work: plan-only refinement
@@ -112,7 +113,7 @@ When the last `- [ ]` flips to `- [x]`, run the **Post-Implementation Wrap-Up** 
    - Escalate to broader or full validation for shared/high-risk changes, workflow/CI edits, security-sensitive areas, failures in targeted checks, explicit user/reviewer request, unclear blast radius, or PR-ready handoff when full validation has not otherwise been run.
 2. Walk "Durable Documentation Requirements"; update stale docs.
 3. Confirm tests exist (or waived) for every behavior change; missing tests → new `- [ ]` items.
-4. Then update `## Current Status` to 100% and write final handoff summary.
+4. After approved implementation, docs, tests and required final full validation pass, record 100% and `Next work: Review.`. Finish routine authorized work without asking for permission. Keep self-checks inside implementation; independent grading and production sign-off follow in Review. Preserve explicit task-specific gates and approval boundaries: reconcile conflicting old approved plans rather than silently overriding them. Then write the final handoff summary.
 
 ### Pre-authorized routine work
 

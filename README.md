@@ -163,3 +163,21 @@ Dashboard actions stay inline, including Plan/Queue, Edit/Answer Questions, appr
 - [scripts/README.md](scripts/README.md) — CLI subcommands, helper scripts, and environment variables
 - [tests/README.md](tests/README.md) — canonical validation entrypoints and bats suite notes
 - [scripts/lib/README.md](scripts/lib/README.md) — shared helpers and backend modules
+
+### Implementation handoff and review grades
+
+Replacement planning creates a plan for a later `paw implement` run. Once approved
+implementation, documentation, tests and final full validation pass, record 100%
+and `Next work: Review.`. Independent grading and inherited production quality
+thresholds belong in the subsequent Review stage; 100% describes implementation
+completion, not production sign-off. Self-checks and genuine blockers remain part
+of implementation. Reconcile explicit conflicting old approved gates per task;
+existing task histories are not automatically rewritten.
+
+Reviews should write plain metadata, for example `- Grade: B+` under
+`## Review Metadata`, with explanations and threshold results in separate fields.
+The GUI also reads case-insensitive A/B/C/D/F grades with optional plus/minus,
+one balanced bold, italic or backtick wrapper, and an optional final period.
+Supported grades share badge text, color and prototype eligibility (A- or higher
+blocks prototype). Pending/empty grades have no badge; unsupported values remain
+escaped neutral text without a guessed rank. Review files are preserved.

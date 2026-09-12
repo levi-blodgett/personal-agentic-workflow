@@ -83,7 +83,12 @@ try {
   execFileSync('git', ['init', '-q', repo], { env: environment });
   const record = body => writeFileSync(join(task, 'plan.md'), '## Validation Performed\n' + body);
   record('');
-  const server = launch('python3', ['-B', '-u', join(checkout, 'scripts/lib/gui_server.py'),
+  const server = launch('python3', ['-B', '-u', '-c',
+    `import sys
+sys.path.insert(0, ${JSON.stringify(join(checkout, 'scripts/lib'))})
+import gui_server as gui
+gui.launch_paw = lambda *args: (True, 'started paw review (fixture)')
+gui.main()`,
     '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0']);
   await until('fixture HTTP URL', () => /http:\/\/\S+/.test(server.output));
   const url = server.output.match(/http:\/\/\S+/)[0];
@@ -211,6 +216,22 @@ try {
   assert.equal(await evaluate("new URL(location.href).searchParams.get('path')"), task);
   assert.equal(await evaluate("new URL(location.href).searchParams.get('active_repo')"), repo);
   console.log('PASS: keyboard source link resolves to the exact fixture plan');
+
+  execFileSync('git', ['config', '--file', join(task, 'metadata.gitconfig'), 'paw.prototype-status', 'planned']);
+  writeFileSync(join(task, 'plan.md'), '## Current Status\n- Estimated completion: 100%\n- Next work: Review.\n');
+  await call('Page.navigate', { url });
+  await until('completed replacement offers Review', () => evaluate("!!document.querySelector('form[action$=review]')"));
+  await evaluate("document.querySelector('form[action$=review] button').click()");
+  await until('stubbed Review launch', () => evaluate("document.body.textContent.includes('started paw review (fixture)')"));
+  writeFileSync(join(task, 'review.md'), '## Review Metadata\n- Grade: **B+**.\n');
+  await until('clean B+ badge', () => evaluate("document.querySelector('.review-grade.grade-b')?.textContent === 'Review grade: B+'"));
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('.grade-b')).color"), 'rgb(29, 78, 216)');
+  await sleep(5500);
+  assert.equal(await evaluate("document.querySelector('.review-grade').textContent"), 'Review grade: B+');
+  writeFileSync(join(task, 'review.md'), '## Review Metadata\n- Grade: **A-**.\n');
+  await until('formatted A- restriction', () => evaluate("document.querySelector('.grade-a')?.textContent === 'Review grade: A-' && document.body.textContent.includes('Prototype disabled for review grade A-')"));
+  console.log('PASS: completed replacement launches stubbed Review; bold B+ stays clean/blue through polling; A- restricts prototype');
+
 } catch (error) {
   for (const child of children) if (child.errors) console.error(child.errors.slice(-4000));
   throw error;

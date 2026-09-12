@@ -193,3 +193,9 @@ MD
   [ "$status" -eq 0 ]
   [[ "$output" == *"OK"* ]]
 }
+
+@test "templates: separate independent review from implementation handoff" {
+  grep -qF "outside implementation checkboxes" "$TEMPLATES_DIR/plan.md"
+  grep -qF "record 100% and" "$TEMPLATES_DIR/plan.md"
+  grep -qF "Preserve explicit task-specific gates" "$REPO_ROOT/prompts/prompt_instructions.md"
+}

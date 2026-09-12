@@ -167,3 +167,8 @@ PYTHONDONTWRITEBYTECODE=1 node tests/gui-validation-browser.mjs
 
 See [browser prerequisites and fixture ownership](../../tests/README.md#recorded-validation-browser-regression).
 These checks supplement the required full `make check` gate for shared GUI changes.
+
+Implementation completion includes self-checks and final full local validation.
+Independent grading/production sign-off follows in Review; keep inherited quality
+thresholds in a post-implementation review requirement when writing new plans.
+An independent review is not a substitute for required implementation checks.

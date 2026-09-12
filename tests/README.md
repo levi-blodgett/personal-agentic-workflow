@@ -150,3 +150,11 @@ future/unknown outcomes and instruction-like names, both alone and beside an
 unrelated success. Metadata cases move exact reruns through plain, fenced and
 commented diagnostics, then back to real peers; case-mismatched reruns cannot
 resolve the original check. Chrome also exercises a numbered nested `next check`.
+
+Prototype handoff regressions in `gui-prototype.py` cover central/legacy completed
+replacements launching Review, 95% remaining incomplete, formatted grade grammar,
+metadata scope, escaped unknown values and A/A- display/POST restrictions. The
+recorded-validation browser harness also checks completed replacement → stubbed
+Review launch, bold B+ blue badge through polling, and formatted A- restrictions.
+No real model launch or live task is used. Producer regressions cover independent
+review after implementation and canonical plain Grade metadata with pending seeds.

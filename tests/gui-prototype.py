@@ -46,6 +46,68 @@ class PrototypeJourney(unittest.TestCase):
             self.meta('prototype-status', status)
             self.assertEqual(gui.task_workflow(self.task()).action, 'archive')
 
+    def test_completed_replacement_review_launch_central_and_legacy(self):
+        for central in (False, True):
+            if central:
+                destination = self.home / gui.repo_slug(self.repo) / 'replacement'
+                destination.parent.mkdir(parents=True)
+                self.path.rename(destination)
+                self.path = destination
+                self.meta('repo-root', str(self.repo))
+            self.meta('prototype-source', 'source')
+            self.meta('prototype-status', 'planned')
+            for percent, action in ((95, 'approve-implementation'), (100, 'review')):
+                (self.path / 'plan.md').write_text(f'## Current Status\n- Estimated completion: {percent}%\n- Next work: Review.\n')
+                self.assertEqual(gui.task_workflow(self.task()).action, action)
+            with patch.object(gui, 'launch_paw', return_value=(True, 'started')) as launch:
+                self.post('review')
+                self.assertEqual(launch.call_args.args[-1], ['review', 'replacement'])
+
+    def test_reported_bold_grade_badge_and_rank(self):
+        raw = '# Review\n## Review Metadata\n- Grade: **B+**.\n'
+        (self.path / 'review.md').write_text(raw)
+        grade = gui.review_grade(self.task().review)
+        self.assertEqual(grade, 'B+')
+        self.assertEqual(gui.review_grade_class(grade), 'grade-b')
+        self.assertEqual(gui.grade_rank(grade), 10)
+        rendered = self.handler.workflow_next_cell(self.task(), gui.task_workflow(self.task()))
+        self.assertIn('Review grade: B+', rendered)
+        self.assertIn('grade-b', rendered)
+        self.assertEqual(gui.prototype_disabled_reason(self.task()), '')
+        self.assertEqual((self.path / 'review.md').read_text(), raw)
+
+    def test_grade_grammar_and_metadata_scope(self):
+        for token in ('A', 'A-', 'B+', 'C-', 'D', 'F+'):
+            for wrapper in ('', '**', '__', '*', '_', '`'):
+                for period in ('', '.'):
+                    value = wrapper + token.lower() + wrapper + period
+                    with self.subTest(value=value):
+                        review = '## Review Metadata\n- Grade: ' + value
+                        self.assertEqual(gui.review_grade(review), token)
+                        self.assertEqual(gui.grade_rank(value), gui.grade_rank(token))
+                        self.assertEqual(gui.review_grade_class(value), gui.review_grade_class(token))
+        for value in ('Apple', 'Bad', 'B+/A', '**B+*', '***B+***', 'B+ explanation', 'E', '<script>alert(1)</script>'):
+            self.assertEqual(gui.review_grade('## Review Metadata\n- Grade: ' + value), value)
+            self.assertIsNone(gui.grade_rank(value))
+            self.assertEqual(gui.review_grade_class(value), 'grade-unknown')
+            (self.path / 'review.md').write_text('## Review Metadata\n- Grade: ' + value)
+            rendered = self.handler.workflow_next_cell(self.task(), gui.task_workflow(self.task()))
+            self.assertNotIn('<script>', rendered)
+        for value in ('', 'pending', 'PENDING'):
+            self.assertEqual(gui.review_grade('## Review Metadata\n- Grade: ' + value), '')
+        for review in ('- Grade: A', '## Summary\n- Grade: A', '## Review Metadata\n- Overall Workflow / Subsystem Grade: A\n## Summary\n- Grade: B'):
+            self.assertEqual(gui.review_grade(review), '')
+
+    def test_formatted_grade_controls_display_and_post_guard(self):
+        for value, allowed in (('**A**.', False), ('`a-`', False), ('**B+**.', True)):
+            (self.path / 'review.md').write_text('## Review Metadata\n- Grade: ' + value)
+            workflow = gui.task_workflow(self.task())
+            control = self.handler.workflow_action_control(self.task(), workflow)
+            self.assertEqual("name='extras'" in control, allowed)
+            with patch.object(gui, 'launch_paw', return_value=(True, 'started')) as launch:
+                self.post('prototype')
+                self.assertEqual(launch.called, allowed)
+
     def test_prototype_requires_review_and_collects_instructions(self):
         self.assertIn('review.md', gui.prototype_disabled_reason(self.task()))
         (self.path / 'review.md').write_text('# Review\n- Grade: B\n')

@@ -592,6 +592,7 @@ _validation_policy_prompt_note() {
   cat <<'EOF'
 
 Validation policy reminder:
+- After approved implementation, docs, tests and required final full validation pass, record 100% and `Next work: Review.`. Finish routine authorized work without asking for permission. Keep self-checks inside implementation; independent grading and production sign-off follow in Review. Preserve explicit task-specific gates and approval boundaries: reconcile conflicting old approved plans rather than silently overriding them.
 - Run the validation decision ladder from the task plan before handoff.
 - Start with targeted changed-area validation, then escalate when the plan or risk requires it.
 - Run the named full local validation command after the final implementation change before implement/diagnose completion, including batch, GUI, and docs-only runs.
@@ -727,7 +728,7 @@ Review requirements:
 - Check the task's recorded validation results and any durable docs changed by the task.
 - State the scope reviewed. When task docs or human extras ask for broader review, grade the current overall workflow or subsystem state, not only the incremental task delta.
 - When review/prototype remediation is in scope, explicitly rate the overall current state of `paw review` and `paw prototype`, including whether prototype cleanup is production-ready.
-- Assign a clear grade.
+- Assign a clear grade in Review Metadata as a plain canonical line such as `- Grade: B+`, with no Markdown wrappers or terminal punctuation. Keep explanations and threshold results in separate fields; retain `- Grade: pending` until grading is complete.
 - Assign an overall workflow/subsystem grade when broader review scope is requested.
 - State the quality threshold used or ask the user to dictate one when it is absent from task docs or extras.
 - Record whether the work meets the threshold.
@@ -758,6 +759,7 @@ Task-package requirements:
 - Fill in the new replacement task's `contract.md` and `plan.md`, plus the branch PR body file when present.
 - Add a `## Prototype Source` section to the replacement task's `plan.md`.
 - Mention the source task, `review.md`, grade, recommendations, and revert/prototype status.
+- Carry source quality thresholds and recommendations into a post-implementation Review requirement, not an implementation checkbox requiring an independent reviewer. Implementation self-checks and final full validation still precede completion.
 - Preserve the normal PAW plan contract and leave implementation for a later `paw implement`.
 EOF
 }

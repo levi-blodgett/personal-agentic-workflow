@@ -172,6 +172,8 @@ MD
   prompt_contains "quality threshold"
   prompt_contains "architectural and design choices"
   prompt_contains "prototype cleanup is production-ready"
+  prompt_contains "- Grade: B+"
+  prompt_contains "no Markdown wrappers or terminal punctuation"
   prompt_contains "concrete recommendations"
 }
 
@@ -229,6 +231,7 @@ MD
   prompt_contains "PAW:PLAN"
   prompt_contains "proto-task/review.md"
   prompt_contains "source task being treated as the prototype"
+  prompt_contains "post-implementation Review requirement"
   prompt_contains "replacement plan-only task package"
 }
 
@@ -635,6 +638,7 @@ capture_prototype_source() {
   prompt_contains "targeted changed-area validation"
   prompt_contains "Validation tier chosen"
   prompt_contains "Run the named full local validation command after the final implementation change"
+  prompt_contains "record 100% and"
 }
 
 @test "paw implement: records prototype ownership for tracked paths changed during implementation" {
@@ -827,6 +831,7 @@ MD
   prompt_contains "targeted changed-area validation"
   prompt_contains "Validation tier chosen"
   prompt_contains "Run the named full local validation command after the final implementation change"
+  prompt_contains "record 100% and"
   prompt_contains "including batch, GUI, and docs-only runs"
   prompt_contains "missing tools or failed checks block completion"
 }
