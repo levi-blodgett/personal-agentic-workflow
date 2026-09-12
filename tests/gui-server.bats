@@ -912,7 +912,7 @@ MD
 
   grep -q "added repo $repo_two_path" "$BATS_TEST_TMPDIR/add-repo-post.html"
   grep -q "name=\"active_repo\"" "$BATS_TEST_TMPDIR/add-repo-index.html"
-  grep -q "<option value='$repo_two_path'>$repo_two_path</option>" "$BATS_TEST_TMPDIR/add-repo-index.html"
+  grep -q "<option value='$repo_two_path'>repo-two</option>" "$BATS_TEST_TMPDIR/add-repo-index.html"
   git config --file "$XDG_STATE_HOME/paw/gui/repos.gitconfig" --get-all paw.repo | grep -Fx "$repo_two_path"
 }
 
@@ -2047,4 +2047,27 @@ PY
   GUI_PID="$companion_pid"
   fetch_gui "$companion_port" "/" "$BATS_TEST_TMPDIR/companion.html"
   grep -q "gui-task" "$BATS_TEST_TMPDIR/companion.html"
+}
+
+@test "paw gui: compact context keeps one approval and adjacent lifecycle actions" {
+  local port=0
+  start_gui "$port"
+  fetch_gui "$port" "/?state=ready&completion=50%25" "$BATS_TEST_TMPDIR/compact.html"
+  python3 - "$BATS_TEST_TMPDIR/compact.html" <<'PY'
+from html.parser import HTMLParser
+from pathlib import Path
+import sys
+body = Path(sys.argv[1]).read_text()
+assert "data-repo-switch" in body and "data-new-plan" in body
+assert "Queued Plans (0)" in body and "Destination:" in body
+assert "<details class='repo-management'>" in body
+assert "name='state' value='ready'" in body
+assert "name='completion' value='50%'" in body
+row = body.split("<tr data-paw-key=", 1)[1].split('</tr>', 1)[0]
+assert row.count('approve=implementation') == 1
+utilities, lifecycle = row.split("<div class='lifecycle-actions action-row'>")
+assert 'approve=implementation' not in utilities.split("<div class='task-utilities action-row'>")[1]
+assert lifecycle.index('/archive') < lifecycle.index('/delete')
+assert "class='archive'" in lifecycle
+PY
 }

@@ -1417,12 +1417,18 @@ th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e8ebf0;vertical
 .tabs a{margin-right:14px}.muted{color:#667085}.document{background:white;border:1px solid #dfe3ea;border-radius:8px;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:#f6f8fa;border:1px solid #dfe3ea;padding:12px;overflow:auto}.document code{background:#eef2f7;padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid #d0d7de;color:#57606a;margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}.document table{border:1px solid #dfe3ea}.document tr:nth-child(even),.table-wrap tbody tr:nth-child(even){background:#fbfcfe}
 .log-stream{display:grid;gap:14px;margin:14px 0 24px}.log-panel{background:white;border:1px solid #dfe3ea;border-radius:8px;overflow:hidden}.log-panel h3{font-size:13px;text-transform:uppercase;color:#4b5563;background:#edf1f7;margin:0;padding:8px 12px}.log-panel pre{margin:0;max-height:45vh;overflow:auto;padding:12px;background:#0f172a;color:#e5e7eb;white-space:pre-wrap}
 .action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid #ccd3dd;border-radius:6px;padding:5px 9px;background:#f8fafc;color:#667085}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:white;color:#202124;border:1px solid #cfd7e3;border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.queued-prompt{white-space:pre-wrap;overflow-wrap:anywhere;min-width:18ch;max-width:60ch;margin:0}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
+:root{--ink:#202c3d;--muted:#526174;--surface:#fff;--line:#dfe5ed;--canvas:#f5f7fa;--accent:#2454c6;--space:12px}
+body{color:var(--ink);background:var(--canvas)}*{box-sizing:border-box}main.shell{padding-block:16px}.site-header{background:var(--surface);color:var(--ink);border-bottom:1px solid var(--line);padding:14px 0}.site-header h1{order:-1;font-size:18px}.home-link{color:var(--muted);border:0;padding:4px}.home-link:hover{background:var(--canvas)}.header-context{color:var(--muted)}
+button,.button,input,select,textarea{border-radius:7px}button,.button{white-space:nowrap}button,.button{padding:6px 10px}a:hover{text-decoration:underline}:focus-visible{outline:3px solid #2563eb;outline-offset:3px}.primary{background:var(--accent);border-color:var(--accent);color:white}.primary:hover{background:#1d43a2}.archive{background:#fffbeb;border-color:#c68b16;color:#78500b}.archive:hover{background:#fef3c7}.danger{background:#fffafa}.lifecycle-actions{margin-top:10px;flex-wrap:nowrap}.task-utilities{font-size:13px}
+#dashboard-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}#dashboard-controls>.repo-toolbar{margin:0}.repo-toolbar select{width:clamp(160px,30vw,420px);max-width:100%}.repo-management,.filter-disclosure{margin:0;font-size:13px}.repo-management>summary,.filter-disclosure>summary{cursor:pointer;padding:7px}.repo-management[open],.filter-disclosure[open]{flex-basis:100%}.dashboard-actions{margin:0;gap:var(--space)}.selected-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.js .switch-fallback,.js .selection-fallback{display:none}.selection-enhanced{display:none}.js .selection-enhanced{display:inline-block}[hidden]{display:none!important}.queue-trigger{font-size:13px}.toolbar label{max-width:100%;min-width:0}.toolbar input{max-width:100%}[data-action-feedback]:empty{display:none}.table-wrap{max-width:100%;border-radius:8px}#task-list table{min-width:1180px}.modal-body .table-wrap table{min-width:560px}th{background:#eef2f6;letter-spacing:.035em}th,td{padding:10px}.task-title{overflow-wrap:anywhere}.modal-panel{padding:16px}.modal-body{border-radius:12px;max-height:calc(100dvh - 32px);width:min(760px,100%);padding:20px;overscroll-behavior:contain;overflow-wrap:anywhere}.modal-body h2{font-size:19px;margin:0 0 12px}.modal-body input{max-width:100%}.modal-body code{overflow-wrap:anywhere}.modal-body .document{padding:14px}.modal-body .action-row{position:sticky;bottom:-20px;padding-block:12px;background:var(--surface)}.plan-destination{font-size:13px;color:var(--muted)}.plan-destination code{font-size:12px}.task-metadata{margin:14px 0}.task-metadata>summary{cursor:pointer;font-weight:600}.tabs{display:flex;gap:16px;flex-wrap:wrap}.tabs a{margin:0}
+@media(max-width:640px){#dashboard-controls{gap:8px}.repo-toolbar{width:100%}.repo-toolbar label{flex:1}.repo-toolbar select{width:100%}.dashboard-actions{width:100%}.modal-panel{padding:10px}.modal-body{max-height:calc(100dvh - 20px);padding:14px}.modal-body .action-row{bottom:-14px}.header-row{gap:12px}.site-header h1{overflow-wrap:anywhere}.toolbar-fields{max-width:100%}}
 @media (max-width:640px){.shell{width:min(100% - 20px,1600px)}.header-context{margin-left:0;flex-basis:100%}}
 """
 
 SCRIPT = """
 <script>
 document.addEventListener("DOMContentLoaded", () => {
+  document.documentElement.classList.add('js');
   function revealValidation() {
     if (location.hash !== '#validation') return;
     const details = document.getElementById('validation');
@@ -1465,11 +1471,11 @@ document.addEventListener("DOMContentLoaded", () => {
         current.matches('textarea') ? current.value !== current.defaultValue :
           [...current.options].some(option => option.selected !== option.defaultSelected)));
     for (const attribute of [...current.attributes]) {
-      if (attribute.name === 'open' || (dirty && attribute.name === 'value')) continue;
+      if (attribute.name === 'open' || attribute.name === 'inert' || (dirty && attribute.name === 'value')) continue;
       if (!fresh.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
     }
     for (const attribute of fresh.attributes) {
-      if (attribute.name === 'open' || (dirty && attribute.name === 'value')) continue;
+      if (attribute.name === 'open' || attribute.name === 'inert' || (dirty && attribute.name === 'value')) continue;
       if (current.getAttribute(attribute.name) !== attribute.value) current.setAttribute(attribute.name, attribute.value);
     }
     if (!(dirty && current.matches('textarea, select'))) reconcile(current, fresh, root);
@@ -1529,6 +1535,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function discover() {
+    syncModal();
+    updateSelection();
     for (const [target, state] of pollers) {
       if (!target.isConnected || target.dataset.pawRefreshUrl !== state.url) {
         clearInterval(state.timer);
@@ -1543,19 +1551,166 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function updateSelection() {
+    const form = document.getElementById('selected-action-form');
+    if (!form) return;
+    const count = document.querySelectorAll('[name="task"]:checked').length;
+    form.hidden = count === 0;
+    form.querySelector('[data-selection-count]').textContent = count + ' selected';
+    const deleting = form.elements.selected_action.value === 'delete';
+    form.querySelector('.checkbox-label').hidden = !deleting;
+    form.querySelector('[data-confirm-delete]').hidden = !deleting;
+  }
+  document.addEventListener('change', updateSelection);
+  document.addEventListener('click', event => {
+    const button = event.target.closest('[data-selected-action]');
+    if (!button) return;
+    const form = button.form;
+    form.elements.selected_action.value = button.dataset.selectedAction;
+    if (button.dataset.selectedAction === 'archive') form.requestSubmit();
+    else { updateSelection(); form.elements.confirm.focus(); }
+  });
+  document.addEventListener('change', event => {
+    if (event.target.matches('[data-repo-switch] select')) event.target.form.requestSubmit();
+  });
+  document.addEventListener('click', event => {
+    if (!event.target.closest('[data-open-queue]')) return;
+    event.preventDefault();
+    const plan = document.querySelector('[data-new-plan]');
+    plan.open = true;
+    plan.querySelector('#queued-plans')?.scrollIntoView({block: 'nearest'});
+  });
   const preview = document.querySelector('[data-doc-preview]');
   let previewRequest = 0;
+  let modal = null;
+  let modalOpener = null;
+  let pageScroll = null;
+  let previousOverflow = '';
+  const inertNodes = new Map();
+  let previewController = null;
+  function invalidatePreview() {
+    previewRequest++;
+    previewController?.abort();
+    previewController = null;
+  }
+  function restoreBackground() {
+    for (const [node, inert] of inertNodes) node.inert = inert;
+    inertNodes.clear();
+  }
+  function isolateDialog(panel) {
+    restoreBackground();
+    for (let node = panel; node.parentElement; node = node.parentElement) {
+      for (const sibling of node.parentElement.children) {
+        if (sibling === node) continue;
+        inertNodes.set(sibling, sibling.inert);
+        sibling.inert = true;
+      }
+    }
+  }
+  function focusable(panel) {
+    return [...panel.querySelectorAll('button, a[href], input, select, textarea, summary, [tabindex]')]
+      .filter(node => !node.disabled && node.tabIndex >= 0 && !node.closest('[inert]') && node.getClientRects().length);
+  }
+  function closeModal(returnFocus = true) {
+    if (!modal) return;
+    const old = modal;
+    modal = null;
+    if (old.closest('[data-doc-preview]')) {
+      invalidatePreview();
+      preview.replaceChildren();
+    } else {
+      const details = old.closest('details.modal-toggle');
+      if (details) details.open = false;
+    }
+    restoreBackground();
+    document.body.style.overflow = previousOverflow;
+    if (pageScroll) window.scrollTo(...pageScroll);
+    pageScroll = null;
+    const fallback = document.querySelector('[data-new-plan] summary, .home-link');
+    if (returnFocus) (modalOpener?.isConnected ? modalOpener : fallback)?.focus({preventScroll: true});
+    modalOpener = null;
+  }
+  function labelDialog(panel) {
+    const body = panel.querySelector('.modal-body');
+    body.setAttribute('role', 'dialog');
+    body.setAttribute('aria-modal', 'true');
+    body.setAttribute('aria-label', body.querySelector('h2')?.textContent || 'Task action');
+    body.tabIndex = -1;
+    return body;
+  }
+  function openModal(panel, opener = document.activeElement) {
+    if (modal === panel) { isolateDialog(panel); return; }
+    closeModal(false);
+    modal = panel;
+    modalOpener = opener;
+    pageScroll = [window.scrollX, window.scrollY];
+    previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const body = labelDialog(panel);
+    isolateDialog(panel);
+    (focusable(panel)[0] || body).focus({preventScroll: true});
+  }
+  function syncModal() {
+    if (modal && (!modal.isConnected || (modal.closest('details.modal-toggle') && !modal.closest('details.modal-toggle').open))) {
+      closeModal();
+    }
+    if (modal) { labelDialog(modal); isolateDialog(modal); }
+  }
+  document.addEventListener('toggle', event => {
+    if (!event.target.matches('details.modal-toggle')) return;
+    if (event.target.open) openModal(event.target.querySelector('.modal-panel'), event.target.querySelector('summary'));
+    else syncModal();
+  }, true);
+  document.addEventListener('click', event => {
+    if (event.target.matches('.modal-panel') || event.target.closest('[data-modal-close]')) {
+      event.preventDefault();
+      closeModal();
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (!modal) return;
+    if (event.key === 'Escape') { event.preventDefault(); closeModal(); }
+    if (event.key !== 'Tab') return;
+    const items = focusable(modal);
+    const first = items[0] || modal.querySelector('.modal-body');
+    const last = items.at(-1) || first;
+    if (event.shiftKey && (document.activeElement === first || !items.includes(document.activeElement))) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !items.includes(document.activeElement))) {
+      event.preventDefault(); first.focus();
+    }
+  });
+  document.addEventListener('focusin', event => {
+    if (modal && !modal.contains(event.target)) (focusable(modal)[0] || modal.querySelector('.modal-body')).focus();
+  });
+  window.addEventListener('pagehide', invalidatePreview);
   document.addEventListener('click', async event => {
     const trigger = event.target.closest('[data-doc-preview-url]');
     if (!trigger || !preview) return;
     event.preventDefault();
-    const request = ++previewRequest;
+    closeModal(false);
+    invalidatePreview();
+    const request = previewRequest;
+    previewController = new AbortController();
+    preview.innerHTML = '<div class="modal-panel"><div class="modal-body"><h2>Document preview</h2><button type="button" data-modal-close>Close</button><p role="status">Loading…</p></div></div>';
+    openModal(preview.firstElementChild, trigger);
     try {
-      const response = await fetch(trigger.dataset.docPreviewUrl, {cache: 'no-store'});
+      const response = await fetch(trigger.dataset.docPreviewUrl, {cache: 'no-store', signal: previewController.signal});
       if (!response.ok) throw new Error('Preview unavailable; try again.');
       const content = await response.text();
-      if (request === previewRequest) { preview.innerHTML = content; discover(); }
-    } catch (error) { if (request === previewRequest) preview.textContent = error.message; }
+      if (request !== previewRequest) return;
+      // Keep the active backdrop, scroll lock and opener while replacing loading content.
+      const template = document.createElement('template');
+      template.innerHTML = content;
+      const body = template.content.querySelector('.modal-body');
+      if (!body) throw new Error('Preview unavailable; try again.');
+      modal.replaceChildren(body);
+      labelDialog(modal);
+      (focusable(modal)[0] || body).focus({preventScroll: true});
+      discover();
+    } catch (error) {
+      if (request === previewRequest) preview.querySelector('[role=status]').textContent = error.message;
+    }
   });
   function feedback(message, ok, link = '') {
     const target = document.querySelector('[data-action-feedback]');
@@ -1570,6 +1725,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function switchRepo(repo) {
+    closeModal();
+    invalidatePreview();
+    document.querySelectorAll('[name="task"]:checked').forEach(input => { input.checked = false; });
     const url = new URL(location.href);
     url.searchParams.set('active_repo', repo);
     history.replaceState(null, '', url);
@@ -1601,7 +1759,9 @@ document.addEventListener("DOMContentLoaded", () => {
     submitting = true;
     generation++;
     previewRequest++;
-    if (button) button.disabled = true;
+    const controls = [...form.elements].filter(control => !control.matches('[data-modal-close]'))
+      .map(control => [control, control.disabled]);
+    controls.forEach(([control]) => { control.disabled = true; });
     feedback('Submitting…', true);
     try {
       const response = await fetch(form.action, {
@@ -1612,15 +1772,21 @@ document.addEventListener("DOMContentLoaded", () => {
       feedback(result.message, result.ok, result.link);
       if (result.ok) {
         if (form.id !== 'selected-action-form') form.reset();
+        if (modal?.contains(form)) closeModal();
         if (overlay) overlay.open = false;
-        if (inPreview) inPreview.replaceChildren();
+        if (inPreview?.contains(form)) { invalidatePreview(); inPreview.replaceChildren(); }
+        if (form.id === 'selected-action-form') {
+          document.querySelectorAll('[name="task"]:checked').forEach(input => { input.checked = false; });
+          form.reset();
+        }
         if (typeof result.active_repo === 'string') switchRepo(result.active_repo);
       }
     } catch (_error) {
       feedback('Could not confirm the action result. Check task state before retrying; your input has been retained.', false);
     } finally {
-      if (button) button.disabled = false;
+      controls.forEach(([control, disabled]) => { control.disabled = disabled; });
       submitting = false;
+      updateSelection();
       generation++;
       for (const [target, state] of pollers) refresh(target, state);
     }
@@ -2234,20 +2400,23 @@ class Handler(BaseHTTPRequestHandler):
         self.send_fragment(self.dashboard_forms(self.index_task_list(query, active_repo), query))
 
     def repo_selector(self, active_repo: Path) -> str:
-        options = "".join(option_tag(str(repo), str(repo), str(active_repo)) for repo in self.current_repos())
+        repos = self.current_repos()
+        labels = {repo: repo.name if sum(other.name == repo.name for other in repos) == 1
+                  else (str(Path(repo.parent.name) / repo.name) if sum(other.parts[-2:] == repo.parts[-2:] for other in repos) == 1
+                        else str(repo)) for repo in repos}
+        options = "".join(option_tag(str(repo), labels[repo], str(active_repo)) for repo in repos)
+        query = parse_qs(urlparse(self.path).query)
+        filters = "".join(f"<input type='hidden' name='{key}' value='{html_attr(query[key][0])}'>"
+                          for key in ("state", "repo", "completion") if query.get(key))
         return (
-            "<form class='toolbar repo-toolbar' method='get'>"
-            "<div class='toolbar-fields'>"
-            f"<label>Active repo <select name=\"active_repo\">{options}</select></label>"
-            "</div><div class='top-actions'>"
-            "<button type='submit'>Switch</button>"
-            "</div></form>"
-            "<form class='toolbar repo-toolbar' method='post' action='/actions/repos/add'>"
-            "<div class='toolbar-fields'>"
+            "<form class='toolbar repo-toolbar' method='get' data-repo-switch>"
+            f"{filters}<label>Active repo <select name=\"active_repo\">{options}</select></label>"
+            "<button type='submit' class='switch-fallback'>Switch</button></form>"
+            "<details class='repo-management'><summary>Manage repos</summary>"
+            f"{path_disclosure('Active repo path', str(active_repo))}"
+            "<form class='toolbar' method='post' action='/actions/repos/add'>"
             "<label>Add repo path <input name='repo_path' required></label>"
-            "</div><div class='top-actions'>"
-            "<button type='submit'>Add repo</button>"
-            "</div></form>"
+            "<button type='submit'>Add repo</button></form></details>"
         )
 
     def index_filters(self, query: dict[str, list[str]], active_repo: Path) -> str:
@@ -2281,16 +2450,18 @@ class Handler(BaseHTTPRequestHandler):
     def new_plan_modal(self, active_repo: Path) -> str:
         queued = self.queued_plan_list(active_repo)
         return (
-            "<details class='modal-toggle'><summary><span class='button primary'>Plan</span></summary>"
+            "<details class='modal-toggle' data-new-plan><summary><span class='button primary'>New Plan</span></summary>"
             "<div class='modal-panel'><div class='modal-body'>"
             "<form method='post' action='/actions/plan'>"
-            "<h2>Plan</h2>"
+            "<h2>New Plan</h2>"
+            f"<p class='plan-destination'>Destination: <strong>{html.escape(active_repo.name)}</strong>"
+            f"<br><code>{html.escape(str(active_repo))}</code></p>"
             f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
             "<p><label>Task name <input name='task_name' required pattern='[A-Za-z0-9._-]+'></label></p>"
             "<p><label>Prompt<br><textarea name='prompt' required rows='4'></textarea></label></p>"
             "<p class='action-row'><button type='submit' name='plan_action' value='plan'>Plan</button>"
             "<button type='submit' name='plan_action' value='queue' title='Save this prompt locally so planning can be started later'>Queue</button>"
-            "<button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Close</button></p>"
+            "<button type='button' data-modal-close onclick='this.closest(\"details\").removeAttribute(\"open\")'>Close</button></p>"
             f"</form>{queued}</div></div></details>"
         )
 
@@ -2298,13 +2469,17 @@ class Handler(BaseHTTPRequestHandler):
         return (
             "<div class='dashboard-actions'>"
             f"{self.new_plan_modal(active_repo)}"
+            f"<a class='queue-trigger' href='#queued-plans' data-open-queue>Queued Plans ({len(list_queued_plans(self.task_home, active_repo))})</a>"
             "<form id='selected-action-form' class='selected-actions' method='post' action='/actions/selected'>"
             f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
-            "<label>Selected action <select name='selected_action' required>"
+            "<span data-selection-count></span><label class='selection-fallback'>Selected action <select name='selected_action' required>"
             "<option value=''>Choose action</option><option value='archive'>Archive selected</option><option value='delete'>Delete selected</option>"
             "</select></label>"
             "<label class='checkbox-label'><input type='checkbox' name='confirm' value='yes'> Confirm delete</label>"
-            "<button type='submit'>Apply</button></form>"
+            "<button type='submit' class='selection-fallback'>Apply</button>"
+            "<button type='button' class='archive selection-enhanced' data-selected-action='archive'>Archive selected</button>"
+            "<button type='button' class='danger selection-enhanced' data-selected-action='delete'>Delete selected</button>"
+            "<button type='submit' class='danger selection-enhanced' data-confirm-delete>Confirm delete selected</button></form>"
             "</div>"
         )
 
@@ -2337,7 +2512,7 @@ class Handler(BaseHTTPRequestHandler):
                 "</div></td></tr>"
             )
         return (
-            "<h3>Queued Plans</h3><div class='table-wrap'><table><thead><tr><th>Task</th><th>Prompt</th><th>Actions</th></tr></thead>"
+            "<h3 id='queued-plans'>Queued Plans</h3><div class='table-wrap'><table><thead><tr><th>Task</th><th>Prompt</th><th>Actions</th></tr></thead>"
             f"<tbody>{''.join(rows)}</tbody></table></div>"
         )
 
@@ -2379,7 +2554,7 @@ class Handler(BaseHTTPRequestHandler):
             f"{question_block}"
             f"{answers_block}"
             f"<p><label>Extra instructions<br><textarea name='extras' rows='4'>{html.escape(default_extras)}</textarea></label></p>"
-            f"<p class='action-row'><button type='submit'>{html.escape(label)}</button><button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Close</button></p>"
+            f"<p class='action-row'><button type='submit'>{html.escape(label)}</button><button type='button' data-modal-close onclick='this.closest(\"details\").removeAttribute(\"open\")'>Close</button></p>"
             "</form></div></div></details>"
         )
 
@@ -2406,7 +2581,7 @@ class Handler(BaseHTTPRequestHandler):
             f"<form class='inline-form' method='post' action='/task/{quote(task.name)}/archive'>"
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
             f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
-            "<button type='submit'>Archive</button></form>"
+            "<button class='archive' type='submit'>Archive</button></form>"
         )
 
     def cancel_form(self, task: Task) -> str:
@@ -2446,13 +2621,13 @@ class Handler(BaseHTTPRequestHandler):
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
             f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
             "<input type='hidden' name='confirm' value='yes'>"
-            "<p class='action-row'><button class='danger' type='submit'>Delete</button><button type='button' onclick='this.closest(\"details\").removeAttribute(\"open\")'>Cancel</button></p>"
+            "<p class='action-row'><button class='danger' type='submit'>Delete</button><button type='button' data-modal-close onclick='this.closest(\"details\").removeAttribute(\"open\")'>Cancel</button></p>"
             "</form></div></div></details>"
         )
 
     def task_actions(self, task: Task, include_docs: bool = False) -> str:
         active_query = f"&active_repo={quote(str(task.repo), safe='')}"
-        pieces = [self.archive_form(task)]
+        pieces = []
         if view_pr_branch(task):
             pieces.append(self.view_pr_form(task))
         if self.streamable(task):
@@ -2463,9 +2638,8 @@ class Handler(BaseHTTPRequestHandler):
                 pieces.append(f"<button type='button' data-doc-preview-url='{html_attr(preview_url)}'>{doc}.md</button>")
         edit_label = "Answer Questions" if task.blocked else "Edit"
         pieces.append(self.extras_modal(task, "edit", edit_label))
-        if task_workflow(task).action == "approve-implementation":
+        if not include_docs and task_workflow(task).action == "approve-implementation":
             pieces.append(self.approve_implementation_button(task))
-        pieces.append(self.delete_modal(task))
         if not include_docs:
             prototype_reason = prototype_disabled_reason(task)
             prototype_control = (
@@ -2473,8 +2647,9 @@ class Handler(BaseHTTPRequestHandler):
                 if prototype_reason
                 else self.extras_modal(task, "prototype", "Use as Prototype")
             )
-            pieces.extend([self.extras_modal(task, "review", "Review"), prototype_control, self.archive_form(task)])
-        return f"<div class='action-row'>{''.join(pieces)}</div>"
+            pieces.extend([self.extras_modal(task, "review", "Review"), prototype_control])
+        return (f"<div class='task-utilities action-row'>{''.join(pieces)}</div>"
+                f"<div class='lifecycle-actions action-row'>{self.archive_form(task)}{self.delete_modal(task)}</div>")
 
     def workflow_action_control(self, task: Task, workflow: TaskWorkflow) -> str:
         if workflow.action in {"edit", "prototype"}:
@@ -2592,10 +2767,11 @@ class Handler(BaseHTTPRequestHandler):
         body = (
             f"{page_header(task.name, task.repo_name, task.repo)}<main class='shell'>"
             f"{self.flash_html(message, level)}"
+            "<p data-action-feedback role='status' aria-live='polite' aria-atomic='true'></p>"
             f"{self.task_actions(task)}"
             f"<div id='task-detail' data-paw-refresh-url=\"{html_attr(refresh_url)}\" data-paw-refresh-interval-ms=\"2500\">"
             f"{self.task_detail(task, selected_doc)}"
-            "</div></main>"
+            "</div><div class='doc-preview' data-doc-preview></div></main>"
         )
         self.send_html(body)
 
@@ -2731,7 +2907,7 @@ class Handler(BaseHTTPRequestHandler):
             f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
             f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
             "<button type='submit'>Approve Implementation</button></form>"
-            "<button type='button' onclick='this.closest(\"[data-doc-preview]\").innerHTML=\"\"'>Close</button>"
+            "<button type='button' data-modal-close>Close</button>"
             "</div>"
             "<details><summary>Manual plan path</summary>"
             f"<pre><code>{html.escape(str(plan_path))}</code></pre>"
@@ -2750,7 +2926,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_fragment(
             "<div class='modal-panel'><div class='modal-body'>"
             f"<h2>{html.escape(task.name)} / {html.escape(selected_doc)}.md</h2>"
-            "<p><button type='button' onclick='this.closest(\"[data-doc-preview]\").innerHTML=\"\"'>Close</button></p>"
+            "<p><button type='button' data-modal-close>Close</button></p>"
             f"<div class='document'>{render_markdown(content)}</div>"
             f"{approval}"
             "</div></div>"
@@ -2777,6 +2953,8 @@ class Handler(BaseHTTPRequestHandler):
         prototype_cleanup_message = task.prototype_cleanup_message or "none"
         return (
             f"<p><span class='pill {task.state}'>{task.state}</span> <span class='pill'>{task.source}</span> <span class='pill'>{done}/{total} checklist</span></p>"
+            f"{self.workflow_stage_cell(task, task_workflow(task))}"
+            "<details class='task-metadata'><summary>Task metadata</summary>"
             "<div class='table-wrap'><table><tbody>"
             f"<tr><th>Task</th><td>{path_disclosure('Task path', str(task.path))}</td></tr>"
             f"<tr><th>Repo</th><td><strong>{html.escape(task.repo_name)}</strong>{path_disclosure('Repo path', str(task.repo))}</td></tr>"
@@ -2788,7 +2966,7 @@ class Handler(BaseHTTPRequestHandler):
             f"{' from ' + html.escape(prototype_source) if prototype_source != 'none' else ''}</td></tr>"
             f"<tr><th>Prototype Cleanup</th><td>{html.escape(prototype_cleanup_message)}</td></tr>"
             f"<tr><th>Crash Log</th><td>{html.escape(crash_state)}</td></tr>"
-            "</tbody></table></div>"
+            "</tbody></table></div></details>"
             f"{validation_details(task)}"
             f"<p class='tabs'>{tabs}</p><div id='validation-source' class='document'>{render_markdown(content)}</div>"
             f"{self.live_stream_section(task)}"

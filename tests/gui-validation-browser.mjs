@@ -241,3 +241,6 @@ gui.main()`,
   rmSync(root, { recursive: true, force: true });
   console.log('Cleanup: fixture processes reaped and temporary profile/store removed');
 }
+
+// Keep the UX journeys in the named browser validation entrypoint.
+execFileSync(process.execPath, [join(checkout, 'tests/gui-ux-browser.mjs')], { stdio: 'inherit', env: process.env });
