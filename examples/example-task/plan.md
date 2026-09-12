@@ -44,7 +44,7 @@ Add a `--version` / `-v` flag to the `foo` CLI that prints `foo <version>` and e
 
 ## Current Status
 
-- Plan position: All implementation phases complete.
+- Plan position: Implementation complete; illustrative independent Review recorded in review.md.
 - Estimated completion: 100%
 - Next work: Review.
 
@@ -117,3 +117,11 @@ Independent Review: A- or higher with no production blockers. Preserve explicit
 older/inherited thresholds; record their source and retain A- as the improvement
 target when the authoritative threshold differs. Independent grading and
 production sign-off follow implementation completion.
+
+## Independent Review Record (Illustrative)
+
+[review.md](review.md) demonstrates the subsequent independent A- / no-blockers
+review on `synthetic-example-code`, attempt `synthetic-example-attempt`. All checks,
+logs and outcomes are fictional; no PAW execution or production certification is
+claimed. I1 is deferred because changing the version source is outside scope.
+The 100% / Review status above retains the implementation handoff convention.

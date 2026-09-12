@@ -145,6 +145,27 @@ class PrototypeJourney(unittest.TestCase):
                 self.post('prototype')
                 launch.assert_not_called()
 
+    def test_template_seed_and_completed_grades_reach_gui_guards(self):
+        import review_record
+        for grade, allowed in (('C', True), ('A-', False)):
+            review_record.begin(self.path, 'replacement', self.repo)
+            with patch.object(gui, 'launch_paw', return_value=(True, 'started')) as launch:
+                self.post('prototype')
+                launch.assert_not_called()
+            text = (self.path / 'review.md').read_text()
+            for before, after in [('Scope Reviewed: pending', 'Scope Reviewed: fixture delta'),
+                                  ('Grade: pending', 'Grade: ' + grade),
+                                  ('Quality Threshold: pending', 'Quality Threshold: A- / no blockers'),
+                                  ('Threshold Result: pending', 'Threshold Result: ' + ('not met' if allowed else 'met')),
+                                  ('Completion: pending', 'Completion: complete')]:
+                text = text.replace(before, after)
+            (self.path / 'review.md').write_text(text.replace('- Pending.', '- B1: repair invariant.' if allowed else '- None.'))
+            review_record.finish(self.path, 'replacement')
+            self.assertEqual(gui.review_grade(self.task().review), grade)
+            with patch.object(gui, 'launch_paw', return_value=(True, 'started')) as launch:
+                self.post('prototype')
+                self.assertEqual(launch.called, allowed)
+
     def test_prototype_requires_review_and_collects_instructions(self):
         self.assertIn('review.md', gui.prototype_disabled_reason(self.task()))
         (self.path / 'review.md').write_text(complete_review())

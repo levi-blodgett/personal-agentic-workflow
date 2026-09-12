@@ -199,3 +199,12 @@ MD
   grep -qF "record 100% and" "$TEMPLATES_DIR/plan.md"
   grep -qF "Preserve explicit task-specific gates" "$REPO_ROOT/prompts/prompt_instructions.md"
 }
+
+@test "templates: illustrative review is complete with synthetic evidence identities" {
+  run python3 -B "$SCRIPTS_DIR/lib/review_record.py" check "$REPO_ROOT/examples/example-task" add-version-flag
+  [ "$status" -eq 0 ]
+  grep -qF 'EXAMPLE — illustrative only' "$REPO_ROOT/examples/example-task/review.md"
+  grep -qF 'synthetic-example-attempt' "$REPO_ROOT/examples/example-task/review.md"
+  grep -qF 'synthetic-example-code' "$REPO_ROOT/examples/example-task/review.md"
+  grep -qF 'not executed in PAW' "$REPO_ROOT/examples/example-task/review.md"
+}

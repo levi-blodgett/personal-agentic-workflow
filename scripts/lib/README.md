@@ -5,7 +5,7 @@
 | [task_store.sh](task_store.sh) | Central-first task lookup, legacy fallback, provenance, branch PR paths, migration/archive and run state |
 | [gui_lifecycle.sh](gui_lifecycle.sh) | Managed GUI state and verified recorded-process start/stop/restart/kill |
 | [gui_server.py](gui_server.py) | stdlib HTTP, safe Markdown, action guards, recorded-evidence parser, polling and themes |
-| [review_record.py](review_record.py) | Shared CLI/GUI review completeness, code/attempt identity and exact history |
+| [review_record.py](review_record.py) | Shared CLI/GUI review completeness, template rendering, code/attempt identity and exact history |
 | [review_lineage.py](review_lineage.py) | Read-only same-repo active/archived/legacy ancestry resolution |
 | [quality_plan.py](quality_plan.py) | Opt-in v1 planned-evidence lint; no execution attestation |
 | [crash_log.sh](crash_log.sh) | Failure classification and task-local crash records |
@@ -31,3 +31,8 @@ Branch PR helpers keep exact-byte SHA-256 identity separate from historical-file
 resolution. They share the main repository’s body store across linked worktrees,
 validate saved branch/repository assignments, and refuse ambiguous old files before
 seeding or submission. See [migration recovery](../../examples/docs/workflow.md#architecture-of-workflow).
+
+`review_record.begin(..., template=None)` defaults to the checkout review resource;
+CLI `begin --template PATH` supplies the PAW_HOME selection. Seed validation is separate
+from historical completion parsing. Render and validate before archiving or changing
+attempt state, then retain archive-before-replacement and atomic final review replacement.

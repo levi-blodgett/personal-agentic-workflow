@@ -27,6 +27,72 @@ class ReviewEvidence(unittest.TestCase):
         self.path.mkdir(parents=True)
         (self.path / 'review.md').write_text(complete())
 
+    def test_selected_template_renders_identities_and_stays_pending(self):
+        template = self.repo / 'resources with spaces' / 'review.md'
+        template.parent.mkdir()
+        canonical = Path(__file__).resolve().parents[1] / 'templates/review.md'
+        template.write_text(canonical.read_text() + '\nSelected resource.\n')
+        review.begin(self.path, 'task', self.repo, template)
+        text = (self.path / 'review.md').read_text()
+        data = review.fields(text)
+        self.assertIn('Selected resource.', text)
+        self.assertEqual(data['task'], '`task`')
+        self.assertEqual(data['quality policy version'], '1')
+        self.assertEqual(data['attempt'], (self.path / '.review-attempt').read_text().split('\t')[0])
+        self.assertIn('worktree-sha256=', data['reviewed code'])
+        self.assertNotIn('{{', text)
+        self.assertTrue(review.check(self.path, 'task'))
+
+    def test_bad_template_preserves_review_marker_and_history(self):
+        canonical = (Path(__file__).resolve().parents[1] / 'templates/review.md').read_text()
+        template = self.repo / 'bad template.md'
+        marker = self.path / '.review-attempt'
+        marker.write_bytes(b'old-attempt\tcomplete\n')
+        original = (self.path / 'review.md').read_bytes()
+        cases = [None, b'\xff', b'# Incomplete resource',
+                 canonical.replace('{{ATTEMPT}}', 'stale').encode(),
+                 canonical.replace('- Attempt: {{ATTEMPT}}', '<!-- - Attempt: {{ATTEMPT}} -->').encode(),
+                 canonical.replace('- Completion: pending', '- Completion: complete').encode(),
+                 (canonical + '\n## Review Metadata\n').encode(),
+                 (canonical + '\n{{UNSUPPORTED}}').encode()]
+        for content in cases:
+            with self.subTest(content=content):
+                if content is not None:
+                    template.write_bytes(content)
+                with self.assertRaisesRegex(ValueError, str(template)):
+                    review.begin(self.path, 'task', self.repo, template)
+                self.assertEqual((self.path / 'review.md').read_bytes(), original)
+                self.assertEqual(marker.read_bytes(), b'old-attempt\tcomplete\n')
+                self.assertFalse((self.path / 'review-history').exists())
+        # Reading a directory fails even when running as a user who bypasses mode bits.
+        with self.assertRaisesRegex(ValueError, str(self.repo)):
+            review.begin(self.path, 'task', self.repo, self.repo)
+        review.begin(self.path, 'task', self.repo)  # ordinary retry recovers
+        self.assertNotEqual(marker.read_bytes(), b'old-attempt\tcomplete\n')
+
+    def test_rendered_completion_grade_and_lineage_keep_finding_identities(self):
+        attempts = set()
+        for grade in ('C', 'A-'):
+            review.begin(self.path, 'task', self.repo)
+            text = (self.path / 'review.md').read_text()
+            attempt = review.fields(text)['attempt']
+            self.assertNotIn(attempt, attempts)
+            attempts.add(attempt)
+            for before, after in [('Scope Reviewed: pending', 'Scope Reviewed: fixture delta'),
+                                  ('Grade: pending', 'Grade: ' + grade),
+                                  ('Quality Threshold: pending', 'Quality Threshold: A- / no blockers; fixture plan'),
+                                  ('Threshold Result: pending', 'Threshold Result: ' + ('not met' if grade == 'C' else 'met')),
+                                  ('Completion: pending', 'Completion: complete')]:
+                text = text.replace(before, after)
+            text = text.replace('- Pending.', '- B1: preserve immutable bytes.' if grade == 'C' else '- None.')
+            (self.path / 'review.md').write_text(text)
+            self.assertTrue(review.check(self.path, 'task'))  # interrupted backend cannot finish itself
+            review.finish(self.path, 'task')
+            self.assertEqual(review.check(self.path, 'task'), '')
+            self.assertEqual(review.fields(text)['grade'], grade)
+            if grade == 'C':
+                self.assertIn('B1: preserve immutable bytes.', lineage.lineage(self.repo, self.store, 'task'))
+
     def test_complete_adverse_and_formatted_high_grade_are_feedback(self):
         for grade in ('C', '**A-**.', '`B+`'):
             self.assertEqual(review.incomplete_reason(complete(grade=grade), 'task'), '')

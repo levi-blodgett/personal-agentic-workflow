@@ -1527,3 +1527,76 @@ PLUGIN
   [ "$status" -eq 0 ]
   [ -d "$replacement/review-history" ]
 }
+
+@test "paw review: PAW_HOME template with spaces reaches legacy and central attempts only" {
+  local resource_home="$BATS_TEST_TMPDIR/resources with spaces"
+  mkdir -p "$resource_home"
+  cp -R "$PAW_HOME/templates" "$PAW_HOME/prompts" "$resource_home/"
+  printf '\nSelected custom review resource.\n' >> "$resource_home/templates/review.md"
+  export PAW_HOME="$resource_home"
+  make_task resource-legacy
+  run "$PAW" review resource-legacy
+  [ "$status" -eq 1 ]
+  grep -qF 'Selected custom review resource.' "$REPO/.agent/resource-legacy/review.md"
+  run "$PAW" plan resource-central "A fixture plan"
+  [ "$status" -eq 0 ]
+  local task_dir
+  task_dir=$(find "$PAW_TASK_HOME" -type d -name resource-central)
+  [ -n "$task_dir" ]
+  [ ! -e "$task_dir/review.md" ]
+  run "$PAW" review resource-central
+  [ "$status" -eq 1 ]
+  grep -qF 'Selected custom review resource.' "$task_dir/review.md"
+  complete_review "$task_dir/review.md" resource-central
+  rm "$task_dir/.review-attempt"
+  run "$PAW" prototype resource-central
+  [ "$status" -eq 0 ]
+  local replacement
+  replacement=$(find "$PAW_TASK_HOME" -type d -name resource-central-prototype)
+  [ -n "$replacement" ]
+  [ ! -e "$replacement/review.md" ]
+}
+
+@test "paw review: missing resource preserves state and prevents backend launch" {
+  make_task resource-failure
+  local task_dir="$REPO/.agent/resource-failure"
+  complete_review "$task_dir/review.md" resource-failure
+  printf 'prior\tcomplete\n' > "$task_dir/.review-attempt"
+  cp "$task_dir/review.md" "$BATS_TEST_TMPDIR/prior-review"
+  local resource_home="$BATS_TEST_TMPDIR/missing resource"
+  mkdir -p "$resource_home"
+  cp -R "$PAW_HOME/prompts" "$resource_home/"
+  PAW_HOME="$resource_home" run "$PAW" review resource-failure
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"$resource_home/templates/review.md"* ]]
+  [[ "$output" == *"expected readable UTF-8 review template"* ]]
+  cmp "$task_dir/review.md" "$BATS_TEST_TMPDIR/prior-review"
+  [ "$(cat "$task_dir/.review-attempt")" = $'prior\tcomplete' ]
+  [ ! -e "$task_dir/review-history" ]
+  [ ! -e "$BATS_TEST_TMPDIR/backend.prompt" ]
+}
+
+@test "paw review: failed backend leaves fresh attempt ineligible and preserves prior bytes" {
+  make_task backend-failure
+  local task_dir="$REPO/.agent/backend-failure"
+  complete_review "$task_dir/review.md" backend-failure
+  cp "$task_dir/review.md" "$BATS_TEST_TMPDIR/prior-review"
+  cat > "$EMPTY_BIN/paw-backend-review-failure" <<'PLUGIN'
+#!/usr/bin/env bash
+case "$1" in
+  run-capture|run-stream) exit 7 ;;
+  parse-tokens|parse-stream-tokens) echo 0 ;;
+esac
+PLUGIN
+  chmod +x "$EMPTY_BIN/paw-backend-review-failure"
+  PAW_BACKEND=review-failure run "$PAW" review backend-failure
+  [ "$status" -eq 7 ]
+  grep -qF -- '- Completion: pending' "$task_dir/review.md"
+  grep -qF 'running' "$task_dir/.review-attempt"
+  local history
+  history=$(find "$task_dir/review-history" -name '*.md' -print -quit)
+  cmp "$history" "$BATS_TEST_TMPDIR/prior-review"
+  run "$PAW" prototype backend-failure
+  [ "$status" -ne 0 ]
+  [ ! -d "$REPO/.agent/backend-failure-prototype" ]
+}

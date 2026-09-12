@@ -48,7 +48,7 @@ bats tests/lint-task.bats
 | `paw-issue-workflow.bats` | Shell-side `paw issue-submit` / `paw issue-review` / `paw to-issues --publish` workflow coverage |
 | `paw-gh-actions-workflow.bats` | Shell-side `paw gh-actions-review` dispatch and flag-forwarding coverage |
 | `paw-compact.bats` | `paw compact` subcommand (archive-on-tick and idempotency) |
-| `templates.bats` | Template file structure and `prompts/prompt_instructions.md` anchor guarantees |
+| `templates.bats` | Template/example review structure and `prompts/prompt_instructions.md` anchor guarantees |
 | `gh-pr-comments.bats` | `scripts/gh-pr-comments.sh` (stub `gh` on PATH, reads JSON fixtures) |
 | `gh-actions-review.bats` | `scripts/gh-actions-review.sh` (stub `gh` on PATH, hermetic run/issue triage coverage) |
 
@@ -230,3 +230,10 @@ Capture the original renderer with `PAW_GUI_EVIDENCE=/tmp/paw-layout node tests/
 then run the required browser command with the same evidence directory to compare widths.
 Validation browser checks cover all four single-line linked statuses at desktop, 390px
 and 200%-equivalent widths, keyboard evidence access, escaping and polling.
+
+Review resource regressions live in `review-record.py` (runtime slots, malformed and
+unreadable resources, exact history, retry and completed lineage), `paw-prompt-body.bats`
+(PAW_HOME overrides with spaces, central/legacy Review-only seeding and backend refusal),
+and `gui-prototype.py` (rendered pending/adverse/passing records through GUI guards).
+`templates.bats` checks the illustrative review through the shared reader. These
+fixtures establish lifecycle behavior, not model compliance or independent grades.

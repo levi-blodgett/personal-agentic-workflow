@@ -157,7 +157,38 @@ def code_identity(repo: Path) -> str:
 
 
 
-def begin(path: Path, task_name: str, repo: Path) -> None:
+def render_seed(template: Path, task_name: str, attempt: str, repo: Path) -> str:
+    """Validate only new seed resources; historical completion rules stay unchanged."""
+    try:
+        text = template.read_text(encoding='utf-8')
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f'{template}: expected readable UTF-8 review template: {error}') from error
+    slots = {'task': '{{TASK}}', 'attempt': '{{ATTEMPT}}',
+             'reviewed code': '{{REVIEWED_CODE}}', 'quality policy version': '{{QUALITY_POLICY_VERSION}}'}
+    data = fields(text)
+    for key, token in slots.items():
+        if data.get(key, '').strip('`') != token:
+            raise ValueError(f'{template}: expected Review Metadata {key}: {token}')
+    for key in ('completion', 'scope reviewed', 'grade', 'quality threshold', 'threshold result'):
+        if data.get(key) != 'pending':
+            raise ValueError(f'{template}: expected Review Metadata {key}: pending')
+    for name in ('Review Metadata', 'Summary', 'Blocking Production-Readiness Issues',
+                 'Validation and Evidence', 'Architectural / Design Choices',
+                 'Improvement Opportunities', 'Recommendations'):
+        headings = re.findall(r'^## ' + re.escape(name) + r'[ \t]*$', visible_review(text), re.M)
+        if len(headings) != 1 or not section(text, name).strip():
+            raise ValueError(f'{template}: expected exactly one nonempty {name} section')
+    values = {'TASK': task_name, 'ATTEMPT': attempt,
+              'REVIEWED_CODE': code_identity(repo), 'QUALITY_POLICY_VERSION': '1'}
+    if any(token not in values for token in re.findall(r'\{\{(.*?)\}\}', text)):
+        raise ValueError(f'{template}: expected only supported runtime slots')
+    return re.sub(r'\{\{([A-Z_]+)\}\}', lambda match: values[match[1]], text)
+
+
+def begin(path: Path, task_name: str, repo: Path, template: Path | None = None) -> None:
+    template = template if template is not None else Path(__file__).resolve().parents[2] / 'templates/review.md'
+    attempt = uuid.uuid4().hex
+    text = render_seed(template, task_name, attempt, repo)
     review = path / 'review.md'
     if review.exists():
         # Preserve all attempts, including incomplete legacy notes; never truncate first.
@@ -167,44 +198,7 @@ def begin(path: Path, task_name: str, repo: Path) -> None:
             output.write(review.read_bytes())
             output.flush()
             os.fsync(output.fileno())
-    attempt = uuid.uuid4().hex
     (path / '.review-attempt').write_text(attempt + '\trunning\n')
-    text = f'''# Task Quality Review — `{task_name}`
-
-## Review Metadata
-
-- Task: `{task_name}`
-- Quality Policy Version: 1
-- Attempt: {attempt}
-- Reviewed Code: {code_identity(repo)}
-- Completion: pending
-- Scope Reviewed: pending
-- Grade: pending
-- Overall Workflow / Subsystem Grade: not-assessed
-- Quality Threshold: pending
-- Threshold Result: pending
-- Prototype Cleanup Production-Ready: not-assessed
-
-## Summary
-
-- Pending.
-
-## Architectural / Design Choices
-
-- Pending.
-
-## Improvement Opportunities
-
-- Pending.
-
-## Blocking Production-Readiness Issues
-
-- Pending.
-
-## Recommendations
-
-- Pending.
-'''
     with tempfile.NamedTemporaryFile(mode='w', dir=path, delete=False) as output:
         output.write(text)
     os.replace(output.name, review)
@@ -225,10 +219,11 @@ def main():
     parser.add_argument('path', type=Path)
     parser.add_argument('task')
     parser.add_argument('repo', type=Path, nargs='?', default=Path.cwd())
+    parser.add_argument('--template', type=Path)
     args = parser.parse_args()
     try:
         if args.action == 'begin':
-            begin(args.path, args.task, args.repo)
+            begin(args.path, args.task, args.repo, args.template)
         elif args.action == 'finish':
             finish(args.path, args.task)
         else:

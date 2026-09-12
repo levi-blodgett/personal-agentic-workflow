@@ -686,7 +686,7 @@ EOF
 
 _review_doc_seed() {
   local task_dir="$1" task_name="$2"
-  python3 -B "$SCRIPT_DIR/lib/review_record.py" begin "$task_dir" "$task_name" "$PWD"
+  python3 -B "$SCRIPT_DIR/lib/review_record.py" begin "$task_dir" "$task_name" "$PWD" --template "$PAW_HOME/templates/review.md"
 }
 
 _review_prompt_task_doc_requirements() {
@@ -697,17 +697,17 @@ This is a `paw review` run: a short task-quality review of completed work, not P
 Review requirements:
 - Inspect the task docs first, especially `contract.md`, `plan.md`, the branch PR body file if present, and `review.md`.
 - Inspect the repo diff or changed files associated with the task when safely available from local Git metadata.
-- Check the task's recorded validation results and any durable docs changed by the task.
+- Check the task's recorded validation results and any durable docs changed by the task. Fill the seeded template sections; distinguish Historical / Recorded Evidence from Fresh Review Checks using named outcomes and Command/Tier/Log plus code identities. Preserve missing original logs and failed checks; only explicit successful same-name reruns supersede them.
 - State the scope reviewed. When task docs or human extras ask for broader review, grade the current overall workflow or subsystem state, not only the incremental task delta.
 - When review/prototype remediation is in scope, explicitly rate the overall current state of `paw review` and `paw prototype`, including whether prototype cleanup is production-ready.
 - Assign a clear grade in Review Metadata as a plain canonical line such as `- Grade: B+`, with no Markdown wrappers or terminal punctuation. Keep explanations and threshold results in separate fields; retain `- Grade: pending` until grading is complete.
 - Assign an overall workflow/subsystem grade when broader review scope is requested.
-- State the quality threshold used or ask the user to dictate one when it is absent from task docs or extras.
+- State the quality threshold and its authoritative source; preserve explicit inherited thresholds and use the shared Quality Contract rubric. Ask the user to dictate a threshold when it is absent from task docs or extras.
 - Record whether the work meets the threshold.
 - Note the architectural and design choices made.
 - Say whether those choices could have been better and why.
 - Call out blocking production-readiness issues separately from non-blocking improvement opportunities.
-- Give concrete recommendations for improvement or for a later `paw prototype <task-name>` replacement-plan run.
+- Give concrete recommendations for improvement or for a later `paw prototype <task-name>` replacement-plan run. Reference stable finding IDs, inherited origins, dispositions and retained invariants; do not infer cleanup authorization. Fill Review Date and give a scope reason for unassessed broader-workflow/cleanup fields.
 
 Update requirements:
 - Keep `review.md` as the durable review record. Preserve the seeded Task, Attempt, Reviewed Code and Quality Policy Version identities; resolve scope, grade, threshold/result and explicit blockers disposition, then set `- Completion: complete`. Backend success alone does not complete review. Prior attempts are preserved in `review-history/`.

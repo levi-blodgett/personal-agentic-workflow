@@ -139,6 +139,10 @@ A discovered implementation need should become an explicit follow-up plan.
 
 ### `paw review` / `paw prototype`
 
+Review loads `$PAW_HOME/templates/review.md` on demand; invalid resources fail before
+backend launch and preserve prior review state. See the
+[template lifecycle](workflow.md#review-completion-and-inherited-findings).
+
 ```bash
 paw review my-task "Also grade the current review/prototype workflow and cleanup readiness."
 paw prototype my-task "Preserve the CLI behavior and address every source blocker."

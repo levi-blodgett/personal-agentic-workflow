@@ -159,6 +159,24 @@ blockers at independent Review, a criterion/check/evidence table, and bounded
 risk-specific self-checks before final full validation. Explicit inherited thresholds
 remain authoritative. Unversioned plans are not retroactively rejected.
 
+`paw review` alone seeds [templates/review.md](../../templates/review.md), selected
+from `$PAW_HOME/templates/review.md`, for central and legacy packages. Plan and
+prototype creation do not seed reviews. Loading and validating the required runtime
+slots, pending metadata and section shape precedes any review/history/attempt
+mutation; missing, unreadable or malformed resources stop before backend launch
+with the resource path. There is no embedded fallback skeleton.
+
+Fill the template's verdict, blockers, evidence, design, improvements and recommendations.
+Keep seeded identities unchanged; record the review date and threshold source.
+Broader workflow grades and cleanup assessments need a scope reason when unassessed.
+Use stable finding IDs and retain inherited origins and resolution evidence; recommendations
+reference those IDs. Separate inspected historical outcomes from fresh review checks,
+including named commands, tiers, logs and code identities. Missing original logs and
+failed checks stay visible; only explicit successful same-name reruns supersede failures.
+The [filled review](../example-task/review.md) is hypothetical, not PAW validation evidence.
+These producer conventions do not add requirements to accepted historical records
+or change the separate GitHub `paw pr-review` comment-draft format.
+
 Review completion requires matching task identity, resolved scope, a recognized
 grade, explicit threshold/result and a blockers disposition (list or None). New
 attempts also carry policy version, attempt and reviewed code identity, and an
