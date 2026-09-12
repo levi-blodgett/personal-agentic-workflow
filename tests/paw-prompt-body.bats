@@ -236,6 +236,9 @@ MD
 }
 
 @test "paw prototype: seeds replacement plan package and records prototype metadata" {
+  init_git_repo
+  mkdir -p "$REPO/.github"
+  touch "$REPO/.github/pull_request_template.md"
   make_task proto-task
   complete_review "$REPO/.agent/proto-task/review.md" proto-task
   run "$PAW" prototype proto-task
@@ -245,6 +248,10 @@ MD
   local metadata="${matches[0]%/plan.md}/metadata.gitconfig"
   [ "$(git config --file "$metadata" --get paw.prototype-source)" = "proto-task" ]
   [[ "$(git config --file "$metadata" --get paw.prototype-status)" == planned* ]]
+  local bodies=("$PAW_TASK_HOME"/*/v2-*-pr.md)
+  [ -f "${bodies[0]}" ]
+  prompt_contains "${bodies[0]}"
+  [ ! -f "${matches[0]%/plan.md}/pr.md" ]
 }
 
 # Exercise production capture with a known clean pre-run snapshot for edge fixtures.
@@ -1162,11 +1169,11 @@ MD
   run "$PAW" plan seeded-task-with-pr "some task description"
 
   [ "$status" -eq 0 ]
-  local matches=("$PAW_TASK_HOME"/*/feature-seeded-pr-pr.md)
+  local matches=("$PAW_TASK_HOME"/*/v2-feature-seeded-pr-*-pr.md)
   [ -f "${matches[0]}" ]
   local task_matches=("$PAW_TASK_HOME"/*/seeded-task-with-pr/pr.md)
   [ ! -e "${task_matches[0]}" ]
-  prompt_contains "feature-seeded-pr-pr.md"
+  prompt_contains "${matches[0]}"
   ! grep -qF "Branch PR body is not used for this task" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 

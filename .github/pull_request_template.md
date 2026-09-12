@@ -30,4 +30,4 @@ Commands run:
 
 - `contract.md`: `.agent/<task-name>/contract.md`
 - `plan.md`: `.agent/<task-name>/plan.md`
-- `pr.md`: `.agent/<task-name>/pr.md`
+- Branch PR body: supplied branch-level path (legacy task `pr.md` fallback)

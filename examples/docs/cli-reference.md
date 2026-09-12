@@ -49,7 +49,7 @@ paw help
 | review / prototype | Task-quality review / plan-only replacement followed by guarded cleanup; see [review rules](workflow.md#review-completion-and-inherited-findings). Old prototype `--question`, `--logic`, `--ui` flags are rejected with compatibility guidance. |
 | implement-batch | Preflight all approved selections, launch normal implement children concurrently; [limits](workflow.md#branch-and-worktree-assignment). |
 | to-issues | Draft `issues/index.md` and one issue file per slice. `--publish` sends reviewed drafts in dependency order, updates per-draft metadata and plan tracking. |
-| pr-submit | Require branch PR body (legacy `pr.md` fallback), derive title, create draft PR and record number/URL in plan/body under PR Tracking. |
+| pr-submit | Require canonical branch PR body (legacy `pr.md` fallback; ambiguous old names require [explicit migration](workflow.md#architecture-of-workflow)), derive title, create draft PR and record number/URL in plan/body under PR Tracking. |
 | issue-submit | Require `issue.md`, create issue and record number/URL in plan/issue. |
 | pr-review | First fetch comments and save `review.md` for the PR task; later submit that saved draft as a COMMENT review. Separate from task-quality review. |
 | issue-review | Refresh issue title/body into `issue.md` in `<number>-issue-review`; plan only from saved issue body. |
@@ -301,3 +301,7 @@ report an independently resolved model through `display-model`.
 ## Review completion and inherited findings
 
 [Canonical review identity, attempts, CLI/GUI eligibility and source findings](workflow.md#review-completion-and-inherited-findings).
+
+Branch PR review ownership and migration recovery are defined in the
+[workflow guide](workflow.md#architecture-of-workflow). Shared body tracking never
+overrides a unique task-owned PR record; conflicting owners require reconciliation.

@@ -580,7 +580,15 @@ _run_metadata_end() {
 _prompt_pr_md_usage_note() {
   local task_dir="$1"
   local pr_file
-  pr_file="$(_task_pr_body_file "$task_dir" 2>/dev/null || true)"
+  local diagnostic
+  diagnostic="$(mktemp)"
+  pr_file="$(_task_pr_body_file "$task_dir" 2>"$diagnostic" || true)"
+  if [[ -s "$diagnostic" ]]; then
+    printf "\nBranch PR body unavailable: %s" "$(cat "$diagnostic")"
+    rm -f "$diagnostic"
+    return 0
+  fi
+  rm -f "$diagnostic"
   if [[ -n "$pr_file" && -f "$pr_file" && "$pr_file" != "$task_dir/pr.md" ]]; then
     printf '\nBranch PR body file: %s' "$(_task_display_path "$pr_file")"
   elif [[ ! -f "$task_dir/pr.md" ]]; then
@@ -1180,10 +1188,10 @@ _seed_plan_task_package() {
   _seed_task_templates "$task_dir" contract plan
   if [[ "$include_pr" == "1" ]]; then
     local pr_file
-    pr_file="$(paw_branch_pr_body_file "$PWD")"
+    pr_file="$(paw_branch_pr_resolve_file "$PWD")" || return 1
     mkdir -p "$(dirname "$pr_file")"
     if [[ ! -f "$pr_file" ]]; then
-      cp "$PAW_HOME/templates/pr.md" "$pr_file"
+      (set -o noclobber; cat "$PAW_HOME/templates/pr.md" > "$pr_file") || return 1
     fi
   fi
 }
@@ -1543,12 +1551,36 @@ _first_nonempty_line() {
 _task_pr_number_from_file() {
   local file="$1"
   [[ -f "$file" ]] || return 1
-  sed -nE 's/.*PR Number: #?([0-9]+).*/\1/p' "$file" | head -n1
+  awk '
+    NR == 1 { draft = ($0 ~ /^# PR Review Draft([[:space:]]|$)/) }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      if (line ~ /^ {0,3}(```|~~~)/ || line ~ /^(```|~~~)/) {
+        mark = line; sub(/^ */, "", mark)
+        char = substr(mark, 1, 1); count = 0
+        while (substr(mark, count + 1, 1) == char) count++
+        rest = substr(mark, count + 1)
+        if (!fence) { fence = char; width = count }
+        else if (char == fence && count >= width && rest ~ /^[[:space:]]*$/) fence = ""
+        next
+      }
+      if (fence) next
+      if (line ~ /^#/) {
+        tracking = (line == "## PR Tracking" || (draft && line == "## Review Metadata"))
+        next
+      }
+      if (tracking && line ~ /^- PR Number: #?[0-9]+[[:space:]]*$/) {
+        sub(/^- PR Number: #?/, "", line); sub(/[[:space:]]*$/, "", line)
+        print line
+      }
+    }
+  ' "$file"
 }
 
 _task_pr_body_file() {
   local task_dir="$1" branch_file
-  branch_file="$(paw_task_branch_pr_body_file "$PWD" "$task_dir")"
+  branch_file="$(paw_task_branch_pr_body_file "$PWD" "$task_dir")" || return 1
   if [[ -f "$branch_file" ]]; then
     printf '%s\n' "$branch_file"
     return 0
@@ -1562,36 +1594,38 @@ _task_pr_body_file() {
 }
 
 _task_find_by_pr_number() {
-  local pr_number="$1"
-  local matches=() dir task_name tracked tracked_file pr_candidate _task_source task_rows
+  local pr_number="$1" dir task_name file _task_source task_rows body
+  local owners=() candidates=()
   task_rows="$(paw_task_list "$PWD")"
   while IFS=$'\t' read -r task_name _task_source dir; do
     [[ -n "$dir" ]] || continue
-    tracked=""
-    local tracked_files=("$dir/plan.md")
-    pr_candidate="$(_task_pr_body_file "$dir" 2>/dev/null || true)"
-    if [[ -n "$pr_candidate" ]]; then
-      tracked_files+=("$pr_candidate")
-    fi
-    tracked_files+=("$dir/pr.md" "$dir/review.md")
-    for tracked_file in "${tracked_files[@]}"; do
-      tracked=$(_task_pr_number_from_file "$tracked_file" 2>/dev/null || true)
-      [[ "$tracked" == "$pr_number" ]] && break
-      tracked=""
+    for file in "$dir/plan.md" "$dir/pr.md" "$dir/review.md"; do
+      if _task_pr_number_from_file "$file" | grep -Fxq -- "$pr_number"; then
+        owners+=("$task_name")
+        break
+      fi
     done
-    [[ "$tracked" == "$pr_number" ]] && matches+=("$task_name")
   done <<< "$task_rows"
-
-  if [[ "${#matches[@]}" -eq 1 ]]; then
-    printf '%s\n' "${matches[0]}"
+  if [[ "${#owners[@]}" -eq 1 ]]; then
+    printf '%s\n' "${owners[0]}"
     return 0
   fi
-  if [[ "${#matches[@]}" -gt 1 ]]; then
-    echo "error: PR #$pr_number matches multiple task packages: ${matches[*]}" >&2
+  if [[ "${#owners[@]}" -gt 1 ]]; then
+    echo "error: PR #$pr_number has conflicting task-owned tracking: ${owners[*]}. Reconcile PR Tracking on the intended task before retrying." >&2
     return 1
   fi
-
-  echo "error: no task package tracks PR #$pr_number. Run 'paw pr-submit <task-name>' first or add a PR Tracking section." >&2
+  while IFS=$'\t' read -r task_name _task_source dir; do
+    [[ -n "$dir" ]] || continue
+    body="$(paw_task_branch_pr_body_file "$PWD" "$dir")" || return 1
+    if _task_pr_number_from_file "$body" | grep -Fxq -- "$pr_number"; then
+      candidates+=("$task_name")
+    fi
+  done <<< "$task_rows"
+  if [[ "${#candidates[@]}" -eq 1 ]]; then
+    printf '%s\n' "${candidates[0]}"
+    return 0
+  fi
+  echo "error: PR #$pr_number has no unique task owner (shared candidates: ${candidates[*]:-none}). Record a PR Tracking section on the intended task; run 'paw pr-submit <task-name>' if no PR exists." >&2
   return 1
 }
 
@@ -2097,9 +2131,12 @@ cmd_plan() {
   local task_dir display_task_dir branch_pr_file display_branch_pr_file
   task_dir="$(_task_dir_for_plan "$task_name")"
   display_task_dir="$(_task_display_path "$task_dir")"
-  _seed_plan_task_package "$task_name" "$include_pr" "$task_dir"
-  branch_pr_file="$(paw_branch_pr_body_file "$PWD")"
-  display_branch_pr_file="$(_task_display_path "$branch_pr_file")"
+  _seed_plan_task_package "$task_name" "$include_pr" "$task_dir" || return 1
+  display_branch_pr_file=""
+  if [[ "$include_pr" == 1 ]]; then
+    branch_pr_file="$(paw_branch_pr_resolve_file "$PWD")" || return 1
+    display_branch_pr_file="$(_task_display_path "$branch_pr_file")"
+  fi
 
   # Build seeded-files list for the prompt.
   local seeded_list
@@ -2308,7 +2345,7 @@ cmd_prototype() {
   if _has_pr_template "$PWD"; then
     include_pr=1
   fi
-  _seed_plan_task_package "$replacement_task_name" "$include_pr" "$replacement_task_dir"
+  _seed_plan_task_package "$replacement_task_name" "$include_pr" "$replacement_task_dir" || return 1
   _record_plan_task_assignment "$replacement_task_name" "$replacement_task_dir"
   if [[ -f "$(paw_task_metadata_file "$replacement_task_dir")" ]]; then
     git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-source "$task_name"
@@ -2321,7 +2358,10 @@ cmd_prototype() {
   extras=$(_join_prompt_extras "$@")
   display_source_dir="$(_task_display_path "$source_task_dir")"
   display_replacement_dir="$(_task_display_path "$replacement_task_dir")"
-  display_branch_pr_file="$(_task_display_path "$(paw_branch_pr_body_file "$PWD")")"
+  display_branch_pr_file=""
+  if [[ "$include_pr" == 1 ]]; then
+    display_branch_pr_file="$(_task_display_path "$(paw_branch_pr_body_file "$PWD")")"
+  fi
   seeded_list="$(_plan_seeded_list_for_task "$replacement_task_name" "$include_pr" "$display_replacement_dir" "$display_branch_pr_file")"
 
   prompt=$(cat <<EOF

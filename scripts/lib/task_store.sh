@@ -67,19 +67,81 @@ paw_branch_pr_safe_name() {
   printf '%s\n' "$safe"
 }
 
-paw_branch_pr_body_file() {
-  local repo_path="$1" branch_name="${2:-}" safe
-  if [[ -z "$branch_name" ]]; then
-    branch_name="$(git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+# Digest exact branch bytes; keep tooling replaceable at this boundary.
+paw_branch_pr_digest() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum -a 256 | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | awk '{print $1}'
+  else
+    echo "error: branch PR identity requires shasum or sha256sum." >&2
+    return 1
   fi
-  safe="$(paw_branch_pr_safe_name "$branch_name")"
-  printf '%s/%s-pr.md\n' "$(paw_task_repo_store "$repo_path")" "$safe"
+}
+
+paw_branch_pr_body_file() {
+  local repo_path="$1" branch_name="${2:-}" safe digest common store
+  if [[ -z "$branch_name" ]]; then
+    branch_name="$(git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null)" || {
+      echo "error: branch PR body requires a named branch in $repo_path." >&2
+      return 1
+    }
+  fi
+  git check-ref-format "refs/heads/$branch_name" >/dev/null 2>&1 || {
+    echo "error: invalid branch PR identity '$branch_name' in $repo_path." >&2
+    return 1
+  }
+  digest="$(paw_branch_pr_digest "$branch_name")" || return 1
+  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+  safe="$(LC_ALL=C printf '%s' "$branch_name" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -c 'a-z0-9._-' '-' | cut -c1-48)"
+  # Linked worktrees use the main checkout's existing store for branch bodies.
+  common="$(paw_repo_common_dir "$repo_path")" || return 1
+  if [[ "${common##*/}" == .git ]]; then repo_path="${common%/.git}"; fi
+  store="$(paw_task_repo_store "$repo_path")" || return 1
+  printf '%s/v2-%s-%s-pr.md\n' "$store" "$safe" "$digest"
+}
+
+# Never infer ownership from an old lossy filename, even for a singleton task.
+paw_branch_pr_resolve_file() {
+  local repo_path="$1" branch_name="${2:-}" canonical old directory
+  if [[ -z "$branch_name" ]]; then
+    branch_name="$(git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null)" || {
+      echo "error: branch PR body requires a named branch in $repo_path." >&2
+      return 1
+    }
+  fi
+  canonical="$(paw_branch_pr_body_file "$repo_path" "$branch_name")" || return 1
+  if [[ ! -f "$canonical" ]]; then
+    for directory in "${canonical%/*}" "$(paw_task_repo_store "$repo_path")"; do
+      old="$directory/$(paw_branch_pr_safe_name "$branch_name")-pr.md"
+      if [[ -e "$old" ]]; then
+        echo "error: ambiguous historical branch PR body $old for '$branch_name'. Verify the intended branch/content, copy without overwriting to $canonical, and retain $old." >&2
+        return 1
+      fi
+    done
+  fi
+  printf '%s\n' "$canonical"
 }
 
 paw_task_branch_pr_body_file() {
-  local repo_path="$1" task_dir="$2" branch_name
-  branch_name="$(paw_task_metadata_get "$task_dir" branch-name)"
-  paw_branch_pr_body_file "$repo_path" "$branch_name"
+  local repo_path="$1" task_dir="$2" branch_name state common metadata saved_common
+  common="$(paw_repo_common_dir "$repo_path")" || return 1
+  metadata="$(paw_task_metadata_file "$task_dir")"
+  if [[ ! -f "$metadata" ]]; then
+    metadata="$common/paw-task-assignments/${task_dir##*/}.gitconfig"
+  fi
+  if [[ -f "$metadata" ]]; then
+    branch_name="$(git config --file "$metadata" --get paw.branch-name || true)"
+    state="$(git config --file "$metadata" --get paw.head-state || true)"
+    saved_common="$(git config --file "$metadata" --get paw.git-common-dir || true)"
+    if [[ "$state" != branch || -z "$branch_name" || "$saved_common" != "$common" ]]; then
+      echo "error: invalid saved branch/repository assignment in $metadata; reconcile task ownership." >&2
+      return 1
+    fi
+    paw_branch_pr_resolve_file "$repo_path" "$branch_name"
+  else
+    paw_branch_pr_resolve_file "$repo_path"
+  fi
 }
 
 paw_task_legacy_dir() {

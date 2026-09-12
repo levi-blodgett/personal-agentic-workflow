@@ -66,11 +66,9 @@ EOF
 
 branch_pr_file_for() {
   local branch="$1"
-  local safe
   # shellcheck source=../scripts/lib/task_store.sh
   source "$SCRIPTS_DIR/lib/task_store.sh"
-  safe="$(printf '%s\n' "$branch" | tr -c '[:alnum:]._-' '-' | sed -E 's/^-+//; s/-+$//')"
-  printf '%s/%s-pr.md\n' "$(paw_task_repo_store "$REPO")" "$safe"
+  paw_branch_pr_body_file "$REPO" "$branch"
 }
 
 task_dir_for() {
@@ -89,6 +87,10 @@ write_fake_gh() {
 printf '%s\n' "$@" > "$BATS_TEST_TMPDIR/gh.args"
 
 if [[ "$1" == "pr" && "$2" == "create" ]]; then
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == --body-file ]]; then cp "$2" "$BATS_TEST_TMPDIR/gh.body"; break; fi
+    shift
+  done
   echo "https://github.com/example/repo/pull/123"
   exit 0
 fi
@@ -198,7 +200,7 @@ EOF
   run "$PAW" pr-submit missing-pr
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *"feature-missing-pr-md-pr.md"* ]]
+  [[ "$output" == *"$(branch_pr_file_for feature/missing-pr-md)"* ]]
 }
 
 @test "paw pr-review: first run collects comments into the task review.md draft" {
@@ -298,4 +300,189 @@ EOF
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"review"* ]]
   grep -q "Status: submitted" "$REPO/.agent/pr-workflow/review.md"
   ! grep -q "Task:" "$REPO/.agent/pr-workflow/review.md"
+}
+
+@test "paw branch PR: colliding branches seed and submit independent preserved bodies" {
+  init_git_repo
+  mkdir -p .github
+  echo template > .github/pull_request_template.md
+  write_fake_gh
+  local branch task body first=""
+  for branch in feature/foo feature-foo; do
+    task="task-${branch//\//-}"
+    [[ -z "$first" ]] || task=second
+    git checkout -q -b "$branch"
+    run "$PAW" plan "$task" "seed body"
+    [ "$status" -eq 0 ]
+    body="$(branch_pr_file_for "$branch")"
+    [ -f "$body" ]
+    printf 'Unique %s\n\n## Retained\n\nExact unrelated bytes.\n' "$branch" > "$body"
+    cp "$body" "$BATS_TEST_TMPDIR/before"
+    run "$PAW" plan "$task" "seed body"
+    [ "$status" -eq 0 ]
+    cmp "$body" "$BATS_TEST_TMPDIR/before"
+    run "$PAW" pr-submit "$task"
+    [ "$status" -eq 0 ]
+    grep -Fxq "$body" "$BATS_TEST_TMPDIR/gh.args"
+    cmp "$BATS_TEST_TMPDIR/gh.body" "$BATS_TEST_TMPDIR/before"
+    grep -Fxq "Unique $branch" "$body"
+    grep -Fxq 'Exact unrelated bytes.' "$body"
+    grep -q 'PR Number: #123' "$(task_dir_for "$task")/plan.md"
+    if [[ -n "$first" ]]; then
+      cmp "$first" "$BATS_TEST_TMPDIR/first"
+    else
+      first="$body"
+      cp "$body" "$BATS_TEST_TMPDIR/first"
+    fi
+  done
+}
+
+@test "paw branch PR: ambiguous historical body refuses seed and submit until explicit canonical copy" {
+  init_git_repo
+  source "$SCRIPTS_DIR/lib/task_store.sh"
+  mkdir -p .github "$(paw_task_repo_store "$REPO")"
+  echo template > .github/pull_request_template.md
+  local old="$(paw_task_repo_store "$REPO")/feature-foo-pr.md" branch body
+  printf 'Historical body\n' > "$old"
+  cp "$old" "$BATS_TEST_TMPDIR/old"
+  write_fake_gh
+  for branch in feature/foo feature-foo; do
+    git checkout -q -b "$branch"
+    body="$(branch_pr_file_for "$branch")"
+    run "$PAW" plan migration "seed body"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"$old"* && "$output" == *"$body"* ]]
+    [ ! -f "$body" ]
+    seed_task_package migration
+    run "$PAW" pr-submit migration
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"$old"* ]]
+    [ ! -f "$BATS_TEST_TMPDIR/gh.args" ]
+    cmp "$old" "$BATS_TEST_TMPDIR/old"
+  done
+  cp "$old" "$body"
+  run "$PAW" pr-submit migration
+  [ "$status" -eq 0 ]
+  grep -Fxq "$body" "$BATS_TEST_TMPDIR/gh.args"
+  cmp "$old" "$BATS_TEST_TMPDIR/old"
+  grep -q 'PR Number: #123' "$body"
+  ! grep -q 'PR Number:' "$(task_dir_for migration)/pr.md"
+}
+
+seed_shared_pr() {
+  local body
+  body="$(branch_pr_file_for "$(git branch --show-current)")"
+  mkdir -p "${body%/*}"
+  printf '## PR Tracking\n\n- PR Number: #123\n' > "$body"
+}
+
+@test "paw pr-review: task-owned tracking wins over shared branch evidence in either order" {
+  init_git_repo
+  local owner other comments_cmd
+  comments_cmd=$(write_fake_comments_cmd)
+  for owner in a-owner z-owner; do
+    other=middle-task
+    seed_task_package "$owner"
+    seed_task_package "$other"
+    seed_shared_pr
+    printf '\n## PR Tracking\n\n- PR Number: #123\n' >> "$REPO/.agent/$owner/plan.md"
+    cp "$REPO/.agent/$other/plan.md" "$BATS_TEST_TMPDIR/other-plan"
+    PAW_GH_COMMENTS_CMD="$comments_cmd" run "$PAW" pr-review 123
+    [ "$status" -eq 0 ]
+    [ -f "$REPO/.agent/$owner/review.md" ]
+    [ ! -f "$REPO/.agent/$other/review.md" ]
+    cmp "$REPO/.agent/$other/plan.md" "$BATS_TEST_TMPDIR/other-plan"
+    write_fake_gh
+    run "$PAW" pr-review 123
+    [ "$status" -eq 0 ]
+    grep -q 'Status: submitted' "$REPO/.agent/$owner/review.md"
+    rm -r "$REPO/.agent/$owner" "$REPO/.agent/$other"
+  done
+}
+
+@test "paw pr-review: conflicting and shared-only owners refuse without mutation or remote calls" {
+  init_git_repo
+  seed_task_package a-task
+  seed_task_package z-task
+  seed_shared_pr
+  write_fake_gh
+  export PAW_GH_COMMENTS_CMD="$SHIM_DIR/gh"
+  local task
+  for task in a-task z-task; do
+    cp "$REPO/.agent/$task/plan.md" "$BATS_TEST_TMPDIR/$task-before"
+  done
+  run "$PAW" pr-review 123
+  [ "$status" -ne 0 ]
+  [[ "$output" == *a-task*z-task* ]]
+  for task in a-task z-task; do
+    cmp "$REPO/.agent/$task/plan.md" "$BATS_TEST_TMPDIR/$task-before"
+    printf '\n## PR Tracking\n\n- PR Number: #123\n' >> "$REPO/.agent/$task/plan.md"
+    cp "$REPO/.agent/$task/plan.md" "$BATS_TEST_TMPDIR/$task-before"
+  done
+  run "$PAW" pr-review 123
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"conflicting task-owned tracking: a-task z-task"* ]]
+  for task in a-task z-task; do
+    cmp "$REPO/.agent/$task/plan.md" "$BATS_TEST_TMPDIR/$task-before"
+    [ ! -f "$REPO/.agent/$task/review.md" ]
+  done
+  [ ! -f "$BATS_TEST_TMPDIR/gh.args" ]
+}
+
+@test "paw pr-review: only structural records own a PR and unique shared fallback remains supported" {
+  init_git_repo
+  seed_task_package examples
+  cat >> "$REPO/.agent/examples/plan.md" <<'DOC'
+
+PR Number: #123 is discussed in prose.
+> ## PR Tracking
+> - PR Number: #123
+
+````markdown
+## PR Tracking
+- PR Number: #123
+```
+## PR Tracking
+- PR Number: #123
+````
+
+   ~~~markdown
+## PR Tracking
+- PR Number: #123
+   ~~~
+
+## PR Tracking
+
+    - PR Number: #123
+- PR Number: #123 example
+
+### Nested example
+- PR Number: #123
+DOC
+  cat > "$REPO/.agent/examples/review.md" <<'DOC'
+# Task Quality Review
+
+## Review Metadata
+
+- PR Number: #123
+DOC
+  write_fake_gh
+  export PAW_GH_COMMENTS_CMD="$SHIM_DIR/gh"
+  run "$PAW" pr-review 123
+  [ "$status" -ne 0 ]
+  [ ! -f "$BATS_TEST_TMPDIR/gh.args" ]
+  # An explicit legacy task record owns the PR despite the unrelated examples.
+  seed_task_package legacy-owner
+  printf '\n## PR Tracking\n\n- PR Number: #123\n' >> "$REPO/.agent/legacy-owner/pr.md"
+  local comments_cmd
+  comments_cmd=$(write_fake_comments_cmd)
+  PAW_GH_COMMENTS_CMD="$comments_cmd" run "$PAW" pr-review 123
+  [ "$status" -eq 0 ]
+  [ -f "$REPO/.agent/legacy-owner/review.md" ]
+  rm -r "$REPO/.agent/legacy-owner"
+  rm "$REPO/.agent/examples/review.md"
+  seed_shared_pr
+  PAW_GH_COMMENTS_CMD="$comments_cmd" run "$PAW" pr-review 123
+  [ "$status" -eq 0 ]
+  [ -f "$REPO/.agent/examples/review.md" ]
 }

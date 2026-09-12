@@ -26,3 +26,8 @@ Archive skips launch tracking to avoid blocking itself.
 Operator guarantees: [GUI](../../examples/docs/gui.md),
 [review/lineage](../../examples/docs/workflow.md#review-completion-and-inherited-findings),
 [evidence grammar](../../examples/docs/testing.md#recorded-validation-in-the-gui).
+
+Branch PR helpers keep exact-byte SHA-256 identity separate from historical-file
+resolution. They share the main repository’s body store across linked worktrees,
+validate saved branch/repository assignments, and refuse ambiguous old files before
+seeding or submission. See [migration recovery](../../examples/docs/workflow.md#architecture-of-workflow).

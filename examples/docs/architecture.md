@@ -41,7 +41,7 @@ The browser harness is an additional explicit command, not part of either defaul
 | Local state | Contents / authority |
 |---|---|
 | `${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}/<repo-slug>/<task>/` | contract/plan/review Markdown, provenance metadata and run logs |
-| Same repo store, `<branch-name-safe>-pr.md` | Branch body seeded when a repo has a PR template; legacy task `pr.md` fallback |
+| Same repo store, `v2-<prefix>-<sha256>-pr.md` | Branch body seeded when a repo has a PR template; legacy task `pr.md` fallback |
 | Same repo store, `.archive/<task>/` | Archived central packages, omitted from active listings |
 | `.agent/<task>/` | Legacy fallback, excluded locally with `paw setup` |
 | `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/active.gitconfig` | Managed GUI PID/URL/options/log paths |

@@ -39,3 +39,7 @@ in `_paw_model_command_table()`. Reuse `_seed_task_templates()`, `_join_prompt_e
 `_run_model_subcommand()`; use task_store helpers for lookup, metadata and status.
 Extend dispatcher/prompt-body regressions and update the [CLI reference](../examples/docs/cli-reference.md#shared-command-authoring-contract).
 Record inspected upstream skills/repo touchpoints in the task package.
+
+PR commands resolve canonical branch bodies through `task_store.sh`; review lookup
+selects structural task-owned tracking before unique shared-body fallback. Ambiguous
+old filenames and conflicting owners produce recovery diagnostics before remote calls.

@@ -200,3 +200,9 @@ layouts and readable no-JavaScript POST feedback with hidden close controls.
 Use the installed-browser prerequisites above; combined browser validation includes
 these checks. Controlled time intercepts only five-second timers; real fetch and
 2500 ms polling continue. Fixture POST replies avoid real launches or PR requests.
+
+Branch PR regressions in `task-store.bats` and `paw-pr-workflow.bats` cover exact
+branch identity, worktree/repository boundaries, saved assignments, preserved
+migration/retry bytes, stubbed submission and structural task ownership. Producer
+prompt coverage checks the canonical path; existing GUI HTTP/browser journeys
+retain remote View PR, drafts and polling.

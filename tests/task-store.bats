@@ -21,14 +21,20 @@ setup() {
   [[ "$output" == *"demo-task"* ]]
 }
 
-@test "task store: branch PR body path uses one path-safe file per branch" {
-  git -C "$REPO" checkout -q -b feature/branch-prs
-
-  run bash -c 'source "$1"; paw_branch_pr_body_file "$2"; paw_branch_pr_body_file "$2" "review:needs/fix"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
-
+@test "task store: exact branch PR identities resist slash case Unicode and long-name collisions" {
+  run bash -c '
+    source "$1"
+    prior=""
+    for branch in feature/foo feature-foo Feature/foo café/foo cafe/foo "$(printf "x%.0s" {1..200})/a" "$(printf "x%.0s" {1..200})/b"; do
+      file=$(paw_branch_pr_body_file "$2" "$branch") || exit
+      digest=$(printf %s "$branch" | shasum -a 256 | cut -d " " -f1)
+      [[ "$file" == *"-$digest-pr.md" && ${#file} -lt 250 ]] || exit 1
+      [[ "$prior" != *"${file##*/}"* ]] || exit 1
+      [[ "$file" == "$(paw_branch_pr_body_file "$2" "$branch")" ]] || exit 1
+      prior="$prior ${file##*/}"
+    done
+  ' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"$PAW_TASK_HOME/"*"feature-branch-prs-pr.md"* ]]
-  [[ "$output" == *"$PAW_TASK_HOME/"*"review-needs-fix-pr.md"* ]]
 }
 
 @test "task store: resolve prefers central task and falls back to legacy .agent task" {
@@ -186,4 +192,60 @@ MD
 
 @test "task-store: review evidence and archive lineage boundaries" {
   PYTHONDONTWRITEBYTECODE=1 python3 "$REPO_ROOT/tests/review-record.py"
+}
+
+@test "task store: branch bodies share worktree identity and isolate repositories" {
+  git -C "$REPO" -c user.name=Test -c user.email=test@example.com commit -q --allow-empty -m base
+  git -C "$REPO" worktree add -q -b linked "$BATS_TEST_TMPDIR/linked"
+  mkdir "$BATS_TEST_TMPDIR/other"
+  git -C "$BATS_TEST_TMPDIR/other" init -q
+  run bash -c '
+    source "$1"
+    first=$(paw_branch_pr_body_file "$2" feature/foo)
+    [[ "$first" == "$(paw_branch_pr_body_file "$3" feature/foo)" ]] || exit 1
+    [[ "$first" != "$(paw_branch_pr_body_file "$4" feature/foo)" ]]
+  ' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO" "$BATS_TEST_TMPDIR/linked" "$BATS_TEST_TMPDIR/other"
+  [ "$status" -eq 0 ]
+}
+
+@test "task store: saved branch wins and malformed detached or foreign assignments refuse" {
+  run bash -c '
+    source "$1"
+    task=$(paw_task_create_dir "$2" saved)
+    paw_task_write_metadata "$task" "$2" saved created ""
+    file="$task/metadata.gitconfig"
+    git config --file "$file" paw.branch-name saved/branch
+    [[ "$(paw_task_branch_pr_body_file "$2" "$task")" == "$(paw_branch_pr_body_file "$2" saved/branch)" ]] || exit 1
+    for state in detached missing; do
+      git config --file "$file" paw.head-state "$state"
+      if paw_task_branch_pr_body_file "$2" "$task"; then exit 1; fi
+    done
+    git config --file "$file" paw.head-state branch
+    git config --file "$file" paw.branch-name invalid:branch
+    if paw_task_branch_pr_body_file "$2" "$task"; then exit 1; fi
+    git config --file "$file" paw.branch-name saved/branch
+    git config --file "$file" paw.git-common-dir /another/repo/.git
+    if paw_task_branch_pr_body_file "$2" "$task"; then exit 1; fi
+  ' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+  [ "$status" -eq 0 ]
+  git -C "$REPO" -c user.name=Test -c user.email=test@example.com commit -q --allow-empty -m base
+  git -C "$REPO" checkout -q --detach
+  run bash -c 'source "$1"; paw_branch_pr_body_file "$2"' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"requires a named branch"* ]]
+}
+
+@test "task store: historical body in a linked worktree store blocks automatic seeding" {
+  git -C "$REPO" -c user.name=Test -c user.email=test@example.com commit -q --allow-empty -m base
+  git -C "$REPO" worktree add -q -b linked "$BATS_TEST_TMPDIR/linked"
+  run bash -c '
+    source "$1"
+    old="$(paw_task_repo_store "$2")/feature-foo-pr.md"
+    mkdir -p "${old%/*}"
+    printf historical > "$old"
+    if paw_branch_pr_resolve_file "$2" feature/foo; then exit 1; fi
+    [[ "$(cat "$old")" == historical ]]
+  ' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$BATS_TEST_TMPDIR/linked"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ambiguous historical"* ]]
 }
