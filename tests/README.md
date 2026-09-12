@@ -222,12 +222,22 @@ migration/retry bytes, stubbed submission and structural task ownership. Produce
 prompt coverage checks the canonical path; existing GUI HTTP/browser journeys
 retain remote View PR, drafts and polling.
 
-Dashboard retirement coverage asserts eight columns on full/fragment/empty pages and
+Dashboard retirement coverage asserts eight columns on populated full/fragment pages,
+distinct empty/filter recovery and
 404/no package mutation for stale selected-action POSTs in scoped and all-repo modes.
 The UX browser fixture measures long prototype rows at 1440/1920px: Task + Repo >=35%,
 Stage <=15% and at most three lines, with full diagnostics and lineage in detail.
 Capture the original renderer with `PAW_GUI_EVIDENCE=/tmp/paw-layout node tests/gui-ux-browser.mjs --baseline`,
 then run the required browser command with the same evidence directory to compare widths.
+Record HEAD and renderer hashes: baseline uses committed code, not pending edits.
+The refinement regression retains Task/Repo width and checks visible Stage text edges
+and desktop control centerlines within 2 CSS pixels. Light/dark screenshots cover
+390/720/1024/1440/1920px, open disclosures, long labels and queued counts. Narrow rows
+retain named table/header/cell accessibility semantics without horizontal panning.
+Native Tools keyboard, exact form targets and focus survive two polling refreshes;
+HTTP fixtures cover single Answer Questions and Clear filters retaining a different
+active repo in all-central-store mode. Combined journeys retain pending/delayed action,
+preview, draft/caret, native form, theme/contrast and saved/live log regressions.
 Validation browser checks cover all four single-line linked statuses at desktop, 390px
 and 200%-equivalent widths, keyboard evidence access, escaping and polling.
 

@@ -303,8 +303,8 @@ MD
   kill "$SLEEPER_PID" 2>/dev/null || true
   wait "$SLEEPER_PID" 2>/dev/null || true
 
-  grep -q "<th>Stage</th>" "$BATS_TEST_TMPDIR/stage-workflow.html"
-  grep -q "<th>Next</th>" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "<th[^>]*>Stage</th>" "$BATS_TEST_TMPDIR/stage-workflow.html"
+  grep -q "<th[^>]*>Next</th>" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Stage: Implement" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "Next: Approve Implementation" "$BATS_TEST_TMPDIR/stage-workflow.html"
   grep -q "data-doc-preview-url='/fragments/task-doc/gui-task" "$BATS_TEST_TMPDIR/stage-workflow.html"
@@ -547,9 +547,9 @@ PYTHON
   grep -q ".shell{width:min(100% - 32px,1600px);margin-inline:auto}" "$BATS_TEST_TMPDIR/layout-index.html"
   grep -q "<header class='site-header'><div class='shell header-row'>" "$BATS_TEST_TMPDIR/layout-index.html"
   grep -q "<main class='shell'>" "$BATS_TEST_TMPDIR/layout-index.html"
-  grep -q "<div class='table-wrap'><table class='dashboard-table'>" "$BATS_TEST_TMPDIR/layout-index.html"
+  grep -q "<div class='table-wrap'><table class='dashboard-table' role='table' aria-label='Tasks'>" "$BATS_TEST_TMPDIR/layout-index.html"
   grep -q "<div class='table-wrap'><table><tbody>" "$BATS_TEST_TMPDIR/layout-detail.html"
-  ! grep -q "max-width:1180px" "$BATS_TEST_TMPDIR/layout-index.html"
+  grep -q "data-label='Task'" "$BATS_TEST_TMPDIR/layout-index.html"
 }
 
 @test "paw gui: exposes polished toolbar status and document styling hooks" {
@@ -627,8 +627,16 @@ for name in ('page', 'fragment', 'empty'):
     page = (root / (name + '.html')).read_text()
     assert '<th>Select</th>' not in page
     assert 'selected-action' not in page and "name='task'" not in page
-    assert '<th>Task</th><th>Repo</th><th>Stage</th>' in page
-assert 'colspan=8' in (root / 'empty.html').read_text()
+    if name != 'empty':
+        from html.parser import HTMLParser
+        class Headers(HTMLParser):
+            def __init__(self): super().__init__(); self.headers = []; self.inside = False
+            def handle_starttag(self, tag, attrs): self.inside = tag == 'th'
+            def handle_data(self, data):
+                if self.inside: self.headers.append(data)
+        parser = Headers(); parser.feed(page)
+        assert parser.headers == ['Task','Repo','Stage','Next','Completion','Checklist','Validation','Actions']
+assert 'No tasks match these filters.' in (root / 'empty.html').read_text()
 assert 'New Plan' in (root / 'page.html').read_text()
 assert 'Queued Plans' in (root / 'page.html').read_text()
 PYTEST
@@ -642,8 +650,8 @@ PYTEST
   stop_gui
 
   grep -q "feature/gui-context" "$BATS_TEST_TMPDIR/branch-context.html"
-  grep -q "<th>Repo</th>" "$BATS_TEST_TMPDIR/branch-context.html"
-  ! grep -q "<th>Branch</th>" "$BATS_TEST_TMPDIR/branch-context.html"
+  grep -q "<th[^>]*>Repo</th>" "$BATS_TEST_TMPDIR/branch-context.html"
+  ! grep -q "<th[^>]*>Branch</th>" "$BATS_TEST_TMPDIR/branch-context.html"
 }
 
 @test "paw gui: exposes View PR for PAW branch metadata with an existing local branch" {
@@ -1000,7 +1008,7 @@ MD
   grep -q "data-doc-preview" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "data-doc-preview-url='/fragments/task-doc/gui-task" "$BATS_TEST_TMPDIR/index-actions.html"
   ! grep -q ">contract.md<" "$BATS_TEST_TMPDIR/index-actions.html"
-  grep -q "plan.md" "$BATS_TEST_TMPDIR/index-actions.html"
+  grep -q "Preview plan" "$BATS_TEST_TMPDIR/index-actions.html"
   ! grep -q "pr.md" "$BATS_TEST_TMPDIR/index-actions.html"
   ! grep -q ">Open<" "$BATS_TEST_TMPDIR/index-actions.html"
   grep -q "/task/gui-task/archive" "$BATS_TEST_TMPDIR/index-actions.html"
@@ -2300,5 +2308,77 @@ class Growing:
     def seek(self, offset): pass
 with patch.object(Path, 'open', return_value=Growing()):
     assert gui.tail_text(runs / 'old.log')[1].endswith('bounded')
+PY
+}
+
+@test "paw gui: dashboard tools distinguish next action from secondary editing" {
+  local port=0
+  printf '\n- USER ANSWER (UNRESOLVED):\n' >> "$REPO/.agent/gui-task/plan.md"
+  start_gui "$port"
+  fetch_gui "$port" / "$BATS_TEST_TMPDIR/tools.html"
+  python3 - "$BATS_TEST_TMPDIR/tools.html" <<'PY'
+import sys
+from html.parser import HTMLParser
+class Controls(HTMLParser):
+    def __init__(self):
+        super().__init__(); self.edits = 0; self.tools = []; self.preview = False
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == 'form' and a.get('action', '').endswith('/edit'): self.edits += 1
+        if tag == 'details' and a.get('class') == 'row-tools': self.tools.append(a)
+        if 'data-doc-preview-url' in a: self.preview = 'Preview plan for gui-task' == a.get('aria-label')
+p = Controls(); p.feed(open(sys.argv[1]).read())
+assert p.edits == 1, 'Answer Questions must appear once, as next action'
+assert len(p.tools) == 1 and p.tools[0].get('data-paw-key'), 'stable native Tools disclosure'
+assert p.preview, 'descriptive task-specific preview label'
+PY
+}
+
+@test "paw gui: filter recovery retains selected repo and all-repo counts" {
+  local port=0
+  local second="$BATS_TEST_TMPDIR/second"
+  mkdir -p "$second" "$PAW_TASK_HOME/fixture/gui-task"
+  git init -q "$second"
+  cp "$REPO/.agent/gui-task/plan.md" "$PAW_TASK_HOME/fixture/gui-task/plan.md"
+  git config --file "$PAW_TASK_HOME/fixture/gui-task/metadata.gitconfig" paw.repo-root "$(real_path "$REPO")"
+  start_gui "$port" --all
+  python3 - "$port" "$second" "$REPO" <<'PY'
+import sys
+from urllib.request import urlopen
+from urllib.parse import urlencode, urlparse, parse_qs
+from html.parser import HTMLParser
+base = 'http://127.0.0.1:' + sys.argv[1]
+# Register destination using the same local GUI boundary as normal navigation.
+urlopen(base + '/actions/repos/add', urlencode({'repo_path': sys.argv[2]}).encode()).read()
+query = urlencode({'active_repo':sys.argv[2], 'repo':'no-such-repo', 'state':'ready', 'completion':'50%'})
+page = urlopen(base + '/?' + query).read().decode()
+assert 'No tasks match these filters.' in page
+assert '0 of 1 tasks' in page and 'Filters active' in page
+class Links(HTMLParser):
+    def __init__(self): super().__init__(); self.clear = []
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == 'a' and 'data-clear-filters' in a: self.clear.append(a['href'])
+p = Links(); p.feed(page)
+assert p.clear
+for href in p.clear:
+    assert parse_qs(urlparse(href).query) == {'active_repo':[__import__('os').path.realpath(sys.argv[2])]}
+cleared = urlopen(base + p.clear[0]).read().decode()
+assert '1 of 1 tasks' in cleared and 'gui-task' in cleared
+assert 'All task stores' in cleared
+PY
+}
+
+@test "paw gui: empty repository offers selected destination New Plan" {
+  rm -r "$REPO/.agent/gui-task"
+  local port=0
+  start_gui "$port"
+  fetch_gui "$port" / "$BATS_TEST_TMPDIR/empty.html"
+  python3 - "$BATS_TEST_TMPDIR/empty.html" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+assert 'No task packages in this repository yet.' in s
+assert 'href=\'#dashboard-controls\'' in s and 'Create a New Plan' in s
+assert '0 of 0 tasks' in s
 PY
 }

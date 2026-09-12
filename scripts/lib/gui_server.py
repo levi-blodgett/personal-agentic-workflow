@@ -1491,8 +1491,10 @@ th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vert
 .log-stream{display:grid;gap:14px;margin:14px 0 24px}.log-panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}.log-panel h3{font-size:13px;text-transform:uppercase;color:var(--muted);background:var(--subtle);margin:0;padding:8px 12px}.log-panel pre{margin:0;max-height:45vh;overflow:auto;padding:12px;background:var(--log-bg);color:var(--log-ink);white-space:pre-wrap}
 .action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid var(--control);border-radius:6px;padding:5px 9px;background:var(--subtle);color:var(--muted)}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.queued-prompt{white-space:pre-wrap;overflow-wrap:anywhere;min-width:18ch;max-width:60ch;margin:0}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
 body{color:var(--ink);background:var(--canvas)}*{box-sizing:border-box}main.shell{padding-block:16px}.site-header{background:var(--surface);color:var(--ink);border-bottom:1px solid var(--line);padding:14px 0}.site-header h1{order:-1;font-size:18px}.home-link{color:var(--muted);border:0;padding:4px}.home-link:hover{background:var(--canvas)}.header-context{color:var(--muted)}
-button,.button,input,select,textarea{border-radius:7px}button,.button{white-space:nowrap}button,.button{padding:6px 10px}a:hover{text-decoration:underline}:focus-visible{outline:3px solid var(--focus);outline-offset:3px}.primary{background:var(--accent);border-color:var(--focus);color:#fff}.primary:hover{background:var(--accent-hover)}.archive{background:var(--amber-bg);border-color:var(--amber);color:var(--amber)}.archive:hover{background:var(--amber-hover)}.danger{background:var(--red-bg)}.lifecycle-actions{margin-top:10px;flex-wrap:nowrap}.task-utilities{font-size:13px}
-#dashboard-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}#dashboard-controls>.repo-toolbar{margin:0}.repo-toolbar select{width:clamp(160px,30vw,420px);max-width:100%}.repo-management,.filter-disclosure{margin:0;font-size:13px}.repo-management>summary,.filter-disclosure>summary{cursor:pointer;padding:7px}.repo-management[open],.filter-disclosure[open]{flex-basis:100%}.dashboard-actions{margin:0;gap:var(--space)}.js .switch-fallback{display:none}[hidden]{display:none!important}.queue-trigger{font-size:13px}.toolbar label{max-width:100%;min-width:0}.toolbar input{max-width:100%}[data-action-feedback]:empty{display:none}[data-transient-message],[data-action-feedback]{position:relative;overflow-wrap:anywhere;padding-right:48px}[data-message-dismiss]{display:none;position:absolute;right:6px;top:4px;min-width:32px;min-height:32px;padding:2px;color:inherit;background:transparent;border:0}.js [data-message-dismiss]{display:block}[data-message-dismiss]::before{content:"×";font-size:22px}.table-wrap{max-width:100%;border-radius:8px}#task-list .dashboard-table{min-width:1180px;table-layout:fixed}.dashboard-table>colgroup>.task-column{width:18%}.dashboard-table>colgroup>.repo-column{width:17%}.dashboard-table>colgroup>.stage-column{width:12%}.dashboard-table>colgroup>.next-column{width:16%}.dashboard-table>colgroup>.completion-column{width:7%}.dashboard-table>colgroup>.checklist-column{width:6%}.dashboard-table>colgroup>.validation-column{width:9%}.dashboard-table>colgroup>.actions-column{width:15%}.dashboard-table>tbody>tr>td{overflow-wrap:anywhere}.dashboard-table .workflow-cell{min-width:0}.dashboard-table .workflow-actions button{max-width:100%;white-space:normal}.dashboard-stage{line-height:20px;font-size:12px}.dashboard-stage>span,.dashboard-stage>a{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dashboard-stage>.pill{padding:0 4px;border:0;font-size:inherit}.prototype-warning{color:var(--amber);font-weight:600}.modal-body .table-wrap table{min-width:560px}th{background:var(--subtle);letter-spacing:.035em}th,td{padding:10px}.task-title{overflow-wrap:anywhere}.modal-panel{padding:16px}.modal-body{border-radius:12px;max-height:calc(100dvh - 32px);width:min(760px,100%);padding:20px;overscroll-behavior:contain;overflow-wrap:anywhere}.modal-body h2{font-size:19px;margin:0 0 12px}.modal-body input{max-width:100%}.modal-body code{overflow-wrap:anywhere}.modal-body .document{padding:14px}.modal-body .action-row{position:sticky;bottom:-20px;padding-block:12px;background:var(--surface)}.plan-destination{font-size:13px;color:var(--muted)}.plan-destination code{font-size:12px}.task-metadata{margin:14px 0}.task-metadata>summary{cursor:pointer;font-weight:600}.tabs{display:flex;gap:16px;flex-wrap:wrap}.tabs a{margin:0}
+button,.button,input,select,textarea{border-radius:7px}button,.button{white-space:nowrap}button,.button{padding:6px 10px}a:hover{text-decoration:underline}:focus-visible{outline:3px solid var(--focus);outline-offset:3px}.primary{background:var(--accent);border-color:var(--focus);color:#fff}.primary:hover{background:var(--accent-hover)}.archive{background:var(--amber-bg);border-color:var(--amber);color:var(--amber)}.archive:hover{background:var(--amber-hover)}.danger{background:var(--red-bg)}.lifecycle-actions{margin-top:10px;flex-wrap:nowrap}.task-utilities{font-size:13px}.row-tools>summary{cursor:pointer;color:var(--link);padding-block:4px}.row-tools .task-utilities{margin-top:8px}.empty-state{padding:24px;background:var(--surface);border:1px solid var(--line);border-radius:8px}.task-count{font-size:13px;margin:14px 0 0}
+#dashboard-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}#dashboard-controls>.repo-toolbar{margin:0}.repo-toolbar label{display:flex;align-items:center;gap:8px}.repo-toolbar select{width:clamp(160px,25vw,360px);max-width:100%;font-size:14px}.repo-toolbar{align-items:center}.repo-management,.filter-disclosure{margin:0;font-size:13px}.repo-management>summary,.filter-disclosure>summary{cursor:pointer;padding:7px}.repo-management[open],.filter-disclosure[open]{flex-basis:100%}.dashboard-actions{margin:0;gap:var(--space);align-items:center}.js .switch-fallback{display:none}[hidden]{display:none!important}.queue-trigger{font-size:13px}.toolbar label{max-width:100%;min-width:0}.toolbar input{max-width:100%}[data-action-feedback]:empty{display:none}[data-transient-message],[data-action-feedback]{position:relative;overflow-wrap:anywhere;padding-right:48px}[data-message-dismiss]{display:none;position:absolute;right:6px;top:4px;min-width:32px;min-height:32px;padding:2px;color:inherit;background:transparent;border:0}.js [data-message-dismiss]{display:block}[data-message-dismiss]::before{content:"×";font-size:22px}.table-wrap{max-width:100%;border-radius:8px}#task-list .dashboard-table{min-width:1180px;table-layout:fixed}.dashboard-table>colgroup>.task-column{width:18%}.dashboard-table>colgroup>.repo-column{width:17%}.dashboard-table>colgroup>.stage-column{width:12%}.dashboard-table>colgroup>.next-column{width:16%}.dashboard-table>colgroup>.completion-column{width:7%}.dashboard-table>colgroup>.checklist-column{width:6%}.dashboard-table>colgroup>.validation-column{width:9%}.dashboard-table>colgroup>.actions-column{width:15%}.dashboard-table>tbody>tr>td{overflow-wrap:anywhere}.dashboard-table .workflow-cell{min-width:0}.dashboard-table .workflow-actions button{max-width:100%;white-space:normal}.dashboard-stage{line-height:20px;font-size:12px}.dashboard-stage>span,.dashboard-stage>a{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dashboard-stage>.pill{padding:0;border:0;border-radius:0;background:transparent;font-size:inherit}.prototype-warning{color:var(--amber);font-weight:600}.modal-body .table-wrap table{min-width:560px}th{background:var(--subtle);letter-spacing:.035em}th,td{padding:10px}.task-title{overflow-wrap:anywhere}.modal-panel{padding:16px}.modal-body{border-radius:12px;max-height:calc(100dvh - 32px);width:min(760px,100%);padding:20px;overscroll-behavior:contain;overflow-wrap:anywhere}.modal-body h2{font-size:19px;margin:0 0 12px}.modal-body input{max-width:100%}.modal-body code{overflow-wrap:anywhere}.modal-body .document{padding:14px}.modal-body .action-row{position:sticky;bottom:-20px;padding-block:12px;background:var(--surface)}.plan-destination{font-size:13px;color:var(--muted)}.plan-destination code{font-size:12px}.task-metadata{margin:14px 0}.task-metadata>summary{cursor:pointer;font-weight:600}.tabs{display:flex;gap:16px;flex-wrap:wrap}.tabs a{margin:0;padding:6px 2px;border-bottom:3px solid transparent}.tabs a[aria-current=page]{border-bottom-color:var(--link);font-weight:600}
+@media(max-width:1180px){#task-list .dashboard-table{min-width:0;border:0;background:transparent}.dashboard-table colgroup{display:none}.dashboard-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.dashboard-table tbody{display:grid;gap:14px}.dashboard-table tbody>tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border:1px solid var(--line);border-radius:8px;background:var(--surface)}.dashboard-table>tbody>tr>td{display:block;min-width:0;border:0}.dashboard-table td::before{content:attr(data-label);display:block;color:var(--muted);font-size:12px;font-weight:600;margin-bottom:4px}.dashboard-table .path-disclosure code{white-space:normal;overflow-wrap:anywhere}.dashboard-stage>span,.dashboard-stage>a{white-space:normal}.dashboard-table .lifecycle-actions{flex-wrap:wrap}}
+@media(max-width:480px){.dashboard-table tbody>tr{grid-template-columns:minmax(0,1fr)}.repo-toolbar label{flex-wrap:wrap}.repo-toolbar select{flex-basis:100%}}
 @media(max-width:640px){#dashboard-controls{gap:8px}.repo-toolbar{width:100%}.repo-toolbar label{flex:1}.repo-toolbar select{width:100%}.dashboard-actions{width:100%}.modal-panel{padding:10px}.modal-body{max-height:calc(100dvh - 20px);padding:14px}.modal-body .action-row{bottom:-14px}.header-row{gap:12px}.site-header h1{overflow-wrap:anywhere}.toolbar-fields{max-width:100%}}
 @media (max-width:640px){.shell{width:min(100% - 20px,1600px)}.header-context{margin-left:0;flex-basis:100%}}
 """
@@ -2480,7 +2482,7 @@ class Handler(BaseHTTPRequestHandler):
         open_attr = " open" if state_filter or completion_filter or repo_filter else ""
         return (
             f"{self.repo_selector(active_repo)}"
-            f"<details class='filter-disclosure'{open_attr}><summary>Filter tasks</summary>"
+            f"<details class='filter-disclosure'{open_attr}><summary>Filter tasks{' · Active' if open_attr else ''}</summary>"
             "<form class='toolbar' method='get'>"
             "<div class='toolbar-fields'>"
             f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
@@ -2488,9 +2490,13 @@ class Handler(BaseHTTPRequestHandler):
             f"<label>Repo filter <input name=\"repo\" value=\"{html_attr(repo_filter)}\"></label>"
             f"<label>Completion <select name=\"completion\">{completion_select}</select></label>"
             "</div><div class='top-actions'>"
-            "<button type='submit'>Filter</button><a class='button' href='/'>Clear</a>"
+            f"<button type='submit'>Filter</button>{self.clear_filters_link(active_repo)}"
             "</div></form></details>"
         )
+
+    def clear_filters_link(self, active_repo: Path) -> str:
+        return (f"<a class='button' data-clear-filters href='/?active_repo={quote(str(active_repo), safe='')}'>"
+                "Clear filters</a>")
 
     def new_plan_modal(self, active_repo: Path) -> str:
         queued = self.queued_plan_list(active_repo)
@@ -2670,9 +2676,10 @@ class Handler(BaseHTTPRequestHandler):
         if include_docs:
             for doc in ("plan",):
                 preview_url = f"/fragments/task-doc/{quote(task.name)}?path={quote(str(task.path), safe='')}&doc={doc}{active_query}"
-                pieces.append(f"<button type='button' data-doc-preview-url='{html_attr(preview_url)}'>{doc}.md</button>")
+                pieces.append(f"<button type='button' data-doc-preview-url='{html_attr(preview_url)}' aria-label='Preview plan for {html_attr(task.name)}'>Preview plan</button>")
         edit_label = "Answer Questions" if task.blocked else "Edit"
-        pieces.append(self.extras_modal(task, "edit", edit_label))
+        if not include_docs or task_workflow(task).action != "edit":
+            pieces.append(self.extras_modal(task, "edit", edit_label))
         if not include_docs and task_workflow(task).action == "approve-implementation":
             pieces.append(self.approve_implementation_button(task))
         if not include_docs:
@@ -2683,7 +2690,11 @@ class Handler(BaseHTTPRequestHandler):
                 else self.extras_modal(task, "prototype", "Use as Prototype")
             )
             pieces.extend([self.extras_modal(task, "review", "Review"), prototype_control])
-        return (f"<div class='task-utilities action-row'>{''.join(pieces)}</div>"
+        utilities = f"<div class='task-utilities action-row'>{''.join(pieces)}</div>"
+        if include_docs:
+            utilities = (f"<details class='row-tools' data-paw-key='tools:{html_attr(str(task.path))}'>"
+                         f"<summary aria-label='Tools for {html_attr(task.name)}'>Tools</summary>{utilities}</details>")
+        return (utilities +
                 f"<div class='lifecycle-actions action-row'>{self.archive_form(task)}{self.delete_modal(task)}</div>")
 
     def workflow_action_control(self, task: Task, workflow: TaskWorkflow) -> str:
@@ -2774,22 +2785,32 @@ class Handler(BaseHTTPRequestHandler):
             branch = task.branch_context or "<none>"
             workflow = task_workflow(task)
             rows.append(
-                f"<tr data-paw-key='{html_attr(str(task.path))}'>"
-                f"<td><a class='task-title' href='{task_href}'>{html.escape(task.name)}</a>{path_disclosure('Task path', str(task.path))}</td>"
-                f"<td><div class='repo-name'>{html.escape(task.repo_name)}</div><div class='task-subtle muted'>Branch: {html.escape(branch)}</div>{repo_disclosure(task, branch)}</td>"
-                f"<td>{self.dashboard_stage_cell(task, workflow)}</td>"
-                f"<td>{self.workflow_next_cell(task, workflow)}</td>"
-                f"<td><span class='metric-chip'>{html.escape(completion)}</span></td>"
-                f"<td><span class='metric-chip'>{done}/{total}</span></td><td>{validation_cell(task.plan, task_href)}</td>"
-                f"<td>{self.task_actions(task, include_docs=True)}</td>"
+                f"<tr data-paw-key='{html_attr(str(task.path))}' role='row'>"
+                f"<td role='cell' data-label='Task'><a class='task-title' href='{task_href}'>{html.escape(task.name)}</a>{path_disclosure('Task path', str(task.path))}</td>"
+                f"<td role='cell' data-label='Repo'><div class='repo-name'>{html.escape(task.repo_name)}</div><div class='task-subtle muted'>Branch: {html.escape(branch)}</div>{repo_disclosure(task, branch)}</td>"
+                f"<td role='cell' data-label='Stage'>{self.dashboard_stage_cell(task, workflow)}</td>"
+                f"<td role='cell' data-label='Next'>{self.workflow_next_cell(task, workflow)}</td>"
+                f"<td role='cell' data-label='Completion'><span class='metric-chip'>{html.escape(completion)}</span></td>"
+                f"<td role='cell' data-label='Checklist'><span class='metric-chip'>{done}/{total}</span></td><td role='cell' data-label='Validation'>{validation_cell(task.plan, task_href)}</td>"
+                f"<td role='cell' data-label='Actions'>{self.task_actions(task, include_docs=True)}</td>"
                 "</tr>"
             )
+        filtered = bool(state_filter or repo_filter or completion_filter)
+        count = f"<p class='task-count muted'>{len(rows)} of {len(all_tasks)} tasks{' · Filters active' if filtered else ''}</p>"
+        if not rows:
+            if all_tasks:
+                message = f"No tasks match these filters.</p><p>{self.clear_filters_link(active_repo)}"
+            else:
+                scope = "central task stores" if self.all_repos else "this repository"
+                message = (f"No task packages in {scope} yet.</p><p>"
+                           "<a href='#dashboard-controls'>Create a New Plan</a> for the selected Active repo.")
+            return count + f"<div class='empty-state'><p>{message}</p></div>"
         return (
-            "<div class='table-wrap'><table class='dashboard-table'><colgroup>"
+            count + "<div class='table-wrap'><table class='dashboard-table' role='table' aria-label='Tasks'><colgroup>"
             "<col class='task-column'><col class='repo-column'><col class='stage-column'><col class='next-column'>"
             "<col class='completion-column'><col class='checklist-column'><col class='validation-column'><col class='actions-column'>"
-            "</colgroup><thead><tr><th>Task</th><th>Repo</th><th>Stage</th><th>Next</th><th>Completion</th><th>Checklist</th><th>Validation</th><th>Actions</th></tr></thead>"
-            f"<tbody>{''.join(rows) or '<tr><td colspan=8>No task packages found.</td></tr>'}</tbody></table></div>"
+            "</colgroup><thead role='rowgroup'><tr role='row'><th scope='col' role='columnheader'>Task</th><th scope='col' role='columnheader'>Repo</th><th scope='col' role='columnheader'>Stage</th><th scope='col' role='columnheader'>Next</th><th scope='col' role='columnheader'>Completion</th><th scope='col' role='columnheader'>Checklist</th><th scope='col' role='columnheader'>Validation</th><th scope='col' role='columnheader'>Actions</th></tr></thead>"
+            f"<tbody role='rowgroup'>{''.join(rows)}</tbody></table></div>"
         )
 
     def flash_html(self, message: str, level: str = "notice") -> str:
@@ -2988,7 +3009,10 @@ class Handler(BaseHTTPRequestHandler):
         active_query = f"&active_repo={quote(str(task.repo), safe='')}"
         run_query = f"&run={quote(selected_run, safe='')}" if selected_run else ""
         history_url = f"/task/{quote(task.name)}?path={path_query}&doc={selected_doc}{active_query}"
-        tabs = " ".join(f"<a href='/task/{quote(task.name)}?path={path_query}&doc={tab}{active_query}{run_query}'>{tab}.md</a>" for tab in doc_tabs)
+        tabs = " ".join(
+            f"<a href='/task/{quote(task.name)}?path={path_query}&doc={tab}{active_query}{run_query}'"
+            f"{' aria-current=page' if tab == selected_doc else ''}>{tab}.md</a>" for tab in doc_tabs
+        )
         done, total = checklist_counts(task.plan)
         crash_state = "available" if (task.path / "crash.log").exists() else "none"
         pr_tracking = tracking_summary(task.plan, "PR") or "none"

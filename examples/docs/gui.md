@@ -59,13 +59,25 @@ incomplete current reviews show Review incomplete → Run Review; complete curre
 Pending grades have no badge. [Grade formatting](workflow.md#implementation-handoff-and-review-grades)
 describes supported/unknown values.
 
-State/repo-text/completion filters start collapsed unless active. Task names open details;
-secondary row tools include Edit and plan preview, then adjacent Archive/Delete.
-Task metadata/path details expand separately; workflow warnings remain visible.
-Dense tables scroll on narrow screens.
+State/repo-text/completion filters start collapsed unless active. The filtered/total
+count and **Filters active** indicator describe the current listing. **Clear filters**
+removes all three filters while retaining Active repo and the server's all-repo mode.
+No-match results offer that recovery; an empty repository points to **New Plan** for
+the selected destination. Neither recovery launches work automatically.
+
+Task names open details. **Next** keeps the current workflow action visible; **Tools**
+is a native keyboard-accessible disclosure for **Preview plan**, Edit and available
+PR/log links. Answer Questions appears once when it is the next action. Archive/Delete
+remain separate and guarded. Task metadata/path details expand independently; workflow
+warnings and validation remain visible. Polling preserves open Tools and focus.
+
+Desktop retains the compact table. At narrower widths (1180px and below), the same
+rows become labelled groups: Task, Repo, Stage, Next, metrics, Validation and Actions.
+Primary information needs no horizontal panning; long documents/logs scroll locally.
+The active document tab has an underline and programmatic current-page state.
 
 The dashboard has eight columns, with 35% of its width reserved for Task and Repo.
-Stage shows at most three compact lines: stage, a prototype/attention indicator when
+Desktop Stage shows at most three compact lines: stage, a prototype/attention indicator when
 applicable, and **Details / lineage**. Task detail retains full plan position, cleanup
 messages, prototype origin and same-repo lineage links, including unavailable-source
 explanations. Cleanup blocked/failed/incomplete conditions keep a visible attention label.
