@@ -176,7 +176,7 @@ PY
   stop_gui
 
   grep -q "gui-task" "$BATS_TEST_TMPDIR/page.html"
-  grep -q "GUI smoke" "$BATS_TEST_TMPDIR/page.html"
+  grep -q "Stage: Implement" "$BATS_TEST_TMPDIR/page.html"
   grep -q "1/2" "$BATS_TEST_TMPDIR/page.html"
 }
 
@@ -464,7 +464,7 @@ PY
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
-path.write_text(path.read_text().replace("GUI smoke.", "Changed by polling fixture."))
+path.write_text(path.read_text().replace("50%", "51%"))
 PYTHON
   fetch_gui "$port" "/fragments/tasks" "$BATS_TEST_TMPDIR/tasks-fragment.html"
   stop_gui
@@ -472,8 +472,8 @@ PYTHON
   grep -q 'data-paw-refresh-url="/fragments/tasks' "$BATS_TEST_TMPDIR/refresh-index.html"
   grep -q 'data-paw-refresh-interval-ms=' "$BATS_TEST_TMPDIR/refresh-index.html"
   grep -q "gui-task" "$BATS_TEST_TMPDIR/tasks-fragment.html"
-  grep -q "GUI smoke" "$BATS_TEST_TMPDIR/refresh-index.html"
-  grep -q "Changed by polling fixture" "$BATS_TEST_TMPDIR/tasks-fragment.html"
+  grep -q "Stage: Implement" "$BATS_TEST_TMPDIR/refresh-index.html"
+  grep -q "51%" "$BATS_TEST_TMPDIR/tasks-fragment.html"
   ! grep -q "<!doctype html>" "$BATS_TEST_TMPDIR/tasks-fragment.html"
 }
 
@@ -547,7 +547,7 @@ PYTHON
   grep -q ".shell{width:min(100% - 32px,1600px);margin-inline:auto}" "$BATS_TEST_TMPDIR/layout-index.html"
   grep -q "<header class='site-header'><div class='shell header-row'>" "$BATS_TEST_TMPDIR/layout-index.html"
   grep -q "<main class='shell'>" "$BATS_TEST_TMPDIR/layout-index.html"
-  grep -q "<div class='table-wrap'><table>" "$BATS_TEST_TMPDIR/layout-index.html"
+  grep -q "<div class='table-wrap'><table class='dashboard-table'>" "$BATS_TEST_TMPDIR/layout-index.html"
   grep -q "<div class='table-wrap'><table><tbody>" "$BATS_TEST_TMPDIR/layout-detail.html"
   ! grep -q "max-width:1180px" "$BATS_TEST_TMPDIR/layout-index.html"
 }
@@ -612,47 +612,26 @@ MD
   ! grep -q "<!doctype html>" "$BATS_TEST_TMPDIR/detail-fragment.html"
 }
 
-@test "paw gui: unfinished eligible tasks can be selected for archive or delete" {
-  mkdir -p "$REPO/.agent/blocked-task" "$REPO/.agent/done-task"
-  cat > "$REPO/.agent/blocked-task/plan.md" <<'MD'
-# Plan
-
-## Current Status
-
-- Plan position: Blocked task.
-- Estimated completion: 10%
-- Next work: Resolve question.
-
-## Open Questions / Follow-Ups
-
-- What is needed?
-  - USER ANSWER (UNRESOLVED):
-MD
-  cat > "$REPO/.agent/done-task/plan.md" <<'MD'
-# Plan
-
-## Current Status
-
-- Plan position: Done task.
-- Estimated completion: 100%
-- Next work: Review.
-MD
-  local port=18762 gui_path blocked_path done_path
-  gui_path="$(real_path "$REPO/.agent/gui-task")"
-  blocked_path="$(real_path "$REPO/.agent/blocked-task")"
-  done_path="$(real_path "$REPO/.agent/done-task")"
+@test "paw gui: dashboard retires selection on page fragment and empty state" {
+  local port=18762
   start_gui "$port"
-  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/batch-select.html"
+  fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/page.html"
+  fetch_gui "$port" "/fragments/tasks" "$BATS_TEST_TMPDIR/fragment.html"
+  fetch_gui "$port" "/?repo=does-not-exist" "$BATS_TEST_TMPDIR/empty.html"
   stop_gui
-
-  grep -q "name='selected_action'" "$BATS_TEST_TMPDIR/batch-select.html"
-  grep -q ">Archive selected<" "$BATS_TEST_TMPDIR/batch-select.html"
-  grep -q ">Delete selected<" "$BATS_TEST_TMPDIR/batch-select.html"
-  ! grep -q "Implement selected" "$BATS_TEST_TMPDIR/batch-select.html"
-  ! grep -q "/actions/implement-batch" "$BATS_TEST_TMPDIR/batch-select.html"
-  grep -q "name='task' value='$gui_path'" "$BATS_TEST_TMPDIR/batch-select.html"
-  ! grep -q "name='task' value='$blocked_path'" "$BATS_TEST_TMPDIR/batch-select.html"
-  ! grep -q "name='task' value='$done_path'" "$BATS_TEST_TMPDIR/batch-select.html"
+  python3 - "$BATS_TEST_TMPDIR" <<'PYTEST'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+for name in ('page', 'fragment', 'empty'):
+    page = (root / (name + '.html')).read_text()
+    assert '<th>Select</th>' not in page
+    assert 'selected-action' not in page and "name='task'" not in page
+    assert '<th>Task</th><th>Repo</th><th>Stage</th>' in page
+assert 'colspan=8' in (root / 'empty.html').read_text()
+assert 'New Plan' in (root / 'page.html').read_text()
+assert 'Queued Plans' in (root / 'page.html').read_text()
+PYTEST
 }
 
 @test "paw gui: repo column includes branch context and branch column is removed" {
@@ -985,8 +964,8 @@ MD
   wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
   stop_gui
 
-  grep -q "Repo two only" "$BATS_TEST_TMPDIR/select-repo-index.html"
-  ! grep -q "Repo one only" "$BATS_TEST_TMPDIR/select-repo-index.html"
+  grep -q "repo-two-task" "$BATS_TEST_TMPDIR/select-repo-index.html"
+  ! grep -q "repo-one-task" "$BATS_TEST_TMPDIR/select-repo-index.html"
   grep -q "Plan in repo two" "$BATS_TEST_TMPDIR/backend.prompt"
   [ -f "$created/metadata.gitconfig" ]
   git config --file "$created/metadata.gitconfig" --get paw.repo-root | grep -Fx "$repo_two_path"
@@ -1302,7 +1281,7 @@ PY_REVIEW
   grep -q "Use the review as source" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 
-@test "paw gui: blocks review prototype archive delete and selected actions while task is running" {
+@test "paw gui: blocks review prototype archive delete while task is running" {
   local port=18788 path
   path="$(real_path "$REPO/.agent/gui-task")"
   mkdir -p "$REPO/.agent/gui-task/runs"
@@ -1313,40 +1292,12 @@ PY_REVIEW
   post_gui "$port" "/task/gui-task/prototype" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/prototype-running.html"
   post_gui "$port" "/task/gui-task/archive" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/archive-running.html"
   post_gui "$port" "/task/gui-task/delete" "$(form_encode "path=$path" "confirm=yes")" "$BATS_TEST_TMPDIR/delete-running.html"
-  post_gui "$port" "/actions/selected" "$(form_encode "task=$path" "selected_action=archive")" "$BATS_TEST_TMPDIR/selected-running.html"
   stop_gui
 
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/review-running.html"
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/prototype-running.html"
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/archive-running.html"
   grep -q "delete blocked while a PAW subprocess is running" "$BATS_TEST_TMPDIR/delete-running.html"
-  grep -q "selected action blocked: gui-task is already running" "$BATS_TEST_TMPDIR/selected-running.html"
-}
-
-@test "paw gui: selected archive and delete mutate all selected eligible tasks" {
-  git -C "$REPO" init -q
-  mkdir -p "$REPO/.agent/gui-task-two"
-  cp "$REPO/.agent/gui-task/plan.md" "$REPO/.agent/gui-task-two/plan.md"
-  local central port=18781 path_one path_two
-  central="$(bash -c 'source "$1"; paw_task_create_dir "$2" selected-archive' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$REPO")"
-  mkdir -p "$central"
-  cp "$REPO/.agent/gui-task/plan.md" "$central/plan.md"
-  bash -c 'source "$1"; paw_task_write_metadata "$2" "$3" selected-archive created ""' _ "$REPO_ROOT/scripts/lib/task_store.sh" "$central" "$REPO"
-  central="$(real_path "$central")"
-  path_one="$(real_path "$REPO/.agent/gui-task")"
-  path_two="$(real_path "$REPO/.agent/gui-task-two")"
-  start_gui "$port"
-
-  post_gui "$port" "/actions/selected" "$(form_encode "task=$central" "selected_action=archive")" "$BATS_TEST_TMPDIR/selected-archive-post.html"
-  post_gui "$port" "/actions/selected" "$(form_encode "task=$path_one" "selected_action=delete" "confirm=yes")" "$BATS_TEST_TMPDIR/selected-delete-post.html"
-  stop_gui
-
-  grep -q "archived 1 selected task" "$BATS_TEST_TMPDIR/selected-archive-post.html"
-  [[ ! -d "$central" ]]
-  find "$PAW_TASK_HOME" -path "*/.archive/selected-archive" -type d -print -quit | grep -q "selected-archive"
-  grep -q "deleted 1 selected task" "$BATS_TEST_TMPDIR/selected-delete-post.html"
-  [[ ! -d "$path_one" ]]
-  [[ -d "$path_two" ]]
 }
 
 @test "paw gui: blocks implement when follow-up placeholders remain" {
@@ -1485,8 +1436,8 @@ MD
   fetch_gui "$port" "/task/gui-task?path=$(url_encode "$path")&doc=plan" "$BATS_TEST_TMPDIR/prototype-detail.html"
   stop_gui
 
-  grep -q "planned-source-reverted from source-task" "$BATS_TEST_TMPDIR/prototype-index.html"
-  grep -q "source cleanup completed" "$BATS_TEST_TMPDIR/prototype-index.html"
+  grep -q "Details / lineage" "$BATS_TEST_TMPDIR/prototype-index.html"
+  ! grep -q "source cleanup completed" "$BATS_TEST_TMPDIR/prototype-index.html"
   grep -q "<th>Prototype</th>" "$BATS_TEST_TMPDIR/prototype-detail.html"
   grep -q "planned-source-reverted from source-task" "$BATS_TEST_TMPDIR/prototype-detail.html"
   grep -q "<th>Prototype Cleanup</th>" "$BATS_TEST_TMPDIR/prototype-detail.html"
@@ -1693,8 +1644,8 @@ MD
   fetch_gui "$port" "/" "$BATS_TEST_TMPDIR/all.html"
   stop_gui
 
-  grep -q "Repo one task" "$BATS_TEST_TMPDIR/all.html"
-  grep -q "Repo two task" "$BATS_TEST_TMPDIR/all.html"
+  grep -Fq "data-paw-key='$(real_path "$central_one")'" "$BATS_TEST_TMPDIR/all.html"
+  grep -Fq "data-paw-key='$(real_path "$central_two")'" "$BATS_TEST_TMPDIR/all.html"
   grep -q "shared-task" "$BATS_TEST_TMPDIR/all.html"
   grep -q "repo-two" "$BATS_TEST_TMPDIR/all.html"
 }
@@ -1740,8 +1691,8 @@ MD
   wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
   stop_gui
 
-  grep -q "All repo one" "$BATS_TEST_TMPDIR/all-active-index.html"
-  grep -q "All repo two" "$BATS_TEST_TMPDIR/all-active-index.html"
+  grep -Fq "data-paw-key='$(real_path "$central_one")'" "$BATS_TEST_TMPDIR/all-active-index.html"
+  grep -Fq "data-paw-key='$(real_path "$central_two")'" "$BATS_TEST_TMPDIR/all-active-index.html"
   grep -q "Repo filter" "$BATS_TEST_TMPDIR/all-active-index.html"
   grep -q "name=\"active_repo\"" "$BATS_TEST_TMPDIR/all-active-index.html"
   grep -q "Plan from all mode" "$BATS_TEST_TMPDIR/backend.prompt"
@@ -2014,17 +1965,21 @@ for all_repos in (False, True):
             assert not action('same', 'delete', first)['ok']
             assert 'stale task path' in action('same', 'delete', first / 'stale')['message']
             assert post('/task/missing/edit', {'path': str(first / 'missing')})[0] == 404
-            assert not post('/actions/selected', {'selected_action': 'delete', 'task': str(first)})[1]['ok']
-            selected = [str(first), str(second)]
-            result = post('/actions/selected', {'selected_action': 'delete', 'task': selected, 'confirm': 'yes'})[1]
-            assert result['ok'] == all_repos, result
-            if not all_repos:
-                assert first.exists() and second.exists()
-                assert action('same', 'delete', first, confirm='yes')['ok']
-                assert second.exists()
-            archived = task('archive-me')
-            assert post('/actions/selected', {'selected_action': 'archive', 'task': str(archived)})[1]['ok']
-            assert not archived.exists()
+            before = {str(p): p.read_bytes() for owner in (first, second) for p in owner.rglob('*') if p.is_file()}
+            for verb in ('archive', 'delete'):
+                for accept in ('text/html', 'application/json'):
+                    request = Request(f'http://127.0.0.1:{server.server_port}/actions/selected',
+                                      urlencode({'selected_action': verb, 'task': [str(first), str(second)], 'confirm': 'yes'}, doseq=True).encode(),
+                                      {'Accept': accept})
+                    try:
+                        urlopen(request)
+                        raise AssertionError('retired endpoint accepted')
+                    except HTTPError as error:
+                        assert error.code == 404
+                    assert before == {str(p): p.read_bytes() for owner in (first, second) for p in owner.rglob('*') if p.is_file()}
+            assert not list(task_home.rglob('.archive'))
+            assert action('same', 'delete', first, confirm='yes')['ok']
+            assert not first.exists() and second.exists()
             for verb, data, fragment in (
                 ('/actions/plan', {'task_name': 'queue-me', 'prompt': 'full\ntext', 'plan_action': 'queue'}, 'queued'),
                 ('/actions/queue/edit', {'original_task_name': 'queue-me', 'task_name': 'renamed', 'prompt': 'edited\ntext'}, 'updated'),

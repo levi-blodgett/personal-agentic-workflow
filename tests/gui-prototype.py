@@ -40,6 +40,25 @@ class PrototypeJourney(unittest.TestCase):
     def task(self):
         return gui.Task('replacement', 'legacy', self.path, self.repo)
 
+    def test_dashboard_stage_compact_with_complete_detail(self):
+        self.meta('prototype-source', 'missing-source')
+        (self.path / 'plan.md').write_text('## Current Status\n- Plan position: ' + 'long position <unsafe> ' * 30)
+        for status in ('planned-revert-blocked', 'planning-failed', 'planning', 'planned-revert-unavailable'):
+            self.meta('prototype-status', status)
+            self.meta('prototype-cleanup-message', 'Long cleanup <script> ' * 40)
+            task = self.task()
+            compact = self.handler.dashboard_stage_cell(task, gui.task_workflow(task))
+            detail = self.handler.workflow_stage_cell(task, gui.task_workflow(task))
+            self.assertIn('Details / lineage', compact)
+            self.assertIn('prototype-warning', compact)
+            self.assertNotIn('Long cleanup', compact)
+            self.assertNotIn('long position', compact)
+            self.assertNotIn('<script>', detail)
+            self.assertIn('Long cleanup &lt;script&gt;', detail)
+            self.assertIn('long position &lt;unsafe&gt;', detail)
+            self.assertIn('Source missing-source is archived or unavailable.', detail)
+            self.assertIn('active_repo=', compact)
+
     def test_successful_replacement_uses_normal_workflow(self):
         self.meta('prototype-source', 'source')
         for status in ('planned-source-reverted', 'planned', 'planned-revert-blocked', 'planned-revert-unavailable', ''):

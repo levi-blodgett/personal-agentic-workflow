@@ -12,8 +12,8 @@ const chromePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/C
 assert.equal(typeof WebSocket, 'function', 'Use Node 22+ with built-in WebSocket');
 const version = execFileSync(chromePath, ['--version'], { encoding: 'utf8' }).trim();
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'paw-validation-browser-')));
-const repo = join(root, 'one', 'repo');
-const secondRepo = join(root, 'two', 'repo');
+const repo = join(root, 'one', 'repo-with-a-long-name-for-dashboard-geometry');
+const secondRepo = join(root, 'two', 'repo-with-a-long-name-for-dashboard-geometry');
 const evidence = process.env.PAW_GUI_EVIDENCE;
 const baseline = process.argv.includes('--baseline');
 if (evidence) mkdirSync(evidence, { recursive: true });
@@ -94,6 +94,17 @@ try {
     if (name === 'reviewed') writeFileSync(join(directory, 'review.md'), '## Review Metadata\n- Task: reviewed\n- Grade: B+\n- Scope Reviewed: fixture delta\n- Quality Threshold: B+\n- Threshold Result: met\n\n## Blocking Production-Readiness Issues\n- None.\n');
     if (name === 'running') { mkdirSync(join(directory, 'runs')); writeFileSync(join(directory, 'runs', 'fixture.gitconfig'), '[paw]\nstatus = running\n'); }
   }
+  const denseName = 'prototype-with-a-very-long-task-name-for-dashboard-geometry';
+  const dense = join(repo, '.agent', denseName);
+  mkdirSync(dense, {recursive:true});
+  writeFileSync(join(dense, 'plan.md'), plan(denseName).replace('Ready.', 'Long plan position <unsafe> '.repeat(35)));
+  writeFileSync(join(dense, 'metadata.gitconfig'), '[paw]\nprototype-source = archived-source\nprototype-status = planned-revert-blocked\nprototype-cleanup-message = ' + 'Cleanup blocked <unsafe> '.repeat(40) + '\nbranch-name = ' + 'long-branch-'.repeat(30) + '\n');
+  for (const n of [1,2,3]) {
+    const peer = join(repo, '.agent', 'replacement-peer-' + n);
+    mkdirSync(peer, {recursive:true});
+    writeFileSync(join(peer, 'plan.md'), plan('peer'));
+    writeFileSync(join(peer, 'metadata.gitconfig'), '[paw]\nprototype-source = ' + denseName + '\nprototype-status = planned\n');
+  }
   const runningLogs = join(repo, '.agent/running/runs');
   writeFileSync(join(runningLogs, `zz-fixture-${process.pid}.gitconfig`), '[paw]\nstatus = running\nsubcommand = implement\n');
   writeFileSync(join(runningLogs, 'fixture-gui-implement-running.stdout.log'), 'Output <escaped>\n' + 'long log '.repeat(300));
@@ -118,7 +129,10 @@ for repo in [Path(${JSON.stringify(repo)}), Path(${JSON.stringify(secondRepo)})]
     shared.mkdir()
     (shared / 'plan.md').write_text(${JSON.stringify(plan('shared-task'))})
     (shared / 'metadata.gitconfig').write_text((task / 'metadata.gitconfig').read_text())
+original_launch = gui.launch_paw
 def launch(repo, task_home, task_path, args):
+    if args[0] == 'archive':
+        return original_launch(repo, task_home, task_path, args)
     return True, 'Launch accepted: ' + str(repo) + ' ' + ' '.join(args)
 gui.launch_paw = launch
 gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0']);
@@ -158,10 +172,43 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
   console.log(`Browser: ${version}; isolated fixture: ${root}`);
   console.log('Table start:', await evaluate("document.querySelector('#task-list th').getBoundingClientRect().top"));
   await capture(baseline ? 'before-desktop' : 'after-desktop');
+  const measurements = {};
+  for (const width of [1440,1920]) {
+    await call('Emulation.setDeviceMetricsOverride', {width,height:900,deviceScaleFactor:1,mobile:false});
+    measurements[width] = await evaluate(`const table = document.querySelector('#task-list table');
+      const headers = [...table.querySelectorAll('th')];
+      Object.fromEntries([['table',table.getBoundingClientRect().width], ...headers.map(h=>[h.textContent,h.getBoundingClientRect().width])])`);
+    await capture((baseline ? 'before-' : 'after-') + width);
+    await evaluate(`document.querySelector('tr[data-paw-key$="/${denseName}"]').scrollIntoView()`);
+    await capture((baseline ? 'before-' : 'after-') + 'prototype-' + width);
+    await evaluate('scrollTo(0,0)');
+    if (!baseline) {
+      const m = measurements[width];
+      assert.ok(m.Task + m.Repo >= m.table * .35 - 1, 'identity columns occupy 35%');
+      assert.ok(m.Stage <= m.table * .15, 'Stage bounded to 15%');
+      const before = evidence && existsSync(join(evidence, 'baseline-layout.json')) ? JSON.parse(readFileSync(join(evidence, 'baseline-layout.json'), 'utf8'))[width] : null;
+      if (before) assert.ok(m.Task > before.Task && m.Repo > before.Repo, 'both identity columns wider than baseline');
+      assert.equal(await evaluate(`const row = [...document.querySelectorAll('#task-list tbody tr')].find(r=>r.textContent.includes('${denseName}'));
+        const cell = row.cells[2]; const compact = cell.querySelector('.dashboard-stage');
+        !!compact && compact.children.length <= 3 && compact.getBoundingClientRect().height <= 3 * parseFloat(getComputedStyle(compact).lineHeight) + 1 && !cell.querySelector('p,ul')`), true, 'three-line compact Stage');
+    }
+  }
+  if (evidence) writeFileSync(join(evidence, baseline ? 'baseline-layout.json' : 'final-layout.json'), JSON.stringify(measurements,null,2));
+  await call('Emulation.setDeviceMetricsOverride', {width:1440,height:900,deviceScaleFactor:1,mobile:false});
+
   if (baseline) {
     await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
     await capture('before-mobile');
   } else {
+    await evaluate(`document.querySelector('a[aria-label="Stage details and lineage for ${denseName}"]').focus()`);
+    await key('Enter','Enter',13);
+    await until('dense detail loaded', () => evaluate("!!document.querySelector('#task-detail')"));
+    assert.equal(await evaluate(`new URL(location.href).searchParams.get('active_repo') === ${JSON.stringify(repo)}`), true);
+    assert.equal(await evaluate("document.querySelector('.workflow-cell').textContent.includes('Long plan position <unsafe>') && document.querySelector('.workflow-cell').textContent.includes('Cleanup blocked <unsafe>')"), true);
+    assert.equal(await evaluate("document.querySelector('.workflow-cell').textContent.includes('Source archived-source is archived or unavailable.')"), true);
+    assert.equal(await evaluate(`const links = [...document.querySelectorAll('.workflow-cell a')]; links.length === 3 && links.every(a=>new URL(a.href).searchParams.get('path').startsWith(${JSON.stringify(repo + '/.agent/')}))`), true);
+    assert.equal(await evaluate("!!document.querySelector('.document input[type=checkbox]')"), true);
+    console.log('PASS: dense Stage native keyboard link retains full escaped diagnostics, missing source and all same-repo peers');
     await navigate('/?message=Dismiss%20me');
     assert.equal(await evaluate("document.querySelector('[data-message-dismiss]')?.getAttribute('aria-label')"), 'Dismiss message');
     await evaluate("document.querySelector('[data-message-dismiss]').focus()");
@@ -257,14 +304,12 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
       assert.equal(await evaluate(`const b=document.querySelector('[data-action-feedback]'); b.scrollWidth<=b.clientWidth`), true, 'long text wraps');
     }
     await call('Emulation.setDeviceMetricsOverride', {width:1440,height:900,deviceScaleFactor:1,mobile:false});
-    await evaluate(`document.querySelector('[name=task]:not(:disabled)').checked = true;
-      window.messageSelection = document.querySelector('[name=task]:checked').value;
-      document.querySelector('[data-new-plan] summary').click();
+    await evaluate(`document.querySelector('[data-new-plan] summary').click();
       const prompt = document.querySelector('[data-new-plan] textarea'); prompt.value = 'Retain exact draft'; prompt.focus();
       window.messagePolls = 0;
       window.fetch = (url, options) => options?.method === 'POST' ? Promise.resolve({json:async () => window.messageReply}) : (window.messagePolls++, realMessageFetch(url, options));`);
     await until('message draft dialog open', () => evaluate("!!document.querySelector('[data-new-plan] .modal-body[role=dialog]')"));
-    await evaluate("document.querySelector('[data-new-plan] textarea').focus()");
+    await evaluate("const input = document.querySelector('[data-new-plan] textarea'); input.focus(); input.setSelectionRange(3,8)");
     await showMessage('Polling error');
     await advance(4999);
     await sleep(5500);
@@ -273,14 +318,15 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
     await advance(1);
     assert.equal(await feedbackText(), '', 'polling did not reset deadline');
     assert.equal(await evaluate("document.querySelector('[data-new-plan] textarea').value"), 'Retain exact draft');
+    assert.deepEqual(await evaluate("const input = document.querySelector('[data-new-plan] textarea'); [input.selectionStart,input.selectionEnd]"), [3,8]);
     assert.equal(await evaluate("document.activeElement === document.querySelector('[data-new-plan] textarea')"), true, 'expiry does not steal unrelated focus');
-    assert.equal(await evaluate("document.querySelector('[name=task]:checked')?.value === window.messageSelection"), true);
+    assert.equal(await evaluate("document.querySelector('[name=task]')"), null);
     await evaluate("document.querySelector('[data-new-plan] [data-modal-close]').click()");
     await showMessage('Dismiss and poll');
     await evaluate("document.querySelector('[data-action-feedback] [data-message-dismiss]').click()");
     await sleep(5500);
     assert.equal(await feedbackText(), '', 'two polls cannot resurrect dismissed feedback');
-    console.log('PASS: Message hostile text, PR link/focus, narrow palettes and polling/draft/selection boundaries');
+    console.log('PASS: Message hostile text, PR link/focus, narrow palettes and polling/draft boundaries');
     await call('Page.removeScriptToEvaluateOnNewDocument', {identifier:clockScript.identifier});
     await navigate('/?message=Elapsed');
     const elapsedStart = Date.now();
@@ -342,8 +388,8 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
       await evaluate("document.querySelector('[data-new-plan] summary').click()");
       await until('storage failure leaves dialogs usable', () => evaluate("document.querySelector('[data-new-plan] .modal-body').contains(document.activeElement)"));
       await key('Escape','Escape',27);
-      writeFileSync(join(task, 'plan.md'), plan('Storage failure '+operation).replace('Ready.', 'Storage polling '+operation));
-      await until('storage failure leaves polling usable', () => evaluate(`document.querySelector('#task-list').textContent.includes('Storage polling ${operation}')`));
+      writeFileSync(join(task, 'plan.md'), plan('Storage failure '+operation, operation === 'getItem' ? 31 : 32));
+      await until('storage failure leaves polling usable', () => evaluate(`document.querySelector('#task-list').textContent.includes('${operation === 'getItem' ? 31 : 32}%')`));
       assert.equal(await scheme(), 'dark');
       await call('Page.removeScriptToEvaluateOnNewDocument', {identifier:failure.identifier});
     }
@@ -580,18 +626,11 @@ gui.main()`, '--repo', repo, '--task-home', join(root, 'tasks'), '--port', '0'])
       await close();
       if (action !== 'delete') assert.equal(await evaluate(`document.querySelector('form[action$="/${action}"] textarea').value`), 'Retain ' + action);
     }
-    assert.equal(await evaluate("document.querySelector('#selected-action-form').hidden"), true);
-    await evaluate("document.querySelector('[name=task][value$=central-ready]').click()");
-    assert.match(await evaluate("document.querySelector('[data-selection-count]').textContent"), /1 selected/);
-    await evaluate("document.querySelector('[data-selected-action=delete]').click()");
-    assert.equal(await evaluate("document.querySelector('#selected-action-form .checkbox-label').hidden"), false);
+    assert.equal(await evaluate("document.querySelector('#selected-action-form, [data-selected-action], [name=task]')"), null);
     await sleep(5500);
-    assert.equal(await evaluate("document.querySelectorAll('[name=task]:checked').length"), 1);
-    // Archive is a real isolated local operation; checkbox identity and clearing are observable.
-    await evaluate("document.querySelector('[data-selected-action=archive]').click()");
-    await until('archive selection cleared', () => evaluate("document.querySelectorAll('[name=task]:checked').length === 0 && !document.querySelector('[data-action-feedback]').textContent.includes('Submitting')"));
-    assert.equal(await evaluate("document.querySelector('#selected-action-form').hidden"), true);
-    console.log('PASS: input overlay drafts and contextual bulk selection through polling and success');
+    await evaluate("const row = [...document.querySelectorAll('#task-list tr')].find(r=>r.dataset.pawKey?.endsWith('/central-ready')); row.querySelector('form[action$=archive] button').click()");
+    await until('single archive accepted', () => evaluate("!document.querySelector('[data-action-feedback]').textContent.includes('Submitting')"));
+    console.log('PASS: input overlay drafts retained; selection absent through polling; single Archive accepted');
 
     await navigate('/?state=ready&completion=50%25');
     await capture('after-filtered');
@@ -666,12 +705,13 @@ gui.main()`, '--repo', repo, '--task-home', join(root,'tasks'), '--port','0','--
     await evaluate("const f = document.querySelector('[data-new-plan] form'); f.elements.task_name.value = 'all-target'; f.elements.prompt.value = 'All repo target'; f.querySelector('button').click()");
     await until('all-repo accepted target', () => evaluate(`document.querySelector('[data-action-feedback]').textContent.includes(${JSON.stringify(secondRepo)})`));
     await capture('after-all-repos');
-    await evaluate("document.querySelector('[name=task][value$=shared-task]').click(); document.querySelector('[data-selected-action=delete]').click(); document.querySelector('[data-confirm-delete]').click()");
+    const firstShared = await evaluate("[...document.querySelectorAll('#task-list tr[data-paw-key]')].find(r=>r.dataset.pawKey.endsWith('/shared-task')).dataset.pawKey");
+    await evaluate(`const row = [...document.querySelectorAll('#task-list tr')].find(r=>r.dataset.pawKey === ${JSON.stringify(firstShared)}); row.querySelector('form[action$=delete]').closest('details').open = true; row.querySelector('form[action$=delete]').elements.confirm.value = ''; row.querySelector('form[action$=delete] button').click()`);
     await until('delete rejection', () => evaluate("document.querySelector('[data-action-feedback]').textContent.includes('delete confirmation is required')"));
-    assert.equal(await evaluate("document.querySelectorAll('[name=task]:checked').length"), 1);
-    await evaluate("document.querySelector('#selected-action-form input[name=confirm]').click(); document.querySelector('[data-confirm-delete]').click()");
-    await until('exact all-repo deletion', () => evaluate("document.querySelectorAll('[name=task]:checked').length === 0 && document.querySelectorAll('[name=task][value$=shared-task]').length === 1"));
-    console.log('PASS: all-repo listing preserved across switching, exact Plan destination and guarded bulk task identity');
+    assert.equal(await evaluate("document.querySelectorAll('#task-list tr[data-paw-key$=shared-task]').length"), 2);
+    await evaluate(`const form = [...document.querySelectorAll('#task-list tr')].find(r=>r.dataset.pawKey === ${JSON.stringify(firstShared)}).querySelector('form[action$=delete]'); form.elements.confirm.value = 'yes'; form.querySelector('button').click()`);
+    await until('exact all-repo deletion', () => evaluate(`!document.querySelector('#task-list tr[data-paw-key="' + ${JSON.stringify(firstShared)} + '"]') && document.querySelectorAll('#task-list tr[data-paw-key$=shared-task]').length === 1`));
+    console.log('PASS: all-repo listing, Plan destination and guarded single-task deletion identity');
 
     // No-JavaScript fallback uses ordinary GET and POST forms.
     await os('dark');
@@ -681,7 +721,7 @@ gui.main()`, '--repo', repo, '--task-home', join(root,'tasks'), '--port','0','--
     assert.equal(await scheme(), 'dark');
     assert.equal(await evaluate("getComputedStyle(document.querySelector('.theme-control')).display"), 'none');
     assert.equal(await evaluate("getComputedStyle(document.querySelector('.switch-fallback')).display !== 'none'"), true);
-    assert.equal(await evaluate("getComputedStyle(document.querySelector('.selection-fallback')).display !== 'none'"), true);
+    assert.equal(await evaluate("document.querySelector('#selected-action-form, [name=task]')"), null);
     await evaluate(`document.querySelector('[data-repo-switch] select').value = ${JSON.stringify(secondRepo)}; document.querySelector('.switch-fallback').focus()`);
     await key('Enter','Enter',13);
     await until('fallback switched', () => evaluate(`document.readyState === 'complete' && document.querySelector('[data-new-plan] input[name=active_repo]')?.value === ${JSON.stringify(secondRepo)}`));
@@ -693,6 +733,21 @@ gui.main()`, '--repo', repo, '--task-home', join(root,'tasks'), '--port','0','--
     assert.equal(await evaluate("getComputedStyle(document.querySelector('[data-message-dismiss]')).display"), 'none');
     await sleep(5100);
     assert.ok(await evaluate("document.querySelector('[data-transient-message]').textContent.includes('fallback-target')"));
+    await navigateTo(url);
+    const nativeDeleteName = 'a-long-task-name-for-responsive-dashboard-scanning';
+    await evaluate(`const form = document.querySelector('form[action="/task/${nativeDeleteName}/delete"]'); form.closest('details').querySelector('summary').focus()`);
+    await key('Enter','Enter',13);
+    assert.equal(await evaluate(`document.querySelector('form[action="/task/${nativeDeleteName}/delete"]').closest('details').open`), true);
+    await evaluate(`document.querySelector('form[action="/task/${nativeDeleteName}/delete"] button').focus()`);
+    await key('Enter','Enter',13);
+    await until('native single delete accepted', () => !existsSync(join(repo,'.agent',nativeDeleteName)));
+    assert.equal(existsSync(join(secondRepo,'.agent')), false, 'other repo legacy store not created by deletion');
+    await navigateTo(url + 'archive');
+    await evaluate("document.querySelector('form[action$=unarchive] button').focus()");
+    await key('Enter','Enter',13);
+    await until('native archive restore accepted', () => evaluate("document.readyState === 'complete' && !document.querySelector('form[action$=unarchive]')"));
+    await navigateTo(url);
+    assert.equal(await evaluate("!!document.querySelector('#task-list tr[data-paw-key$=central-ready]')"), true);
     await call('Emulation.setScriptExecutionDisabled', {value:false});
     console.log('PASS: desktop/laptop/mobile/200% equivalent layout, reachable dialogs, archived recovery and fallback forms');
 

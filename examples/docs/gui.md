@@ -31,7 +31,7 @@ active metadata it starts a new managed server. Stop/kill validate process ident
 `--repo` seeds the default repo. Registry: `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/repos.gitconfig`.
 Stale/non-Git paths are rejected. In `--all` mode, listings remain all central stores;
 Active repo controls new Plan launches. With JavaScript it navigates on selection,
-retaining applicable filters and clearing task selection; native **Switch** is the fallback.
+retaining applicable filters; native **Switch** is the fallback.
 Task-specific actions use the task's own repo.
 
 Queue entries stay local under the active repo store. Invalid names, blank prompts,
@@ -64,10 +64,14 @@ secondary row tools include Edit and plan preview, then adjacent Archive/Delete.
 Task metadata/path details expand separately; workflow warnings remain visible.
 Dense tables scroll on narrow screens.
 
-Eligible unfinished, unblocked, non-running selections expose **Archive selected / Delete selected**.
-Delete adds confirmation; exact-path/all-or-nothing preflight precedes selected actions.
-Native selected-action/Apply forms remain available. Concurrent implementation uses
-CLI `paw implement-batch`; there is no GUI mass-implementation action.
+The dashboard has eight columns, with 35% of its width reserved for Task and Repo.
+Stage shows at most three compact lines: stage, a prototype/attention indicator when
+applicable, and **Details / lineage**. Task detail retains full plan position, cleanup
+messages, prototype origin and same-repo lineage links, including unavailable-source
+explanations. Cleanup blocked/failed/incomplete conditions keep a visible attention label.
+Individual Archive/Delete actions remain available with their existing guards.
+Task selection and bulk Archive/Delete are retired; old `/actions/selected` POSTs return 404.
+Concurrent implementation uses CLI `paw implement-batch`.
 
 ## Replacement journey
 
@@ -128,7 +132,7 @@ Use `paw crash-log <task>` for backend failure records.
 
 | Interaction | What persists / what to do |
 |---|---|
-| Routine polling | Eligible selections, disclosures, overlays, draft bytes, focus/caret and page/table/document scroll; changed task data refreshes. |
+| Routine polling | Disclosures, overlays, draft bytes, focus/caret and page/table/document scroll; changed task data refreshes. |
 | Close, Escape or backdrop click | Dismisses overlay; inside clicks keep it open. Focus stays in the labelled dialog and returns to opener/navigation fallback on close; background scrolling is restored. |
 | Dismiss/reopen an input dialog | Unsent input survives within the current page. Deliberate reload or repo navigation ends that lifetime. |
 | Submit | Inline feedback reports **launch acceptance**, not subprocess completion. Check task/run state and logs. |
@@ -145,6 +149,8 @@ workflow warnings and logs intact. PR links remain usable while displayed; use
 and close controls are hidden. A suspended/background browser can delay timers;
 five seconds is the foreground deadline, not a guarantee while suspended.
 
+Dashboard Validation is one linked status: **Passed**, **Attention**, **Recorded**, or
+**Unvalidated**. Activate it by keyboard or pointer to open the exact task’s evidence.
 **Validation details** shows complete escaped evidence and its exact plan source, initially
 collapsed on normal navigation. Dashboard evidence links open it; keyboard Space toggles
 it; polling preserves the choice. Badge meanings and freshness/completeness limits belong

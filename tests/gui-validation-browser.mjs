@@ -106,8 +106,19 @@ gui.main()`,
   const key = async (key, code, windowsVirtualKeyCode) => {
     for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key, code, windowsVirtualKeyCode });
   };
-  const state = async (value, detail = false) => until(`rendered ${value}`, () =>
-    evaluate(`!!document.querySelector(${JSON.stringify((detail ? '#validation ' : '') + '.validation-' + value)})`));
+  const state = async (value, detail = false) => {
+    await until(`rendered ${value}`, () => evaluate(`!!document.querySelector(${JSON.stringify((detail ? '#validation ' : '') + '.validation-' + value)})`));
+    if (!detail) {
+      for (const width of [1440,390,720]) {
+        await call('Emulation.setDeviceMetricsOverride', {width,height:900,deviceScaleFactor:1,mobile:false});
+        assert.equal(await evaluate(`(() => { const badge = document.querySelector('.validation-${value}'); const cell = badge.closest('td');
+          const range = document.createRange(); range.selectNodeContents(badge);
+          return cell.querySelectorAll('a').length === 1 && cell.textContent.trim() === badge.textContent && range.getClientRects().length === 1; })()`), true, value + ' single linked line at ' + width);
+        assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+      }
+      await call('Emulation.setDeviceMetricsOverride', {width:1440,height:900,deviceScaleFactor:1,mobile:false});
+    }
+  };
   await call('Page.enable');
   await call('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme',value:'light'}]});
   await call('Page.navigate', { url });
@@ -131,10 +142,10 @@ gui.main()`,
   console.log('PASS: dashboard polling handles context, success, incomplete and failed diagnostics');
 
   for (let attempt = 0; attempt < 100; attempt++) {
-    if (await evaluate("document.activeElement?.textContent === 'Validation details'")) break;
+    if (await evaluate("document.activeElement?.getAttribute('aria-label')?.startsWith('Validation: Attention')")) break;
     await key('Tab', 'Tab', 9);
   }
-  assert.equal(await evaluate('document.activeElement.textContent'), 'Validation details');
+  assert.equal(await evaluate('document.activeElement.textContent'), 'Attention');
   await key('Enter', 'Enter', 13);
   await state('attention', true);
   await until('hash opens disclosure', () => evaluate("location.hash === '#validation' && document.querySelector('#validation').open"));

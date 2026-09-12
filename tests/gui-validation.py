@@ -195,7 +195,7 @@ class Validation(unittest.TestCase):
                 for fragment in (gui.validation_cell(plan, '/task/checks'),
                                  gui.validation_details(gui.Task('checks', 'legacy', path, repo))):
                     self.assertIn('validation-' + state, fragment)
-                    self.assertIn(reason, fragment)
+                self.assertIn(reason, gui.validation_details(gui.Task('checks', 'legacy', path, repo)))
 
     def test_nested_outcomes_and_diagnostic_exclusions(self):
         outcomes = {'passed': 'passed', 'failed': 'attention', 'did not pass': 'attention',
@@ -292,7 +292,7 @@ class Validation(unittest.TestCase):
                         task = gui.Task('same', store, path, repo)
                         for rendered in (gui.validation_cell(plan, '/task/same'), gui.validation_details(task)):
                             self.assertIn('validation-' + state, rendered)
-                            self.assertIn(reason, rendered)
+                        self.assertIn(reason, gui.validation_details(task))
                         detail = gui.validation_details(task)
                         self.assertIn(html.escape(body.splitlines()[0]), detail)
                         self.assertIn('active_repo=' + quote(str(repo), safe=''), detail)
@@ -375,6 +375,29 @@ class Validation(unittest.TestCase):
             with self.subTest(body=body):
                 self.assertEqual(self.state(body), expected)
 
+    def test_dashboard_has_one_linked_status_for_each_state(self):
+        from html.parser import HTMLParser
+        class Cell(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.links, self.text = [], ''
+                self.assert_no_paragraph = True
+            def handle_starttag(self, tag, attrs):
+                if tag == 'a':
+                    self.links.append(dict(attrs))
+                self.assert_no_paragraph = self.assert_no_paragraph and tag not in ('div', 'p')
+            def handle_data(self, data):
+                self.text += data
+        for body, label in (('', 'Unvalidated'), ('- tests: passed', 'Passed'),
+                            ('- tests: failed', 'Attention'), ('- browser: not run', 'Recorded')):
+            cell = Cell()
+            cell.feed(gui.validation_cell('## Validation Performed\n' + body, '/task/same?path=one&active_repo=repo'))
+            self.assertEqual(cell.text, label)
+            self.assertEqual(len(cell.links), 1)
+            self.assertEqual(cell.links[0]['href'], '/task/same?path=one&active_repo=repo#validation')
+            self.assertIn('Validation: ' + label, cell.links[0]['aria-label'])
+            self.assertTrue(cell.assert_no_paragraph)
+
     def test_attention_details(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
@@ -391,10 +414,10 @@ class Validation(unittest.TestCase):
             self.assertNotRegex(detail, r"<details id='validation'[^>]*\bopen\b")
             self.assertIn("<summary id='validation-heading'>Validation details", detail)
             self.assertIn("id='validation-source'", detail)
-            self.assertIn('lint', index)
-            self.assertIn('bad indent', index)
+            self.assertNotIn('lint', index)
+            self.assertNotIn('bad indent', index)
             self.assertIn('#validation', index)
-            self.assertIn('Validation details', index)
+            self.assertIn('Validation: Attention', index)
             self.assertIn('file.py:12', detail)
             self.assertIn('Recorded from plan.md', detail)
 

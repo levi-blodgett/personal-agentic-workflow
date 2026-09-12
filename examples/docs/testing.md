@@ -129,7 +129,8 @@ results use the same recognizer; unfamiliar list results remain Recorded. Unsupp
 lines stay uncertain. Command/Tier/Log and Note/Source/Provenance/Rationale
 metadata, fenced blocks and HTML comments do not invent execution results.
 
-The **Validation details** disclosure retains complete escaped source records,
+The dashboard shows a single linked status without reason paragraphs. The link opens
+the exact task’s **Validation details** disclosure, which retains complete escaped source records,
 including historical failures, diagnostics and scope markers. A record containing
 both resolved and active checks is labelled partially superseded; its active
 failure remains Attention. Reasons identify

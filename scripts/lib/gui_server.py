@@ -624,9 +624,9 @@ def validation_reason(summary: dict) -> str:
 
 def validation_cell(plan: str, task_href: str) -> str:
     summary = validation_summary(plan)
-    return (validation_chip(summary["state"])
-            + f"<div class='task-subtle'>{html.escape(validation_reason(summary))}</div>"
-            + f"<a href='{html_attr(task_href)}#validation'>Validation details</a>")
+    label = {"passed": "Passed", "attention": "Attention", "recorded": "Recorded", "missing": "Unvalidated"}[summary["state"]]
+    return (f"<a class='validation-status' href='{html_attr(task_href)}#validation' "
+            f"aria-label='Validation: {label}; open task evidence'>{validation_chip(summary['state'])}</a>")
 
 
 def validation_details(task: Task) -> str:
@@ -1295,10 +1295,6 @@ class Task:
         return status_field(self.plan, "Estimated completion") == "100%" and status_field(self.plan, "Next work").startswith("Review.")
 
     @property
-    def batch_eligible(self) -> bool:
-        return bool(self.plan) and not self.blocked and not self.running and not self.finished
-
-    @property
     def state(self) -> str:
         if self.running:
             return "running"
@@ -1489,14 +1485,14 @@ table{border-collapse:collapse;width:100%;background:var(--surface);border:1px s
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}th{background:var(--subtle);font-size:12px;text-transform:uppercase;color:var(--muted)}
 .pill{display:inline-block;border:1px solid var(--control);border-radius:999px;padding:2px 8px;background:var(--subtle);font-size:12px}.blocked{border-color:var(--amber);color:var(--amber)}.running{border-color:var(--focus);color:var(--link)}.ready{border-color:var(--green);color:var(--green)}.complete{border-color:var(--purple);color:var(--purple)}
 .review-grade{display:inline-block;border:1px solid var(--control);border-radius:999px;background:var(--subtle);padding:2px 8px;font-size:12px;font-weight:600}.grade-a{border-color:var(--green);color:var(--green);background:var(--green-bg)}.grade-b{border-color:var(--link);color:var(--link);background:var(--blue-bg)}.grade-c{border-color:var(--amber);color:var(--amber);background:var(--amber-bg)}.grade-d{border-color:var(--orange);color:var(--orange);background:var(--orange-bg)}.grade-f{border-color:var(--red);color:var(--red);background:var(--red-bg)}.grade-unknown{border-color:var(--control);color:var(--muted);background:var(--subtle)}
-.toolbar{display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:14px 0}.toolbar-fields,.top-actions,.dashboard-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.dashboard-actions{margin:14px 0}.toolbar label,.selected-actions label{display:grid;gap:3px;font-size:12px;color:var(--muted)}.selected-actions .checkbox-label{display:flex;align-items:center;gap:5px;padding-bottom:6px}.toolbar select,.toolbar input,.selected-actions select{font:inherit;border:1px solid var(--control);border-radius:6px;padding:5px 8px;background:var(--surface)}.filter-disclosure{margin:14px 0}.filter-disclosure>summary{cursor:pointer;color:var(--muted)}.filter-disclosure .toolbar{margin:8px 0 0}.flash,.flash-error{border:1px solid var(--blue-bg);border-radius:6px;background:var(--blue-bg);color:var(--link);padding:8px 10px}.flash-error{border-color:var(--red);background:var(--red-bg);color:var(--red)}.metric-chip,.validation-chip{display:inline-flex;align-items:center;justify-content:center;min-width:3.2em;border-radius:999px;border:1px solid var(--control);background:var(--subtle);padding:2px 8px;font-size:12px}.validation-evidence{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;overflow:auto}.validation-passed{border-color:var(--green);color:var(--green)}.validation-attention{border-color:var(--amber);color:var(--amber)}.validation-missing{border-color:var(--control);color:var(--muted)}.validation-recorded{border-color:var(--link);color:var(--link)}
+.toolbar{display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:14px 0}.toolbar-fields,.top-actions,.dashboard-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.dashboard-actions{margin:14px 0}.toolbar label{display:grid;gap:3px;font-size:12px;color:var(--muted)}.toolbar select,.toolbar input{font:inherit;border:1px solid var(--control);border-radius:6px;padding:5px 8px;background:var(--surface)}.filter-disclosure{margin:14px 0}.filter-disclosure>summary{cursor:pointer;color:var(--muted)}.filter-disclosure .toolbar{margin:8px 0 0}.flash,.flash-error{border:1px solid var(--blue-bg);border-radius:6px;background:var(--blue-bg);color:var(--link);padding:8px 10px}.flash-error{border-color:var(--red);background:var(--red-bg);color:var(--red)}.metric-chip,.validation-chip{display:inline-flex;align-items:center;justify-content:center;min-width:3.2em;border-radius:999px;border:1px solid var(--control);background:var(--subtle);padding:2px 8px;font-size:12px}.validation-status{display:inline-block;white-space:nowrap}.validation-evidence{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;overflow:auto}.validation-passed{border-color:var(--green);color:var(--green)}.validation-attention{border-color:var(--amber);color:var(--amber)}.validation-missing{border-color:var(--control);color:var(--muted)}.validation-recorded{border-color:var(--link);color:var(--link)}
 .task-title{font-weight:600}.task-subtle{margin-top:4px}.repo-name{font-weight:600}.path-disclosure{margin-top:5px;font-size:12px;color:var(--muted)}.path-disclosure summary{cursor:pointer;color:var(--muted)}.path-disclosure code{display:block;margin-top:5px;white-space:nowrap;overflow:auto;max-width:42rem}.path-disclosure dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;margin:6px 0 0}.path-disclosure dt{font-weight:600;color:var(--muted)}.path-disclosure dd{margin:0;min-width:0}
 .tabs a{margin-right:14px}.muted{color:var(--muted)}.document{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:var(--subtle);border:1px solid var(--line);padding:12px;overflow:auto}.document code{background:var(--subtle);padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid var(--line);color:var(--muted);margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}.document table{border:1px solid var(--line)}.document tr:nth-child(even),.table-wrap tbody tr:nth-child(even){background:var(--stripe)}
 .log-stream{display:grid;gap:14px;margin:14px 0 24px}.log-panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}.log-panel h3{font-size:13px;text-transform:uppercase;color:var(--muted);background:var(--subtle);margin:0;padding:8px 12px}.log-panel pre{margin:0;max-height:45vh;overflow:auto;padding:12px;background:var(--log-bg);color:var(--log-ink);white-space:pre-wrap}
 .action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid var(--control);border-radius:6px;padding:5px 9px;background:var(--subtle);color:var(--muted)}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.queued-prompt{white-space:pre-wrap;overflow-wrap:anywhere;min-width:18ch;max-width:60ch;margin:0}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
 body{color:var(--ink);background:var(--canvas)}*{box-sizing:border-box}main.shell{padding-block:16px}.site-header{background:var(--surface);color:var(--ink);border-bottom:1px solid var(--line);padding:14px 0}.site-header h1{order:-1;font-size:18px}.home-link{color:var(--muted);border:0;padding:4px}.home-link:hover{background:var(--canvas)}.header-context{color:var(--muted)}
 button,.button,input,select,textarea{border-radius:7px}button,.button{white-space:nowrap}button,.button{padding:6px 10px}a:hover{text-decoration:underline}:focus-visible{outline:3px solid var(--focus);outline-offset:3px}.primary{background:var(--accent);border-color:var(--focus);color:#fff}.primary:hover{background:var(--accent-hover)}.archive{background:var(--amber-bg);border-color:var(--amber);color:var(--amber)}.archive:hover{background:var(--amber-hover)}.danger{background:var(--red-bg)}.lifecycle-actions{margin-top:10px;flex-wrap:nowrap}.task-utilities{font-size:13px}
-#dashboard-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}#dashboard-controls>.repo-toolbar{margin:0}.repo-toolbar select{width:clamp(160px,30vw,420px);max-width:100%}.repo-management,.filter-disclosure{margin:0;font-size:13px}.repo-management>summary,.filter-disclosure>summary{cursor:pointer;padding:7px}.repo-management[open],.filter-disclosure[open]{flex-basis:100%}.dashboard-actions{margin:0;gap:var(--space)}.selected-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.js .switch-fallback,.js .selection-fallback{display:none}.selection-enhanced{display:none}.js .selection-enhanced{display:inline-block}[hidden]{display:none!important}.queue-trigger{font-size:13px}.toolbar label{max-width:100%;min-width:0}.toolbar input{max-width:100%}[data-action-feedback]:empty{display:none}[data-transient-message],[data-action-feedback]{position:relative;overflow-wrap:anywhere;padding-right:48px}[data-message-dismiss]{display:none;position:absolute;right:6px;top:4px;min-width:32px;min-height:32px;padding:2px;color:inherit;background:transparent;border:0}.js [data-message-dismiss]{display:block}[data-message-dismiss]::before{content:"×";font-size:22px}.table-wrap{max-width:100%;border-radius:8px}#task-list table{min-width:1180px}.modal-body .table-wrap table{min-width:560px}th{background:var(--subtle);letter-spacing:.035em}th,td{padding:10px}.task-title{overflow-wrap:anywhere}.modal-panel{padding:16px}.modal-body{border-radius:12px;max-height:calc(100dvh - 32px);width:min(760px,100%);padding:20px;overscroll-behavior:contain;overflow-wrap:anywhere}.modal-body h2{font-size:19px;margin:0 0 12px}.modal-body input{max-width:100%}.modal-body code{overflow-wrap:anywhere}.modal-body .document{padding:14px}.modal-body .action-row{position:sticky;bottom:-20px;padding-block:12px;background:var(--surface)}.plan-destination{font-size:13px;color:var(--muted)}.plan-destination code{font-size:12px}.task-metadata{margin:14px 0}.task-metadata>summary{cursor:pointer;font-weight:600}.tabs{display:flex;gap:16px;flex-wrap:wrap}.tabs a{margin:0}
+#dashboard-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}#dashboard-controls>.repo-toolbar{margin:0}.repo-toolbar select{width:clamp(160px,30vw,420px);max-width:100%}.repo-management,.filter-disclosure{margin:0;font-size:13px}.repo-management>summary,.filter-disclosure>summary{cursor:pointer;padding:7px}.repo-management[open],.filter-disclosure[open]{flex-basis:100%}.dashboard-actions{margin:0;gap:var(--space)}.js .switch-fallback{display:none}[hidden]{display:none!important}.queue-trigger{font-size:13px}.toolbar label{max-width:100%;min-width:0}.toolbar input{max-width:100%}[data-action-feedback]:empty{display:none}[data-transient-message],[data-action-feedback]{position:relative;overflow-wrap:anywhere;padding-right:48px}[data-message-dismiss]{display:none;position:absolute;right:6px;top:4px;min-width:32px;min-height:32px;padding:2px;color:inherit;background:transparent;border:0}.js [data-message-dismiss]{display:block}[data-message-dismiss]::before{content:"×";font-size:22px}.table-wrap{max-width:100%;border-radius:8px}#task-list .dashboard-table{min-width:1180px;table-layout:fixed}.dashboard-table>colgroup>.task-column{width:18%}.dashboard-table>colgroup>.repo-column{width:17%}.dashboard-table>colgroup>.stage-column{width:12%}.dashboard-table>colgroup>.next-column{width:16%}.dashboard-table>colgroup>.completion-column{width:7%}.dashboard-table>colgroup>.checklist-column{width:6%}.dashboard-table>colgroup>.validation-column{width:9%}.dashboard-table>colgroup>.actions-column{width:15%}.dashboard-table>tbody>tr>td{overflow-wrap:anywhere}.dashboard-table .workflow-cell{min-width:0}.dashboard-table .workflow-actions button{max-width:100%;white-space:normal}.dashboard-stage{line-height:20px;font-size:12px}.dashboard-stage>span,.dashboard-stage>a{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dashboard-stage>.pill{padding:0 4px;border:0;font-size:inherit}.prototype-warning{color:var(--amber);font-weight:600}.modal-body .table-wrap table{min-width:560px}th{background:var(--subtle);letter-spacing:.035em}th,td{padding:10px}.task-title{overflow-wrap:anywhere}.modal-panel{padding:16px}.modal-body{border-radius:12px;max-height:calc(100dvh - 32px);width:min(760px,100%);padding:20px;overscroll-behavior:contain;overflow-wrap:anywhere}.modal-body h2{font-size:19px;margin:0 0 12px}.modal-body input{max-width:100%}.modal-body code{overflow-wrap:anywhere}.modal-body .document{padding:14px}.modal-body .action-row{position:sticky;bottom:-20px;padding-block:12px;background:var(--surface)}.plan-destination{font-size:13px;color:var(--muted)}.plan-destination code{font-size:12px}.task-metadata{margin:14px 0}.task-metadata>summary{cursor:pointer;font-weight:600}.tabs{display:flex;gap:16px;flex-wrap:wrap}.tabs a{margin:0}
 @media(max-width:640px){#dashboard-controls{gap:8px}.repo-toolbar{width:100%}.repo-toolbar label{flex:1}.repo-toolbar select{width:100%}.dashboard-actions{width:100%}.modal-panel{padding:10px}.modal-body{max-height:calc(100dvh - 20px);padding:14px}.modal-body .action-row{bottom:-14px}.header-row{gap:12px}.site-header h1{overflow-wrap:anywhere}.toolbar-fields{max-width:100%}}
 @media (max-width:640px){.shell{width:min(100% - 20px,1600px)}.header-context{margin-left:0;flex-basis:100%}}
 """
@@ -1633,7 +1629,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function discover() {
     syncModal();
-    updateSelection();
     for (const [target, state] of pollers) {
       if (!target.isConnected || target.dataset.pawRefreshUrl !== state.url) {
         clearInterval(state.timer);
@@ -1648,25 +1643,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function updateSelection() {
-    const form = document.getElementById('selected-action-form');
-    if (!form) return;
-    const count = document.querySelectorAll('[name="task"]:checked').length;
-    form.hidden = count === 0;
-    form.querySelector('[data-selection-count]').textContent = count + ' selected';
-    const deleting = form.elements.selected_action.value === 'delete';
-    form.querySelector('.checkbox-label').hidden = !deleting;
-    form.querySelector('[data-confirm-delete]').hidden = !deleting;
-  }
-  document.addEventListener('change', updateSelection);
-  document.addEventListener('click', event => {
-    const button = event.target.closest('[data-selected-action]');
-    if (!button) return;
-    const form = button.form;
-    form.elements.selected_action.value = button.dataset.selectedAction;
-    if (button.dataset.selectedAction === 'archive') form.requestSubmit();
-    else { updateSelection(); form.elements.confirm.focus(); }
-  });
   document.addEventListener('change', event => {
     if (event.target.matches('[data-repo-switch] select')) event.target.form.requestSubmit();
   });
@@ -1898,14 +1874,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (typeof result.ok !== 'boolean' || typeof result.message !== 'string') throw new Error('Invalid action response');
       feedback(result.message, result.ok, result.link);
       if (result.ok) {
-        if (form.id !== 'selected-action-form') form.reset();
+        form.reset();
         if (modal?.contains(form)) closeModal();
         if (overlay) overlay.open = false;
         if (inPreview?.contains(form)) { invalidatePreview(); inPreview.replaceChildren(); }
-        if (form.id === 'selected-action-form') {
-          document.querySelectorAll('[name="task"]:checked').forEach(input => { input.checked = false; });
-          form.reset();
-        }
         if (typeof result.active_repo === 'string') switchRepo(result.active_repo);
       }
     } catch (_error) {
@@ -1913,7 +1885,6 @@ document.addEventListener("DOMContentLoaded", () => {
     } finally {
       controls.forEach(([control, disabled]) => { control.disabled = disabled; });
       submitting = false;
-      updateSelection();
       generation++;
       for (const [target, state] of pollers) refresh(target, state);
     }
@@ -2165,8 +2136,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.post_plan()
         if parsed.path == "/actions/repos/add":
             return self.post_add_repo()
-        if parsed.path == "/actions/selected":
-            return self.post_selected_action()
         if parsed.path == "/actions/queue/trigger":
             return self.post_queue_trigger()
         if parsed.path == "/actions/queue/edit":
@@ -2229,67 +2198,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect(f"/?{self.flash_query(error, 'error')}")
         add_repo_to_registry(self.repo_registry, self.repo, repo)
         self.redirect(self.with_active_repo(repo, self.flash_query(f"added repo {repo}", "notice")))
-
-    def selected_tasks(self, active_repo: Path, selected_paths: list[str]) -> tuple[list[Task], list[str]]:
-        if not selected_paths:
-            return [], ["select at least one task"]
-        tasks_by_path = {str(task.path): task for task in list_tasks(active_repo, self.task_home, self.all_repos)}
-        selected: list[Task] = []
-        errors: list[str] = []
-        seen: set[str] = set()
-        for path_value in selected_paths:
-            if path_value in seen:
-                errors.append(f"{path_value} selected more than once")
-                continue
-            seen.add(path_value)
-            task = tasks_by_path.get(path_value)
-            if not task:
-                errors.append(f"{path_value} is not a current task")
-                continue
-            if str(task.path) != path_value:
-                errors.append(f"{task.name} path did not match listed task")
-            elif task.running:
-                errors.append(f"{task.name} is already running")
-            elif task.blocked:
-                errors.append(f"{task.name} has USER ANSWER placeholders")
-            else:
-                selected.append(task)
-        return selected, errors
-
-    def post_selected_action(self) -> None:
-        form = self.form_values()
-        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", [""])[0]]})
-        action = form.get("selected_action", [""])[0]
-        selected_paths = [value for value in form.get("task", []) if value]
-        if action not in {"archive", "delete"}:
-            return self.redirect(self.with_active_repo(active_repo, self.flash_query("selected action is required", "error")))
-        selected, errors = self.selected_tasks(active_repo, selected_paths)
-        if action == "archive":
-            errors.extend(f"{task.name} is not a central task" for task in selected if task.source != "central")
-            errors.extend(
-                f"archive already exists for {task.name}"
-                for task in selected
-                if (self.task_home / task.slug / ".archive" / task.name).exists()
-            )
-        if action == "delete" and form.get("confirm", [""])[0] != "yes":
-            errors.append("delete confirmation is required")
-        if errors:
-            return self.redirect(self.with_active_repo(active_repo, self.flash_query("selected action blocked: " + "; ".join(errors), "error")))
-
-        if action == "delete":
-            for task in selected:
-                shutil.rmtree(task.path)
-            return self.redirect(self.with_active_repo(active_repo, self.flash_query(f"deleted {len(selected)} selected task(s)", "notice")))
-
-        for task in selected:
-            archive_root = self.task_home / task.slug / ".archive"
-            archive_root.mkdir(parents=True, exist_ok=True)
-            destination = archive_root / task.name
-            shutil.move(str(task.path), str(destination))
-            meta = destination / "metadata.gitconfig"
-            if meta.exists():
-                subprocess.run(["git", "config", "--file", str(meta), "paw.archived-at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())], check=False)
-        self.redirect(self.with_active_repo(active_repo, self.flash_query(f"archived {len(selected)} selected task(s)", "notice")))
 
     def post_queue_edit(self) -> None:
         form = self.form_data()
@@ -2607,16 +2515,6 @@ class Handler(BaseHTTPRequestHandler):
             "<div class='dashboard-actions'>"
             f"{self.new_plan_modal(active_repo)}"
             f"<a class='queue-trigger' href='#queued-plans' data-open-queue>Queued Plans ({len(list_queued_plans(self.task_home, active_repo))})</a>"
-            "<form id='selected-action-form' class='selected-actions' method='post' action='/actions/selected'>"
-            f"<input type='hidden' name='active_repo' value='{html_attr(str(active_repo))}'>"
-            "<span data-selection-count></span><label class='selection-fallback'>Selected action <select name='selected_action' required>"
-            "<option value=''>Choose action</option><option value='archive'>Archive selected</option><option value='delete'>Delete selected</option>"
-            "</select></label>"
-            "<label class='checkbox-label'><input type='checkbox' name='confirm' value='yes'> Confirm delete</label>"
-            "<button type='submit' class='selection-fallback'>Apply</button>"
-            "<button type='button' class='archive selection-enhanced' data-selected-action='archive'>Archive selected</button>"
-            "<button type='button' class='danger selection-enhanced' data-selected-action='delete'>Delete selected</button>"
-            "<button type='submit' class='danger selection-enhanced' data-confirm-delete>Confirm delete selected</button></form>"
             "</div>"
         )
 
@@ -2804,6 +2702,16 @@ class Handler(BaseHTTPRequestHandler):
         reason = workflow.disabled_reason or "Action unavailable"
         return f"<span class='disabled-action' title='{html_attr(reason)}'>{html.escape(workflow.next_label)}</span>"
 
+    def dashboard_stage_cell(self, task: Task, workflow: TaskWorkflow) -> str:
+        statuses = [task.prototype_status, *(peer.prototype_status for peer in task.prototype_peers)]
+        warning = any(any(word in status for word in ("blocked", "unavailable", "failed", "planning")) for status in statuses)
+        warning = warning or workflow.stage == "Planning incomplete"
+        indicator = "Needs attention" if warning else "Prototype"
+        prototype = task.prototype_source or task.prototype_status or task.prototype_peers or warning
+        note = f"<span class='{'prototype-warning' if warning else 'muted'}'>{indicator}</span>" if prototype else ""
+        return (f"<div class='dashboard-stage'><span class='pill {task.state}'>Stage: {html.escape(workflow.stage)}</span>{note}"
+                f"<a href='{html_attr(self.task_url(task) + '&active_repo=' + quote(str(task.repo), safe=''))}' aria-label='Stage details and lineage for {html_attr(task.name)}'>Details / lineage</a></div>")
+
     def workflow_stage_cell(self, task: Task, workflow: TaskWorkflow) -> str:
         parts = [
             f"<div><span class='pill {task.state}'>Stage: {html.escape(workflow.stage)}</span></div>",
@@ -2864,18 +2772,12 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             task_href = f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}&active_repo={quote(str(task.repo), safe='')}"
             branch = task.branch_context or "<none>"
-            selector = (
-                f"<input form='selected-action-form' type='checkbox' name='task' value='{html_attr(str(task.path))}' aria-label='Select {html_attr(task.name)}'>"
-                if task.batch_eligible
-                else ""
-            )
             workflow = task_workflow(task)
             rows.append(
                 f"<tr data-paw-key='{html_attr(str(task.path))}'>"
-                f"<td>{selector}</td>"
                 f"<td><a class='task-title' href='{task_href}'>{html.escape(task.name)}</a>{path_disclosure('Task path', str(task.path))}</td>"
                 f"<td><div class='repo-name'>{html.escape(task.repo_name)}</div><div class='task-subtle muted'>Branch: {html.escape(branch)}</div>{repo_disclosure(task, branch)}</td>"
-                f"<td>{self.workflow_stage_cell(task, workflow)}</td>"
+                f"<td>{self.dashboard_stage_cell(task, workflow)}</td>"
                 f"<td>{self.workflow_next_cell(task, workflow)}</td>"
                 f"<td><span class='metric-chip'>{html.escape(completion)}</span></td>"
                 f"<td><span class='metric-chip'>{done}/{total}</span></td><td>{validation_cell(task.plan, task_href)}</td>"
@@ -2883,8 +2785,11 @@ class Handler(BaseHTTPRequestHandler):
                 "</tr>"
             )
         return (
-            "<div class='table-wrap'><table><thead><tr><th>Select</th><th>Task</th><th>Repo</th><th>Stage</th><th>Next</th><th>Completion</th><th>Checklist</th><th>Validation</th><th>Actions</th></tr></thead>"
-            f"<tbody>{''.join(rows) or '<tr><td colspan=9>No task packages found.</td></tr>'}</tbody></table></div>"
+            "<div class='table-wrap'><table class='dashboard-table'><colgroup>"
+            "<col class='task-column'><col class='repo-column'><col class='stage-column'><col class='next-column'>"
+            "<col class='completion-column'><col class='checklist-column'><col class='validation-column'><col class='actions-column'>"
+            "</colgroup><thead><tr><th>Task</th><th>Repo</th><th>Stage</th><th>Next</th><th>Completion</th><th>Checklist</th><th>Validation</th><th>Actions</th></tr></thead>"
+            f"<tbody>{''.join(rows) or '<tr><td colspan=8>No task packages found.</td></tr>'}</tbody></table></div>"
         )
 
     def flash_html(self, message: str, level: str = "notice") -> str:

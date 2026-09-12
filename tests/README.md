@@ -133,13 +133,13 @@ Seed both central (`task_home / repo_slug(repo) / name`, with `paw.repo-root` me
 
 Record the browser/version, fixture paths, commands, expected/observed results, and cleanup in the task plan. Check these scenarios:
 
-1. Select a task, blur its checkbox, open path/validation disclosures and an Edit overlay, type a draft, and place the caret inside it. Mutate another task's status/mtime so rows reorder; wait at least two 2500 ms polls. The selection, disclosure, draft, focus/caret, and page/table scroll survive while changed data appears. Repeat without an open overlay and with same-named cross-repo tasks; remove or make one task ineligible and confirm only its selection disappears. Server-owned hidden fields and disabled controls must stay current.
+1. Open path/validation disclosures and an Edit overlay, type a draft, and place the caret inside it. Mutate another task's status/mtime so rows reorder; wait at least two 2500 ms polls. The disclosure, draft, focus/caret, and page/table scroll survive while changed data appears. Repeat without an open overlay and with same-named cross-repo tasks; remove a task and confirm only its row disappears. Server-owned hidden fields and disabled controls must stay current.
 2. On task detail and Stream, fill stdout/stderr with enough lines to scroll. Put one panel above the bottom and the other at the bottom, then append to both files. The first retains its reading position; only the second follows. Verify horizontal positions independently using long unbroken lines, and check page/document/table scroll too. Truncate the tail and confirm offsets clamp to available content. Start a run after page load, change run identity, and finish it; logs must appear/update/disappear without inheriting an unrelated run's reading state.
 3. Delay a log response beyond a parent detail refresh. The connected stream target must continue polling, with one outstanding request per target and none newly scheduled for detached targets. Delay a task response, begin typing after the request starts, then release it; the input must survive. Return one 503 or reject one GET and verify that the last usable view remains and later polling recovers.
-4. Exercise Plan, Queue, queued Edit/trigger/Remove, Edit/Answer Questions, both approval-preview actions, Review, Use as Prototype, row Archive/Delete/Cancel, selected Archive/Delete, Add repo, and View PR. Inspect recorded stub arguments, including the clicked Plan/Queue button and externally associated selected checkboxes. Verify accessible inline feedback (`role=status`), document identity, filter/repo retention, refreshed queue/repo/task controls, and retained unrelated selections/drafts. Successful Add repo intentionally changes the active repo. Explicit task/Stream/Home/Archived/PR links still navigate; task-detail actions show inline feedback, and ordinary POST fallback retains navigation.
-5. Hold a POST response and click/submit again; only one POST should be sent and the submitter must be disabled. Return a validation error or reject the request: retain draft/selection, re-enable submission, and never automatically retry the mutation. Perform a deliberate retry. Hold an old GET across an accepted action and release it afterward; it must not overwrite newer task state or feedback.
+4. Exercise Plan, Queue, queued Edit/trigger/Remove, Edit/Answer Questions, both approval-preview actions, Review, Use as Prototype, row Archive/Delete/Cancel, Add repo, and View PR. Inspect recorded stub arguments, including the clicked Plan/Queue button and exact single-task paths. Verify accessible inline feedback (`role=status`), document identity, filter/repo retention, refreshed queue/repo/task controls, and retained unrelated drafts. Successful Add repo intentionally changes the active repo. Explicit task/Stream/Home/Archived/PR links still navigate; task-detail actions show inline feedback, and ordinary POST fallback retains navigation.
+5. Hold a POST response and click/submit again; only one POST should be sent and the submitter must be disabled. Return a validation error or reject the request: retain drafts, re-enable submission, and never automatically retry the mutation. Perform a deliberate retry. Hold an old GET across an accepted action and release it afterward; it must not overwrite newer task state or feedback.
 
-For DOM inspection, use `document.activeElement`, `selectionStart`/`selectionEnd`, `scrollTop`/`scrollLeft`, `isConnected`, and `document.querySelectorAll('[data-paw-refresh-url]')`. Keep references to the original selected control and stream target to detect replacement. Inspect actual request counts in Chrome's Network panel. When injecting a controlled fetch delay from AppleScript, install instrumentation in the page's script context (for example a temporary script element); AppleScript globals can be isolated from page globals. Verify the instrumentation records a request before relying on the delay/failure test. Restore the original fetch function afterward.
+For DOM inspection, use `document.activeElement`, `selectionStart`/`selectionEnd`, `scrollTop`/`scrollLeft`, `isConnected`, and `document.querySelectorAll('[data-paw-refresh-url]')`. Keep references to the original focused control and stream target to detect replacement. Inspect actual request counts in Chrome's Network panel. When injecting a controlled fetch delay from AppleScript, install instrumentation in the page's script context (for example a temporary script element); AppleScript globals can be isolated from page globals. Verify the instrumentation records a request before relying on the delay/failure test. Restore the original fetch function afterward.
 
 Close only fixture browser tabs, stop/reap fixture servers and sleeper processes, and remove only the temporary fixture directories. Confirm no live task, registry, repository, or remote state was used by the walkthrough.
 
@@ -210,7 +210,7 @@ The UX harness also checks keyboard dismissal, navigation route/type parity,
 smoke (100 ms observation interval, at most 1 second scheduling tolerance).
 It covers inline retry/replacement, identical text, dismissal followed by a new
 result, empty live regions, real polling without deadline reset/resurrection,
-draft/selection/focus preservation, escaped long text, PR links, narrow light/dark
+draft/focus preservation, escaped long text, PR links, narrow light/dark
 layouts and readable no-JavaScript POST feedback with hidden close controls.
 Use the installed-browser prerequisites above; combined browser validation includes
 these checks. Controlled time intercepts only five-second timers; real fetch and
@@ -221,3 +221,12 @@ branch identity, worktree/repository boundaries, saved assignments, preserved
 migration/retry bytes, stubbed submission and structural task ownership. Producer
 prompt coverage checks the canonical path; existing GUI HTTP/browser journeys
 retain remote View PR, drafts and polling.
+
+Dashboard retirement coverage asserts eight columns on full/fragment/empty pages and
+404/no package mutation for stale selected-action POSTs in scoped and all-repo modes.
+The UX browser fixture measures long prototype rows at 1440/1920px: Task + Repo >=35%,
+Stage <=15% and at most three lines, with full diagnostics and lineage in detail.
+Capture the original renderer with `PAW_GUI_EVIDENCE=/tmp/paw-layout node tests/gui-ux-browser.mjs --baseline`,
+then run the required browser command with the same evidence directory to compare widths.
+Validation browser checks cover all four single-line linked statuses at desktop, 390px
+and 200%-equivalent widths, keyboard evidence access, escaping and polling.
