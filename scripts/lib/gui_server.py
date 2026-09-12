@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import review_record
+import pr_publication
 
 
 PAW_SCRIPT = Path(__file__).resolve().parents[1] / "paw"
@@ -1247,6 +1248,10 @@ class Task:
     def review_incomplete_reason(self) -> str:
         return review_record.check(self.path, self.name, check_stale=False)
 
+    @cached_property
+    def publication_reason(self) -> str:
+        return pr_publication.eligibility(self.path, self.repo, read_config=metadata_value)
+
     @property
     def blocked(self) -> bool:
         return bool(re.search(r"USER ANSWER(?:\s+---)?\s+\((UNRESOLVED|PROVIDED)\):", self.plan))
@@ -1379,6 +1384,12 @@ def task_workflow(task: Task) -> TaskWorkflow:
         return TaskWorkflow("Prototype", "Archive", "archive", next_work)
     if task.review and not task.review_is_stale and task.review_incomplete_reason:
         return TaskWorkflow("Review incomplete", "Run Review", "review", prototype_disabled_reason(task))
+    if task.review and task.finished and not task.review_is_stale and review_grade(task.review) in {"A-", "A", "A+"}:
+        reason = task.publication_reason
+        if not reason:
+            return TaskWorkflow("Reviewed", "Update PR", "pr-preview", "Publish a reviewed contribution or archive this task.")
+        if review_grade(task.review) in {"A-", "A", "A+"}:
+            return TaskWorkflow("Reviewed", "Update PR", "", next_work, reason)
     if task.review and not task.review_is_stale:
         reason = prototype_disabled_reason(task)
         if reason:
@@ -1489,7 +1500,7 @@ th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vert
 .task-title{font-weight:600}.task-subtle{margin-top:4px}.repo-name{font-weight:600}.path-disclosure{margin-top:5px;font-size:12px;color:var(--muted)}.path-disclosure summary{cursor:pointer;color:var(--muted)}.path-disclosure code{display:block;margin-top:5px;white-space:nowrap;overflow:auto;max-width:42rem}.path-disclosure dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;margin:6px 0 0}.path-disclosure dt{font-weight:600;color:var(--muted)}.path-disclosure dd{margin:0;min-width:0}
 .tabs a{margin-right:14px}.muted{color:var(--muted)}.document{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:20px;margin:14px 0 24px;overflow:auto}.document h1,.document h2,.document h3{margin:18px 0 10px}.document h1:first-child,.document h2:first-child{margin-top:0}.document pre{background:var(--subtle);border:1px solid var(--line);padding:12px;overflow:auto}.document code{background:var(--subtle);padding:1px 4px}.document pre code{background:transparent;padding:0}.document blockquote{border-left:4px solid var(--line);color:var(--muted);margin:12px 0;padding:1px 14px}.document ul,.document ol{padding-left:24px}.document li{margin:3px 0}.document input[type=checkbox]{margin-right:6px}.document table{border:1px solid var(--line)}.document tr:nth-child(even),.table-wrap tbody tr:nth-child(even){background:var(--stripe)}
 .log-stream{display:grid;gap:14px;margin:14px 0 24px}.log-panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}.log-panel h3{font-size:13px;text-transform:uppercase;color:var(--muted);background:var(--subtle);margin:0;padding:8px 12px}.log-panel pre{margin:0;max-height:45vh;overflow:auto;padding:12px;background:var(--log-bg);color:var(--log-ink);white-space:pre-wrap}
-.action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid var(--control);border-radius:6px;padding:5px 9px;background:var(--subtle);color:var(--muted)}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.queued-prompt{white-space:pre-wrap;overflow-wrap:anywhere;min-width:18ch;max-width:60ch;margin:0}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
+.action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.workflow-cell{min-width:150px}.workflow-label{font-weight:600}.workflow-note{margin-top:4px}.workflow-actions{margin-top:8px}.disabled-action{display:inline-block;border:1px solid var(--control);border-radius:6px;padding:5px 9px;background:var(--subtle);color:var(--muted)}.modal-toggle{display:inline-block}.modal-toggle>summary{list-style:none}.modal-toggle>summary::-webkit-details-marker{display:none}.modal-panel{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}.modal-body{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;box-shadow:0 18px 55px rgba(15,23,42,.28);max-width:720px;width:min(720px,100%);max-height:84vh;overflow:auto;padding:18px}.modal-body textarea{width:100%;box-sizing:border-box}.queued-prompt{white-space:pre-wrap;overflow-wrap:anywhere;min-width:18ch;max-width:60ch;margin:0}.publication-candidate{white-space:pre-wrap;overflow-wrap:anywhere}.inline-form{display:inline}.doc-preview{margin-top:18px}.doc-preview:empty{display:none}
 body{color:var(--ink);background:var(--canvas)}*{box-sizing:border-box}main.shell{padding-block:16px}.site-header{background:var(--surface);color:var(--ink);border-bottom:1px solid var(--line);padding:14px 0}.site-header h1{order:-1;font-size:18px}.home-link{color:var(--muted);border:0;padding:4px}.home-link:hover{background:var(--canvas)}.header-context{color:var(--muted)}
 button,.button,input,select,textarea{border-radius:7px}button,.button{white-space:nowrap}button,.button{padding:6px 10px}a:hover{text-decoration:underline}:focus-visible{outline:3px solid var(--focus);outline-offset:3px}.primary{background:var(--accent);border-color:var(--focus);color:#fff}.primary:hover{background:var(--accent-hover)}.archive{background:var(--amber-bg);border-color:var(--amber);color:var(--amber)}.archive:hover{background:var(--amber-hover)}.danger{background:var(--red-bg)}.lifecycle-actions{margin-top:10px;flex-wrap:nowrap}.task-utilities{font-size:13px}.row-tools>summary{cursor:pointer;color:var(--link);padding-block:4px}.row-tools .task-utilities{margin-top:8px}.empty-state{padding:24px;background:var(--surface);border:1px solid var(--line);border-radius:8px}.task-count{font-size:13px;margin:14px 0 0}
 #dashboard-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}#dashboard-controls>.repo-toolbar{margin:0}.repo-toolbar label{display:flex;align-items:center;gap:8px}.repo-toolbar select{width:clamp(160px,25vw,360px);max-width:100%;font-size:14px}.repo-toolbar{align-items:center}.repo-management,.filter-disclosure{margin:0;font-size:13px}.repo-management>summary,.filter-disclosure>summary{cursor:pointer;padding:7px}.repo-management[open],.filter-disclosure[open]{flex-basis:100%}.dashboard-actions{margin:0;gap:var(--space);align-items:center}.js .switch-fallback{display:none}[hidden]{display:none!important}.queue-trigger{font-size:13px}.toolbar label{max-width:100%;min-width:0}.toolbar input{max-width:100%}[data-action-feedback]:empty{display:none}[data-transient-message],[data-action-feedback]{position:relative;overflow-wrap:anywhere;padding-right:48px}[data-message-dismiss]{display:none;position:absolute;right:6px;top:4px;min-width:32px;min-height:32px;padding:2px;color:inherit;background:transparent;border:0}.js [data-message-dismiss]{display:block}[data-message-dismiss]::before{content:"×";font-size:22px}.table-wrap{max-width:100%;border-radius:8px}#task-list .dashboard-table{min-width:1180px;table-layout:fixed}.dashboard-table>colgroup>.task-column{width:18%}.dashboard-table>colgroup>.repo-column{width:17%}.dashboard-table>colgroup>.stage-column{width:12%}.dashboard-table>colgroup>.next-column{width:16%}.dashboard-table>colgroup>.completion-column{width:7%}.dashboard-table>colgroup>.checklist-column{width:6%}.dashboard-table>colgroup>.validation-column{width:9%}.dashboard-table>colgroup>.actions-column{width:15%}.dashboard-table>tbody>tr>td{overflow-wrap:anywhere}.dashboard-table .workflow-cell{min-width:0}.dashboard-table .workflow-actions button{max-width:100%;white-space:normal}.dashboard-stage{line-height:20px;font-size:12px}.dashboard-stage>span,.dashboard-stage>a{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dashboard-stage>.pill{padding:0;border:0;border-radius:0;background:transparent;font-size:inherit}.prototype-warning{color:var(--amber);font-weight:600}.modal-body .table-wrap table{min-width:560px}th{background:var(--subtle);letter-spacing:.035em}th,td{padding:10px}.task-title{overflow-wrap:anywhere}.modal-panel{padding:16px}.modal-body{border-radius:12px;max-height:calc(100dvh - 32px);width:min(760px,100%);padding:20px;overscroll-behavior:contain;overflow-wrap:anywhere}.modal-body h2{font-size:19px;margin:0 0 12px}.modal-body input{max-width:100%}.modal-body code{overflow-wrap:anywhere}.modal-body .document{padding:14px}.modal-body .action-row{position:sticky;bottom:-20px;padding-block:12px;background:var(--surface)}.plan-destination{font-size:13px;color:var(--muted)}.plan-destination code{font-size:12px}.task-metadata{margin:14px 0}.task-metadata>summary{cursor:pointer;font-weight:600}.tabs{display:flex;gap:16px;flex-wrap:wrap}.tabs a{margin:0;padding:6px 2px;border-bottom:3px solid transparent}.tabs a[aria-current=page]{border-bottom-color:var(--link);font-weight:600}
@@ -1537,6 +1548,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const pollers = new Map();
   let generation = 0;
   let submitting = false;
+  let modalEpoch = 0;
 
   // Keys are local to siblings; row identity includes the resolved task path.
   function key(node) {
@@ -1688,6 +1700,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   function closeModal(returnFocus = true) {
     if (!modal) return;
+    modalEpoch++;
     const old = modal;
     modal = null;
     if (old.closest('[data-doc-preview]')) {
@@ -1716,6 +1729,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function openModal(panel, opener = document.activeElement) {
     if (modal === panel) { isolateDialog(panel); return; }
     closeModal(false);
+    modalEpoch++;
     modal = panel;
     modalOpener = opener;
     pageScroll = [window.scrollX, window.scrollY];
@@ -1861,6 +1875,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const body = new URLSearchParams(data);
     const overlay = form.closest('details');
     const inPreview = form.closest('[data-doc-preview]');
+    const submittedEpoch = modalEpoch;
     submitting = true;
     generation++;
     previewRequest++;
@@ -1875,7 +1890,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const result = await response.json();
       if (typeof result.ok !== 'boolean' || typeof result.message !== 'string') throw new Error('Invalid action response');
       feedback(result.message, result.ok, result.link);
-      if (result.ok) {
+      if (result.ok && result.preview) {
+        if (submittedEpoch === modalEpoch && preview) {
+          preview.innerHTML = result.preview;
+          openModal(preview.firstElementChild, button);
+        }
+      } else if (result.ok) {
         form.reset();
         if (modal?.contains(form)) closeModal();
         if (overlay) overlay.open = false;
@@ -1954,8 +1974,10 @@ class Handler(BaseHTTPRequestHandler):
         return self.command == "POST" and "application/json" in self.headers.get("Accept", "")
 
     def action_result(self, ok: bool, message: str, link: str = "", code: int = 200,
-                      active_repo: str | None = None) -> None:
+                      active_repo: str | None = None, preview: str = "") -> None:
         result = {"ok": ok, "message": message}
+        if preview:
+            result["preview"] = preview
         if link:
             result["link"] = link
         if active_repo is not None:
@@ -2162,6 +2184,10 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/task/") and parsed.path.endswith("/cancel"):
             name = unquote(parsed.path.removeprefix("/task/").removesuffix("/cancel"))
             return self.post_cancel(name)
+        for action in ("pr-preview", "pr-update"):
+            if parsed.path.startswith("/task/") and parsed.path.endswith("/" + action):
+                name = unquote(parsed.path.removeprefix("/task/").removesuffix("/" + action))
+                return self.post_pr_publication(name, action)
         if parsed.path.startswith("/task/") and parsed.path.endswith("/view-pr"):
             name = unquote(parsed.path.removeprefix("/task/").removesuffix("/view-pr"))
             return self.post_view_pr(name)
@@ -2271,6 +2297,50 @@ class Handler(BaseHTTPRequestHandler):
         if subcommand == "archive" and ok:
             return self.redirect(f"/?{self.flash_query(message, 'notice')}")
         self.redirect(self.task_url(task, message, "notice" if ok else "error"))
+
+    def post_pr_publication(self, name: str, action: str) -> None:
+        form = self.form_data()
+        active_repo, _ = self.selected_repo({"active_repo": [form.get("active_repo", "")]})
+        task = self.resolve_task(name, form.get("path", ""), active_repo)
+        if not task:
+            return self.send_html("<h1>Task not found</h1>", 404)
+        try:
+            if task.running:
+                raise ValueError("A PAW run is active; finish it before publication.")
+            if action == "pr-update":
+                result = pr_publication.publish(task.path, task.repo, form.get("token", ""))
+                if self.asynchronous_action():
+                    return self.action_result(True, result["message"], result["url"])
+                return self.send_html(page_header("PR updated", active_repo=task.repo) +
+                                      "<main class='shell'><p>" + html.escape(result["message"]) +
+                                      f"</p><p><a href='{html_attr(result['url'])}'>Open PR</a></p>" +
+                                      self.archive_form(task) + "</main>")
+            result = pr_publication.prepare(task.path, task.repo)
+            content = self.pr_preview_panel(task, result)
+            if self.asynchronous_action():
+                return self.action_result(True, "Inspect the candidate before publishing.", preview=content)
+            return self.send_html(page_header("PR preview", active_repo=task.repo) +
+                                  "<main class='shell'>" + content.replace("class='modal-panel'", "class='publication-panel'").replace("class='modal-body'", "class='publication-body'") + self.archive_form(task) + "</main>")
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            return self.redirect(self.task_url(task, f"Update PR blocked: {error}", "error"))
+
+    def pr_preview_panel(self, task: Task, result: dict) -> str:
+        identity = result["target"]["repository"] + " / " + result["target"]["head"]
+        remote = result["current"]
+        return (
+            "<div class='modal-panel'><div class='modal-body'><h2>Update PR preview</h2>"
+            f"<p>{html.escape(identity)} — {('PR #' + str(remote['number'])) if remote else 'Create draft'}</p>"
+            f"<p>{html.escape(result['code_status'])}</p><p>{html.escape(result['adoption'])}</p>"
+            f"<p>{html.escape(result['visual'])}</p>"
+            f"<details><summary>Body changes</summary><pre>{html.escape(result['diff'])}</pre></details>"
+            f"<h3>Exact candidate body</h3><pre class='publication-candidate'>{html.escape(result['candidate'])}</pre>"
+            f"<form method='post' action='/task/{quote(task.name)}/pr-update'>"
+            f"<input type='hidden' name='path' value='{html_attr(str(task.path))}'>"
+            f"<input type='hidden' name='active_repo' value='{html_attr(str(task.repo))}'>"
+            f"<input type='hidden' name='token' value='{html_attr(result['token'])}'>"
+            "<button type='submit'>Publish PR body</button> "
+            "<button type='button' data-modal-close>Close</button></form></div></div>"
+        )
 
     def post_view_pr(self, name: str) -> None:
         form = self.form_data()
@@ -2698,6 +2768,10 @@ class Handler(BaseHTTPRequestHandler):
                 f"<div class='lifecycle-actions action-row'>{self.archive_form(task)}{self.delete_modal(task)}</div>")
 
     def workflow_action_control(self, task: Task, workflow: TaskWorkflow) -> str:
+        if workflow.action == "pr-preview":
+            return "<div class='action-row'>" + self.action_form(task, "pr-preview", "Update PR") + self.archive_form(task) + "</div>"
+        if workflow.next_label == "Update PR":
+            return f"<span class='disabled-action' title='{html_attr(workflow.disabled_reason)}'>Update PR</span>" + self.archive_form(task)
         if workflow.action in {"edit", "prototype"}:
             return self.extras_modal(task, workflow.action, workflow.next_label)
         if workflow.action == "cancel":

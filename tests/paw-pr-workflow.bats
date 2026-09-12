@@ -86,12 +86,16 @@ write_fake_gh() {
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$BATS_TEST_TMPDIR/gh.args"
 
+if [[ "$1" == "pr" && "$2" == "list" ]]; then
+  echo '[]'
+  exit 0
+fi
 if [[ "$1" == "pr" && "$2" == "create" ]]; then
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == --body-file ]]; then cp "$2" "$BATS_TEST_TMPDIR/gh.body"; break; fi
     shift
   done
-  echo "https://github.com/example/repo/pull/123"
+  echo "https://github.com/example/repo/pull/${FIXTURE_PR_NUMBER:-123}"
   exit 0
 fi
 
@@ -101,7 +105,7 @@ if [[ "$1" == "pr" && "$2" == "review" ]]; then
 fi
 
 if [[ "$1" == "repo" && "$2" == "view" ]]; then
-  echo "example/repo"
+  echo '{"nameWithOwner":"example/repo"}'
   exit 0
 fi
 
@@ -109,6 +113,58 @@ echo "unexpected gh invocation: $*" >&2
 exit 1
 EOF
   chmod +x "$SHIM_DIR/gh"
+  local real_git
+  real_git="$(command -v git)"
+  if [[ "$real_git" != "$SHIM_DIR/git" ]]; then
+    printf '#!/usr/bin/env bash\nif [[ "$1" == ls-remote ]]; then printf "%%s\\t%%s\\n" "$(%q rev-parse HEAD)" "$4"; exit 0; fi\nexec %q "$@"\n' "$real_git" "$real_git" > "$SHIM_DIR/git"
+    chmod +x "$SHIM_DIR/git"
+  fi
+}
+
+qualify_publication() {
+  local task_name="$1" task_dir branch common key
+  task_dir="$(task_dir_for "$task_name")"
+  branch="$(git branch --show-current)"
+  common="$(git rev-parse --path-format=absolute --git-common-dir)"
+  for key in "worktree-path=$REPO" "git-common-dir=$common" "branch-name=$branch" "head-state=branch"; do
+    git config --file "$task_dir/metadata.gitconfig" "paw.${key%%=*}" "${key#*=}"
+  done
+  git config "branch.$branch.remote" origin
+  git config "branch.$branch.merge" "refs/heads/$branch"
+  git remote add origin https://github.com/example/repo.git 2>/dev/null || true
+  PYTHONDONTWRITEBYTECODE=1 python3 - "$SCRIPTS_DIR" "$task_dir" "$REPO" <<'PYTEST'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / 'lib'))
+import review_record
+p, repo = Path(sys.argv[2]), Path(sys.argv[3])
+(p / 'plan.md').write_text('## Current Status\n- Estimated completion: 100%\n- Next work: Review.\n\n## PR Contribution\n- Outcome: Reviewed publication fixture works.\n- Validation: Isolated publication checks passed.\n- Risks: No fixture production risks.\n- Visual: Shared diagram explains publication.\n')
+(p / 'review.md').write_text(f'## Review Metadata\n- Task: {p.name}\n- Grade: A-\n- Scope Reviewed: isolated test\n- Quality Threshold: A-\n- Threshold Result: met\n- Completion: complete\n- Attempt: test\n- Reviewed Code: {review_record.code_identity(repo)}\n## Blocking Production-Readiness Issues\n- None.\n')
+(p / '.review-attempt').write_text('test\tcomplete\n')
+PYTEST
+  local body
+  body="$(branch_pr_file_for "$branch")"
+  [[ -f "$body" ]] || body="$task_dir/pr.md"
+  if [[ -f "$body" ]] && ! grep -q '^## Visual Evidence' "$body"; then
+    cat >> "$body" <<'VISUAL'
+
+## Visual Evidence
+
+This shows the reviewed publication transition.
+```mermaid
+flowchart TD
+ A --> B
+```
+VISUAL
+  fi
+}
+
+publish_fixture() {
+  local task="$1" task_dir token
+  "$PAW" pr-submit "$task" || return
+  task_dir="$(task_dir_for "$task")"
+  token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$task_dir/publication-preview.json")"
+  "$PAW" pr-submit "$task" --publish "$token"
 }
 
 write_fake_comments_cmd() {
@@ -155,7 +211,8 @@ PR body content.
 EOF
   write_fake_gh
 
-  run "$PAW" pr-submit pr-workflow
+  qualify_publication pr-workflow
+  run publish_fixture pr-workflow
 
   [ "$status" -eq 0 ]
   [[ "$(git -C "$REPO" branch --show-current)" == "feature/pr-workflow" ]]
@@ -163,11 +220,11 @@ EOF
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"create"* ]]
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"--draft"* ]]
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"--title"* ]]
-  [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"Feature: Add two PR commands to paw, change paw review command"* ]]
+  [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"Feature: pr workflow"* ]]
   grep -q "## PR Tracking" "$task_dir/plan.md"
   grep -q "PR Number: #123" "$task_dir/plan.md"
   grep -q "PR URL: https://github.com/example/repo/pull/123" "$task_dir/plan.md"
-  grep -q "PR Number: #123" "$pr_file"
+  grep -q "## Task: pr-workflow" "$pr_file"
   [ ! -f "$task_dir/pr.md" ]
 }
 
@@ -177,10 +234,11 @@ EOF
   seed_task_package legacy-pr
   write_fake_gh
 
-  run "$PAW" pr-submit legacy-pr
+  qualify_publication legacy-pr
+  run publish_fixture legacy-pr
 
   [ "$status" -eq 0 ]
-  grep -q "PR Number: #123" "$REPO/.agent/legacy-pr/pr.md"
+  grep -q "## Task: legacy-pr" "$REPO/.agent/legacy-pr/pr.md"
 }
 
 @test "paw pr-submit: errors clearly when branch PR body is missing" {
@@ -197,6 +255,7 @@ EOF
 # Contract — `missing-pr`
 EOF
 
+  qualify_publication missing-pr
   run "$PAW" pr-submit missing-pr
 
   [ "$status" -eq 1 ]
@@ -321,13 +380,16 @@ EOF
     run "$PAW" plan "$task" "seed body"
     [ "$status" -eq 0 ]
     cmp "$body" "$BATS_TEST_TMPDIR/before"
-    run "$PAW" pr-submit "$task"
+    export FIXTURE_PR_NUMBER=123
+    [[ -z "$first" ]] || export FIXTURE_PR_NUMBER=124
+    qualify_publication "$task"
+    run publish_fixture "$task"
     [ "$status" -eq 0 ]
-    grep -Fxq "$body" "$BATS_TEST_TMPDIR/gh.args"
-    cmp "$BATS_TEST_TMPDIR/gh.body" "$BATS_TEST_TMPDIR/before"
+    grep -q "## Task: $task" "$BATS_TEST_TMPDIR/gh.body"
+    ! grep -q "Exact unrelated bytes" "$BATS_TEST_TMPDIR/gh.body"
     grep -Fxq "Unique $branch" "$body"
     grep -Fxq 'Exact unrelated bytes.' "$body"
-    grep -q 'PR Number: #123' "$(task_dir_for "$task")/plan.md"
+    grep -q "PR Number: #$FIXTURE_PR_NUMBER" "$(task_dir_for "$task")/plan.md"
     if [[ -n "$first" ]]; then
       cmp "$first" "$BATS_TEST_TMPDIR/first"
     else
@@ -354,6 +416,7 @@ EOF
     [[ "$output" == *"$old"* && "$output" == *"$body"* ]]
     [ ! -f "$body" ]
     seed_task_package migration
+    qualify_publication migration
     run "$PAW" pr-submit migration
     [ "$status" -ne 0 ]
     [[ "$output" == *"$old"* ]]
@@ -361,11 +424,12 @@ EOF
     cmp "$old" "$BATS_TEST_TMPDIR/old"
   done
   cp "$old" "$body"
-  run "$PAW" pr-submit migration
+  qualify_publication migration
+  run publish_fixture migration
   [ "$status" -eq 0 ]
-  grep -Fxq "$body" "$BATS_TEST_TMPDIR/gh.args"
+  grep -q "## Task: migration" "$BATS_TEST_TMPDIR/gh.body"
   cmp "$old" "$BATS_TEST_TMPDIR/old"
-  grep -q 'PR Number: #123' "$body"
+  grep -q '## Task: migration' "$body"
   ! grep -q 'PR Number:' "$(task_dir_for migration)/pr.md"
 }
 
@@ -485,4 +549,46 @@ DOC
   PAW_GH_COMMENTS_CMD="$comments_cmd" run "$PAW" pr-review 123
   [ "$status" -eq 0 ]
   [ -f "$REPO/.agent/examples/review.md" ]
+}
+
+@test "paw PR publication: shared eligibility, body, remote retry and identity policy" {
+  PYTHONDONTWRITEBYTECODE=1 python3 "$SCRIPTS_DIR/../tests/pr-publication.py"
+}
+
+@test "paw pr-update and pr-submit reject lower grades without gh mutation" {
+  init_git_repo
+  seed_task_package gate
+  qualify_publication gate
+  write_fake_gh
+  sed -i.bak 's/Grade: A-/Grade: B+/' "$REPO/.agent/gate/review.md"
+  local command
+  for command in pr-submit pr-update; do
+    run "$PAW" "$command" gate
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Review"* || "$output" == *"A-"* ]]
+    [ ! -f "$BATS_TEST_TMPDIR/gh.args" ]
+  done
+}
+
+@test "paw pr-update resumes saved worktree without switching either branch" {
+  init_git_repo
+  git checkout -q -b feature/saved-publication
+  run "$PAW" plan saved-publication "record assignment"
+  [ "$status" -eq 0 ]
+  local task_dir body other="$BATS_TEST_TMPDIR/other-worktree"
+  task_dir="$(task_dir_for saved-publication)"
+  body="$(branch_pr_file_for feature/saved-publication)"
+  mkdir -p "${body%/*}"
+  echo 'Local unrelated body.' > "$body"
+  qualify_publication saved-publication
+  git worktree add -q -b other-branch "$other"
+  write_fake_gh
+  cd "$other"
+  run "$PAW" pr-update saved-publication
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"feature/saved-publication"* ]]
+  [ "$(git -C "$other" branch --show-current)" = other-branch ]
+  [ "$(git -C "$REPO" branch --show-current)" = feature/saved-publication ]
+  [ -f "$task_dir/publication-preview.json" ]
+  [ ! -f "$BATS_TEST_TMPDIR/gh.body" ]
 }

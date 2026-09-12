@@ -179,7 +179,8 @@ to-issuescmd_to_issues<task-name> [--publish]draft tracer-bullet issue slices
 task-migratecmd_task_migrate[repo-path ...]copy legacy .agent tasks into the central task store
 guicmd_gui[start|stop|restart|kill] [--host 127.0.0.1] [--port 0|<port>] [--repo <path>] [--all]start, stop, restart, or foreground the local PAW task dashboard
 completioncmd_completionzshprint the zsh completion script for paw
-pr-submitcmd_pr_submit<task-name>create a draft PR from the branch PR body file
+pr-updatecmd_pr_update<task-name> [--publish <preview-token>]preview or publish a reviewed task contribution
+pr-submitcmd_pr_submit<task-name> [--publish <preview-token>]preview or create a reviewed draft PR (create-only)
 issue-submitcmd_issue_submit<task-name>create a GitHub issue from .agent/<task>/issue.md
 pr-reviewcmd_pr_review<pr-number>fetch or submit PR review feedback via gh
 issue-reviewcmd_issue_review<issue-number>seed a plan-only task from a GitHub issue body
@@ -2622,41 +2623,35 @@ EOF
   _run_model_subcommand to-issues "$task_dir" "implement" "$prompt"
 }
 
-cmd_pr_submit() {
-  require_gh
-  local task_name="${1:-}"
+_cmd_pr_publication() {
+  local mode="$1" task_name="${2:-}"
   if [[ -z "$task_name" ]]; then
-    echo "usage: paw pr-submit <task-name>" >&2
-    exit 2
+    echo "usage: paw $mode <task-name> [--publish <preview-token>]" >&2
+    return 2
   fi
-  shift
-  if [[ $# -gt 0 ]]; then
-    echo "error: paw pr-submit accepts only <task-name>" >&2
-    exit 2
+  shift 2
+  # Resume only the saved worktree directory; publication never checks out branches.
+  if _task_assignment_load "$task_name"; then
+    if [[ "$_paw_assignment_common_dir" != "$_paw_git_common_dir" || ! -d "$_paw_assignment_worktree_path" ]]; then
+      echo "error: invalid saved publication worktree/repository assignment" >&2
+      return 1
+    fi
+    cd "$_paw_assignment_worktree_path"
   fi
-
-  _task_assignment_resume_or_handoff pr-submit "$task_name"
   _require_task_dir "$task_name"
-
   local task_dir
   task_dir="$(_task_dir_for_existing "$task_name")"
-  local pr_file
-  if ! pr_file="$(_task_pr_body_file "$task_dir")"; then
-    echo "error: $pr_file is required for 'paw pr-submit'." >&2
-    exit 1
-  fi
+  local options=(--repo "$PWD")
+  [[ "$mode" != pr-submit ]] || options+=(--create-only)
+  python3 "$LIB_DIR/pr_publication.py" "$task_dir" "${options[@]}" "$@"
+}
 
-  local pr_title pr_url pr_number
-  pr_title=$(_task_doc_title "$task_dir" "$task_name")
-  pr_url=$(gh pr create --draft --title "$pr_title" --body-file "$pr_file")
-  pr_url=$(printf '%s\n' "$pr_url" | grep -Eo 'https://[^[:space:]]+/pull/[0-9]+' | tail -n1)
-  if [[ -z "$pr_url" ]]; then
-    echo "error: gh pr create did not return a PR URL." >&2
-    exit 1
-  fi
-  pr_number=$(printf '%s\n' "$pr_url" | sed -E 's#.*/pull/([0-9]+)$#\1#')
-  _task_pr_tracking_upsert "$task_dir" "$pr_number" "$pr_url"
-  printf 'created draft PR #%s: %s\n' "$pr_number" "$pr_url"
+cmd_pr_submit() {
+  _cmd_pr_publication pr-submit "$@"
+}
+
+cmd_pr_update() {
+  _cmd_pr_publication pr-update "$@"
 }
 
 cmd_issue_submit() {

@@ -21,7 +21,8 @@ paw to-issues <task-name> [--publish]
 paw task-migrate [repo-path ...]
 paw gui [start|stop|restart|kill] [--host 127.0.0.1] [--port 0|<port>] [--repo <path>] [--all]
 paw completion zsh
-paw pr-submit <task-name>
+paw pr-update <task-name> [--publish <preview-token>]
+paw pr-submit <task-name> [--publish <preview-token>]
 paw issue-submit <task-name>
 paw pr-review <pr-number>
 paw issue-review <issue-number>
@@ -49,7 +50,8 @@ paw help
 | review / prototype | Task-quality review / plan-only replacement followed by guarded cleanup; see [review rules](workflow.md#review-completion-and-inherited-findings). Old prototype `--question`, `--logic`, `--ui` flags are rejected with compatibility guidance. |
 | implement-batch | Preflight all approved selections, launch normal implement children concurrently; [limits](workflow.md#branch-and-worktree-assignment). |
 | to-issues | Draft `issues/index.md` and one issue file per slice. `--publish` sends reviewed drafts in dependency order, updates per-draft metadata and plan tracking. |
-| pr-submit | Require canonical branch PR body (legacy `pr.md` fallback; ambiguous old names require [explicit migration](workflow.md#architecture-of-workflow)), derive title, create draft PR and record number/URL in plan/body under PR Tracking. |
+| pr-update | Preview a completed A-/higher reviewed task contribution; `--publish TOKEN` edits the exact open branch PR or creates a draft after confirmed absence. Manual commit/push only. |
+| pr-submit | Same review, preview and visual gates; create-only, with guidance to use pr-update when a PR exists. [Publication and recovery](workflow.md#reviewed-task-pr-publication). |
 | issue-submit | Require `issue.md`, create issue and record number/URL in plan/issue. |
 | pr-review | First fetch comments and save `review.md` for the PR task; later submit that saved draft as a COMMENT review. Separate from task-quality review. |
 | issue-review | Refresh issue title/body into `issue.md` in `<number>-issue-review`; plan only from saved issue body. |

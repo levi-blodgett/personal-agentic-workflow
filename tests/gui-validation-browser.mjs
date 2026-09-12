@@ -244,8 +244,8 @@ gui.main()`,
   await sleep(5500);
   assert.equal(await evaluate("document.querySelector('.review-grade').textContent"), 'Review grade: B+');
   writeFileSync(join(task, 'review.md'), `## Review Metadata\n- Task: ${task.split('/').at(-1)}\n- Grade: **A-**.\n- Scope Reviewed: fixture delta\n- Quality Threshold: B+\n- Threshold Result: met\n\n## Blocking Production-Readiness Issues\n- None.\n`);
-  await until('formatted A- restriction', () => evaluate("document.querySelector('.grade-a')?.textContent === 'Review grade: A-' && document.body.textContent.includes('Prototype disabled for review grade A-')"));
-  console.log('PASS: completed replacement launches stubbed Review; bold B+ stays clean/blue through polling; A- restricts prototype');
+  await until('formatted A- restriction', () => evaluate("document.querySelector('.grade-a')?.textContent === 'Review grade: A-' && document.body.textContent.includes('Legacy review lacks completed attempt evidence')"));
+  console.log('PASS: completed replacement launches stubbed Review; bold B+ stays clean/blue through polling; legacy A- requires completed attempt evidence before publication');
 
 } catch (error) {
   for (const child of children) if (child.errors) console.error(child.errors.slice(-4000));
@@ -259,3 +259,4 @@ gui.main()`,
 
 // Keep the UX journeys in the named browser validation entrypoint.
 execFileSync(process.execPath, [join(checkout, 'tests/gui-ux-browser.mjs')], { stdio: 'inherit', env: process.env });
+execFileSync(process.execPath, [join(checkout, 'tests/gui-pr-browser.mjs')], { stdio: 'inherit', env: process.env });

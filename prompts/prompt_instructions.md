@@ -71,6 +71,16 @@ Capture: task summary, repo context, user constraints (exact, not paraphrased), 
 ### Branch PR Body
 
 When present, keep concise, derived from `plan.md`, and update when reviewer-facing scope, validation, or risk notes change materially.
+Every PAW PR creation/update requires at least one relevant screenshot or Mermaid
+under `## Visual Evidence`, with preceding explanatory prose. Prefer screenshots
+for visible UI and Mermaid for nonvisual changes; refresh when scope changes.
+One sufficient visual can cover multiple tasks. Independent Review assesses
+relevance/rendering; structural validation does not prove either. At implementation
+wrap-up add a task-scoped `## PR Contribution` with concrete `- Outcome:`,
+`- Validation:`, `- Risks:` and `- Visual:` fields for reviewed publication.
+Publish only completed current A-/higher reviewed contributions with no blockers;
+keep historical/source evidence attributed. Publication is a separate explicit
+preview/token invocation; commits and pushes remain manual.
 
 ## Approval Model
 

@@ -44,7 +44,7 @@ bats tests/lint-task.bats
 | `paw-codex.bats` | Default codex backend wiring, auth banner, sandbox flags, and usage parsing |
 | `paw-crash.bats` | Crash classification, crash log writing, and prompt-size warnings |
 | `paw-prompt-body.bats` | Stub prompt/launcher contracts, review/prototype planning, immutable cleanup provenance, unusual paths, content/mode/index drift, retries and failure preservation. |
-| `paw-pr-workflow.bats` | Shell-side `paw pr-submit` / `paw pr-review` workflow coverage |
+| `paw-pr-workflow.bats` | Shell-side `paw pr-update` / `paw pr-submit` / `paw pr-review` and shared publication policy coverage |
 | `paw-issue-workflow.bats` | Shell-side `paw issue-submit` / `paw issue-review` / `paw to-issues --publish` workflow coverage |
 | `paw-gh-actions-workflow.bats` | Shell-side `paw gh-actions-review` dispatch and flag-forwarding coverage |
 | `paw-compact.bats` | `paw compact` subcommand (archive-on-tick and idempotency) |
@@ -247,3 +247,14 @@ unreadable resources, exact history, retry and completed lineage), `paw-prompt-b
 and `gui-prototype.py` (rendered pending/adverse/passing records through GUI guards).
 `templates.bats` checks the illustrative review through the shared reader. These
 fixtures establish lifecycle behavior, not model compliance or independent grades.
+
+PR publication checks: `PYTHONDONTWRITEBYTECODE=1 python3 tests/pr-publication.py`
+exercises eligibility, managed body/visual parsing, two-task ownership, remote
+identity, stale previews, locks, partial success and native/JSON HTTP parity.
+`bats tests/paw-pr-workflow.bats tests/task-store.bats` includes this check and
+CLI fixtures. The named `node tests/gui-validation-browser.mjs` entrypoint also
+runs `tests/gui-pr-browser.mjs`: retained Next/preview/result screenshots, two-task
+contributions, lower grades, duplicate clicks, delayed preview/draft/caret retention,
+errors, native fallback and narrow dark layout. Set `PAW_GUI_EVIDENCE` to retain
+artifacts. All remote transport is stubbed; no live GitHub publication occurs.
+Required full local validation remains `PYTHONDONTWRITEBYTECODE=1 make check`.

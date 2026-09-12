@@ -403,8 +403,10 @@ MD
   wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
   stop_gui
 
-  grep -q "Prototype disabled for review grade A" "$BATS_TEST_TMPDIR/prototype-grades.html"
-  grep -q "Prototype disabled for review grade A-" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  grep -q "Legacy review lacks completed attempt evidence" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  grep -q "Update PR" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  ! grep -q "/task/grade-a/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  ! grep -q "/task/grade-a-minus/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
   grep -q "/task/grade-b-plus/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
   ! grep -q "/task/grade-pending/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
   ! grep -q "/task/grade-missing/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"

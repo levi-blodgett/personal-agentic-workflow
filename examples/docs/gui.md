@@ -181,3 +181,16 @@ allows current-page switching. Without JavaScript the system appearance applies.
 The GUI does not expose arbitrary shell commands, filesystem previews or external binds.
 For extras and PR/issue publication use the [CLI](cli-reference.md); for reproducible
 interaction checks see the [browser harness](../../tests/README.md#recorded-validation-browser-regression).
+
+### Update PR under Next
+
+Completed tasks with current complete A-/A/A+ reviews and no production blockers
+offer **Update PR** and **Archive** under Next. View PR remains a lookup utility.
+Update PR prepares a candidate with repository/head identity, body diff, exact
+content, visual diagnostics and manual code-publication status. **Publish PR body**
+is the separate remote action; success provides a validated link and keeps the task
+active until Archive. Missing prerequisites leave Archive and repair guidance.
+Native forms and JavaScript use identical server-side guards. No GET, polling or
+completion event publishes. Changed body/review/remote state invalidates previews;
+late previews cannot replace a newer dialog or its unsent text.
+See [eligibility, contribution fields and recovery](workflow.md#reviewed-task-pr-publication).

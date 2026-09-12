@@ -5,6 +5,7 @@
 | [task_store.sh](task_store.sh) | Central-first task lookup, legacy fallback, provenance, branch PR paths, migration/archive and run state |
 | [gui_lifecycle.sh](gui_lifecycle.sh) | Managed GUI state and verified recorded-process start/stop/restart/kill |
 | [gui_server.py](gui_server.py) | stdlib HTTP, safe Markdown, action guards, recorded-evidence parser, polling and themes |
+| [pr_publication.py](pr_publication.py) | Shared PR eligibility, visual/body preparation, preview snapshots, branch locks and gh publication/recovery |
 | [review_record.py](review_record.py) | Shared CLI/GUI review completeness, template rendering, code/attempt identity and exact history |
 | [review_lineage.py](review_lineage.py) | Read-only same-repo active/archived/legacy ancestry resolution |
 | [quality_plan.py](quality_plan.py) | Opt-in v1 planned-evidence lint; no execution attestation |

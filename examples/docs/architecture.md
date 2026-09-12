@@ -52,3 +52,10 @@ Slugged stores distinguish repo identities; central packages precede legacy matc
 `metadata.gitconfig` records provenance and `runs/*.gitconfig` observational sessions;
 neither replaces Markdown. The GUI presents friendly repo grouping over these paths.
 See [storage/assignment rules](workflow.md#architecture-of-workflow) and [GUI controls](gui.md).
+
+Reviewed PR publication is a shared Python boundary in `scripts/lib/pr_publication.py`.
+CLI and GUI call the same eligibility, candidate and publication operations. Shell
+task-store helpers retain canonical body resolution. Branch locks live in the Git
+common directory; immutable preview tokens bind candidate, task/review and remote
+identity. Remote mutation is confined to explicit publish POSTs/CLI invocations.
+See [publication guarantees and limits](workflow.md#reviewed-task-pr-publication).

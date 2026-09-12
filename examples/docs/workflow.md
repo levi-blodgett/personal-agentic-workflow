@@ -249,7 +249,8 @@ with `paw implement <task>` after checking state.
 ## Recommended Review Before Merging
 
 ```bash
-paw pr-submit my-task           # draft PR from branch body; requires gh
+paw pr-update my-task           # inspect candidate; printed --publish TOKEN updates/creates
+paw pr-submit my-task           # same preview gates, create-only
 paw pr-review 123               # first: save draft; later: submit saved review
 paw pr-address-comments 123     # plan only
 paw implement 123-review        # after approval
@@ -269,3 +270,46 @@ Run `paw lint <resolved-task-dir>`. The human owns commits.
 Review the draft PR and any follow-up fixes, take ownership of the complete diff,
 then request reviewers/mark ready. Independent grading and production sign-off
 follow implementation; a completion percentage is not sign-off.
+
+### Reviewed task PR publication
+
+After implementation and final validation, independent Review must be complete,
+current, A- or higher, and explicitly record `None` for production blockers.
+Publication requires completed attempt and matching reviewed-code evidence; rerun
+legacy reviews without those identities. Pending answers, unchecked work, active
+runs and newer implement/diagnose/prototype records block publication.
+
+Write `## PR Contribution` in the task plan with one concrete `- Outcome:`,
+`- Validation:`, `- Risks:` and `- Visual:` field. Attribute only this task's reviewed
+outcome and named checks. `Visual` explains why the branch visual covers this scope;
+refresh the evidence when scope changes. Put shared evidence in the branch body's
+`## Visual Evidence` section: explanatory prose followed by a nonempty Mermaid
+fence or screenshot image. Prefer Mermaid for nonvisual changes and screenshots
+for visible UI. Images must use HTTPS or exist in the published head at their
+repository-relative path. Local absolute paths, badges and example fences fail.
+Review must assess relevance and rendering; structural checks cannot establish them.
+
+`paw pr-update TASK` prepares an exact candidate and diff without publishing.
+Inspect it, then run the printed `paw pr-update TASK --publish TOKEN` command.
+An existing exact repository/head PR receives only a body edit; confirmed absence
+creates a draft. `paw pr-submit` uses the same preview/gates but remains create-only.
+Configure the saved branch's exact remote tracking first. The remote head must
+exist and match local HEAD. Commit/push manually when it does not. Uncommitted
+changes are explicitly identified as absent from the PR. PAW never stages, commits,
+pushes, merges or changes branches during publication.
+
+Task contributions have managed repo/task birth identities. Repeating one replaces
+it once; other contributions and human remote text remain. Unmarked local prose
+stays local, excluded from publication; the preview shows this adoption choice.
+One task owns structural PR Tracking; later contributors retain separate result
+records. Archived task names do not establish ownership for a new package.
+
+PAW serializes publication per repository/branch, snapshots local body/review/code,
+and rereads remote state before mutation. Changed previews require preparation
+again. Candidate bytes and successful remote receipts are retained under the Git
+common directory's `paw-publication/`; task previews/results stay in its package.
+If remote success precedes local bookkeeping failure, inspect the reported PR and
+retry the token. If state changed, prepare anew to resolve the existing PR without
+creating another. Do not overwrite newer human content to recover. External GitHub
+editors do not share PAW's lock, and GitHub offers no body compare-and-swap: an edit
+in the final read/write gap remains possible and requires human reconciliation.

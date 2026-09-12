@@ -24,3 +24,11 @@
 ## Release Notes
 
 - <user-facing one-liner, or "None">
+
+## Visual Evidence
+
+Include at least one relevant screenshot or nonempty Mermaid diagram, preceded by
+a short explanation of what it demonstrates. Prefer screenshots for visible UI
+and Mermaid for nonvisual behavior. Use HTTPS screenshots or repository-relative
+images present in the published head. Refresh evidence when scope changes; tasks
+may share one sufficient visual. Review must inspect relevance and rendering.
