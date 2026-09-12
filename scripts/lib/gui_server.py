@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import review_record
+import markdown_documents
 import pr_publication
 
 
@@ -633,7 +634,7 @@ def validation_cell(plan: str, task_href: str) -> str:
 def validation_details(task: Task) -> str:
     source_href = (f"/task/{quote(task.name)}?path={quote(str(task.path), safe='')}"
                    f"&active_repo={quote(str(task.repo), safe='')}&doc=plan#validation-source")
-    summary = validation_summary(task.plan)
+    summary = validation_summary(task.validation_plan)
     records = []
     for entry in summary["entries"]:
         label = "Superseded record" if entry["superseded"] else {
@@ -1213,6 +1214,10 @@ class Task:
         self.contract = (path / "contract.md").read_text(errors="replace") if (path / "contract.md").exists() else ""
         self.review = (path / "review.md").read_text(errors="replace") if (path / "review.md").exists() else ""
         self.activity_time = recent_activity(path)
+
+    @cached_property
+    def validation_plan(self) -> str:
+        return markdown_documents.validation_text(self.path / "plan.md") if (self.path / "plan.md").exists() else ""
 
     @property
     def repo_name(self) -> str:
@@ -1935,8 +1940,22 @@ def stable_id(*parts: str) -> str:
     return "paw-" + cksum("|".join(parts))
 
 
+def linked_doc_name(value: str) -> bool:
+    return bool(re.fullmatch(r"(?:plan|contract|review|completed-phase)-[a-z0-9-]*[a-f0-9]{12}", value))
+
+
 def doc_name(value: str) -> str:
-    return value if value in {"contract", "plan", "pr", "review"} else "plan"
+    return value if value in {"contract", "plan", "pr", "review"} or linked_doc_name(value) else "plan"
+
+
+def render_task_markdown(task: Task, content: str) -> str:
+    def link(match):
+        name = match[1]
+        if not linked_doc_name(name):
+            return match[0]
+        query = urlencode({"path": str(task.path), "active_repo": str(task.repo), "doc": name})
+        return '](/task/' + quote(task.name) + '?' + query + ')'
+    return render_markdown(re.sub(r'\]\(([a-z0-9-]+)\.md\)', link, content))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2865,7 +2884,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"<td role='cell' data-label='Stage'>{self.dashboard_stage_cell(task, workflow)}</td>"
                 f"<td role='cell' data-label='Next'>{self.workflow_next_cell(task, workflow)}</td>"
                 f"<td role='cell' data-label='Completion'><span class='metric-chip'>{html.escape(completion)}</span></td>"
-                f"<td role='cell' data-label='Checklist'><span class='metric-chip'>{done}/{total}</span></td><td role='cell' data-label='Validation'>{validation_cell(task.plan, task_href)}</td>"
+                f"<td role='cell' data-label='Checklist'><span class='metric-chip'>{done}/{total}</span></td><td role='cell' data-label='Validation'>{validation_cell(task.validation_plan, task_href)}</td>"
                 f"<td role='cell' data-label='Actions'>{self.task_actions(task, include_docs=True)}</td>"
                 "</tr>"
             )
@@ -3065,12 +3084,20 @@ class Handler(BaseHTTPRequestHandler):
             "<div class='modal-panel'><div class='modal-body'>"
             f"<h2>{html.escape(task.name)} / {html.escape(selected_doc)}.md</h2>"
             "<p><button type='button' data-modal-close>Close</button></p>"
-            f"<div class='document'>{render_markdown(content)}</div>"
+            f"<div class='document'>{render_task_markdown(task, content)}</div>"
             f"{approval}"
             "</div></div>"
         )
 
     def task_doc_content(self, task: Task, doc: str) -> str:
+        if linked_doc_name(doc):
+            path = task.path / (doc + ".md")
+            try:
+                if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
+                    raise ValueError("linked history unavailable: expected a task-local regular Markdown file <=1 MiB")
+                return path.read_text(errors="replace")
+            except (OSError, ValueError) as error:
+                return f"Linked history unavailable: {error}"
         return {"contract": task.contract, "plan": task.plan, "review": task.review}.get(doc, task.plan)
 
     def task_detail(self, task: Task, doc: str, selected_run: str = "") -> str:
@@ -3111,7 +3138,7 @@ class Handler(BaseHTTPRequestHandler):
             f"<tr><th>Crash Log</th><td>{html.escape(crash_state)}</td></tr>"
             "</tbody></table></div></details>"
             f"{validation_details(task)}"
-            f"<p class='tabs'>{tabs}</p><div id='validation-source' class='document'>{render_markdown(content)}</div>"
+            f"<p class='tabs'>{tabs}</p><div id='validation-source' class='document'>{render_task_markdown(task, content)}</div>"
             f"{self.live_stream_section(task)}"
             f"{self.prototype_failure_logs(task)}"
             "<h2>Run History</h2><div class='table-wrap'><table><thead><tr><th>Subcommand</th><th>Status</th><th>Backend</th><th>Model</th><th>Started</th><th>Ended</th><th>Exit</th><th>Output</th></tr></thead>"

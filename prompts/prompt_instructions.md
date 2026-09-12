@@ -1,208 +1,150 @@
 # Agent Workflow Contract
-
 ## Per-Subcommand Routing
-
 | Anchor | Primary subcommand | Load-bearing sections |
 |---|---|---|
 | `<!-- PAW:PLAN -->` | `paw plan` | Plan: plan-only run |
-| `<!-- PAW:IMPLEMENT -->` | `paw implement` | Implement: autonomous inside approved scope; Implementation Preflight |
-| `<!-- PAW:REVIEW -->` | `paw pr-address-comments` + `paw implement <pr-number>-review` | PR Review Feedback; Implementation Preflight |
+| `<!-- PAW:IMPLEMENT -->` | `paw implement` | Implement; Implementation Preflight |
+| `<!-- PAW:REVIEW -->` | PR feedback planning/implementation | PR Review Feedback; Implementation Preflight |
 | `<!-- PAW:EDIT -->` | `paw edit` | Edit work: plan-only refinement |
-
-Shared sections apply universally: Document Contract, Approval Model, Risk Classification, Validation Contract, Acceptance Criteria, Final Response Expectations.
-
+Shared document, approval, risk, validation, quality and handoff rules apply to every route.
 ## Standard Task Directory
-
-```text
-.agent/<task-name>/
-  contract.md
-  plan.md
-```
-
-All `.agent/` files are local-only AI working docs — not project documentation. Do not commit `.agent/` files.
-When a repo has `.github/pull_request_template.md`, PAW stores the PR body at the branch level instead of inside the task package; legacy task-level `pr.md` files may still be read for compatibility.
-
-<!-- PAW:REVIEW -->
-## PR Review Feedback
-
-1. Run `$SCRIPT_DIR/gh-pr-comments.sh <pr_number>` (exact path given in the review-feedback prompt). The script emits three labelled groups: `INLINE path:line`, `REVIEW SUMMARY @author (state)`, `PR COMMENT @author`.
-2. In `plan.md`, add a `## PR Review Comments` block listing every fetched item:
-   ```
-   - [ ] INLINE src/foo.ts:42 — @reviewer1: short summary — status: pending
-   ```
-   Every item must reach `- [x]` with status `addressed`, `deferred (reason)`, or `declined (reason)` before the run ends.
-3. Address only in-scope comments; stop before scope expansion, high-risk changes, or plan conflicts.
-4. Before declaring done: re-run `gh-pr-comments.sh` and diff against the tracked list to catch newly posted comments. Then run the plan's Validation Contract and record results in `plan.md → "Validation Performed"`.
-
+Central or legacy `.agent/<task>/` packages contain `contract.md` and `plan.md`.
+These are local AI working docs, not durable project documentation; never commit them.
+With `.github/pull_request_template.md`, use the resolved branch PR body;
+legacy task-level `pr.md` remains readable for compatibility.
 ## Document Contract
-
 ### `contract.md`
-
-Capture: task summary, repo context, user constraints (exact, not paraphrased), inputs/links/examples, unresolved assumptions. Use as starting context for future resumes.
-
+Capture task summary, repo context, exact user constraints, inputs/links/examples
+and unresolved assumptions so a later run can resume accurately.
 ### `plan.md`
-
-- `plan.md` is the single task surface for both planning and implementation progress.
-- Plan-only runs update only `.agent/<task>/`; leave implementation files untouched.
-- Treat the approved `plan.md` as the contract. If implementation reveals the plan is materially wrong, stop and ask instead of rewriting the plan mid-flight.
-- Order sections as: objective, open questions / follow-ups, implementation phases / checklist, acceptance criteria, then the remaining sections.
-- Make the implementation plan as thorough as the task warrants. Use multiple phases or slices when needed; do not compress substantial work into a single checkbox just to stay short.
-- Every follow-up question that expects user input must include an indented hyphenated answer placeholder directly beneath it:
+The approved plan is the single planning/progress contract. If materially wrong, stop
+and ask; never silently rewrite approved scope during implementation.
+Order objective, open questions / follow-ups, implementation phases / checklist,
+acceptance criteria, then remaining sections. Use enough vertical slices for the scope.
+Every follow-up expecting input needs an indented answer directly below it:
 ```markdown
 - <question>
   - USER ANSWER (UNRESOLVED):
 ```
-- When the user replies, replace the placeholder with `USER ANSWER (PROVIDED): <answer>` until a later `paw edit` run reconciles that answer into the plan. `paw implement` remains blocked while either placeholder form exists anywhere in `plan.md`.
-- Every phase item must be `- [ ]`.
-- Prefer vertical slices over horizontal workstreams. Do not plan "frontend first, backend second, tests last"; plan thin end-to-end slices that deliver behavior incrementally.
-- Make TDD explicit as repeated vertical slices: follow red-green-refactor, write one behavior-focused failing test, make that single test pass with one implementation step, repeat, and defer test-cleanup refactors until the implementation loop is complete.
-- When a checkbox is completed, flip it to `- [x]` and add a one-line `Progress:` note directly beneath that checkbox in the same edit before moving to the next checkbox. `paw lint` must be able to see that adjacent `Progress:` line.
-- Keep the `## Current Status` section updated with:
+Replace a reply with `USER ANSWER (PROVIDED): <answer>` until `paw edit` reconciles it.
+Either marker anywhere in plan.md blocks implementation/diagnosis, including examples.
+Start every phase item with `- [ ]`. Finish it as `- [x]` and add an adjacent one-line
+`Progress:` in the same edit before moving to the next checkbox. Do not batch updates.
 ```markdown
 ## Current Status
-
 - Plan position: <short progress summary>
-- Estimated completion: <bare integer percentage, e.g. 25%>
+- Estimated completion: 25%
 - Next work: <next step; when complete use Review.>
 ```
-- `Estimated completion` must be a bare integer percentage such as `25%`. `Next work` is free-form. When `Estimated completion` is `100%`, `Next work` must be `Review.` or `Review.` plus a genuinely important follow-up.
-- **Cost log:** `paw` appends repo-level entries to `.agent/cost-log.md`; do not hand-edit task `plan.md` for cost tracking.
-
+Use a bare integer percentage. At 100%, Next work must be `Review.` with only a
+genuinely important follow-up if needed. PAW owns `.agent/cost-log.md`; do not hand-edit costs.
 ### Branch PR Body
-
-When present, keep concise, derived from `plan.md`, and update when reviewer-facing scope, validation, or risk notes change materially.
-Every PAW PR creation/update requires at least one relevant screenshot or Mermaid
-under `## Visual Evidence`, with preceding explanatory prose. Prefer screenshots
-for visible UI and Mermaid for nonvisual changes; refresh when scope changes.
-One sufficient visual can cover multiple tasks. Independent Review assesses
-relevance/rendering; structural validation does not prove either. At implementation
-wrap-up add a task-scoped `## PR Contribution` with concrete `- Outcome:`,
-`- Validation:`, `- Risks:` and `- Visual:` fields for reviewed publication.
-Publish only completed current A-/higher reviewed contributions with no blockers;
-keep historical/source evidence attributed. Publication is a separate explicit
-preview/token invocation; commits and pushes remain manual.
-
+Keep reviewer-facing scope, validation and risks concise and current, derived from plan.md.
+Every PR creation/update needs relevant screenshot or Mermaid under `## Visual Evidence`,
+with explanatory prose before it. Prefer screenshots for UI, Mermaid for nonvisual work.
+One visual may cover several tasks; independent Review assesses relevance/rendering.
+At wrap-up add task-scoped `## PR Contribution` with concrete `- Outcome:`,
+`- Validation:`, `- Risks:` and `- Visual:` fields. Preserve other tasks’ attribution.
+Publish only completed, current A-/higher reviewed contributions with no blockers through
+an explicit preview/token invocation. Commits and pushes remain manual.
 ## Approval Model
-
 <!-- PAW:PLAN -->
 ### Plan: plan-only run
-
-1. Create or update `.agent/<task>/` and the branch PR body file when present.
-2. Inspect `git status` and `git diff`.
-3. Read only files needed for the plan.
-4. In new plans, place independent grading and production sign-off (including inherited prototype quality thresholds/recommendations) in a post-implementation Review requirement, outside implementation checkboxes. Keep self-checks and required validation inside implementation.
-5. Ask the user the highest-value task-specific clarifying questions whenever better answers would materially improve the plan; ask as many follow-ups as the task needs. Skip this only when the task is already well-specified or genuinely trivial.
-6. Update `contract.md`, `plan.md`, and the branch PR body file when present.
-7. Stop; ask user to review. Do not modify project files outside `.agent/<task>/` except the branch PR body file.
-
+Read needed repo/task files; inspect git status/diff; create/update contract and plan
+and the branch PR body when present. Ask high-value task-specific questions when
+answers improve scope; skip only well-specified/trivial work. Keep self-checks and
+validation inside implementation, independent grading/sign-off and inherited thresholds
+in post-implementation Review. Stop for plan review; leave implementation files untouched.
 <!-- PAW:EDIT -->
 ### Edit work: plan-only refinement
-
-1. Re-read task docs; inspect `git status` and `git diff`.
-2. Ask follow-up questions whenever they would materially improve the revised plan; ask as many as needed, not an arbitrary cap.
-3. Apply requested changes confined to `.agent/<task-name>/`; do not modify project files.
-4. Stop before security-sensitive, deployment, or broad structural changes.
-
-Exit with error if task directory is missing.
-
+Re-read task docs and git status/diff. Ask useful follow-ups, reconcile supplied answers,
+and edit only the requested task package. Exit with error if it is missing.
+Stop before security-sensitive, deployment or broad structural changes.
 <!-- PAW:IMPLEMENT -->
 ### Implement: autonomous inside approved scope
-
-1. Read task docs; inspect `git status` and `git diff`; identify the validation entrypoint.
-2. Continue from the `## Current Status` section.
-3. Refuse to proceed when the task plan still contains follow-up placeholders. `paw implement` must not run while any `USER ANSWER (UNRESOLVED):` or `USER ANSWER (PROVIDED):` line remains in `plan.md`; those markers mean the user still needs to answer, or answered feedback still needs to be reconciled through `paw edit`.
-4. Proceed autonomously for in-scope implementation, documentation, tests, and validation.
-5. Keep `plan.md` current, including immediate checkbox flips and one-line `Progress:` notes directly beneath each completed item in the same edit; do not batch several completed items before updating the plan.
-
-Stop only for approval-boundary crossings or when the approved plan no longer gives a safe answer. If the plan is materially wrong, bail out and ask rather than rewriting it in place.
-
-When the last `- [ ]` flips to `- [x]`, run the **Post-Implementation Wrap-Up** gate:
-
-1. Every implement/diagnose completion (including batch, GUI and docs-only work) requires the named full local validation command after the final implementation change. Reuse a successful full run on final code; subsequent implementation changes require a new full run. Missing tools or failed checks block 100%/Review. Run the validation decision ladder from the plan's "Validation Contract"; record `Validation tier chosen: <targeted|broader|full>` and the rationale in `plan.md` → "Validation Performed". Failures block wrap-up.
-   - Start with targeted changed-area validation for the files and behavior changed.
-   - Escalate to broader or full validation for shared/high-risk changes, workflow/CI edits, security-sensitive areas, failures in targeted checks, explicit user/reviewer request, unclear blast radius, or PR-ready handoff when full validation has not otherwise been run.
-2. Walk "Durable Documentation Requirements"; update stale docs.
-3. Confirm tests exist (or waived) for every behavior change; missing tests → new `- [ ]` items.
-4. After approved implementation, docs, tests and required final full validation pass, record 100% and `Next work: Review.`. Finish routine authorized work without asking for permission. Keep self-checks inside implementation; independent grading and production sign-off follow in Review. Preserve explicit task-specific gates and approval boundaries: reconcile conflicting old approved plans rather than silently overriding them. Then write the final handoff summary.
-
+Perform preflight, resume Current Status, and refuse either answer marker in plan.md.
+Complete authorized implementation, docs, tests and validation autonomously; keep progress
+current. Stop only at an approval boundary or when the approved plan lacks a safe answer.
+### Post-Implementation Wrap-Up
+After the last implementation checkbox completes, run the plan’s validation decision
+ladder and named full local command after the final implementation change, including
+batch, GUI and docs-only runs. Reuse a successful full run on final code; later changes
+require another full run. Missing tools/failing checks block 100%/Review.
+Check durable docs and behavior-test coverage; add unchecked items for missing tests.
+After implementation, docs, tests and required final full validation pass, record 100%
+and `Next work: Review.`. Finish routine authorized work without asking for permission.
+Keep bounded self-checks inside implementation; independent grading and production
+sign-off follow in Review. Preserve task-specific gates and inherited thresholds;
+reconcile conflicting old approved plans rather than silently overriding them.
 ### Pre-authorized routine work
-
-No repeated permission needed for: edits inside approved files or areas, routine durable doc updates, the planned validation entrypoint, local validation plus diff/status review, and small reviewable refactors.
-
+Approved-area edits, routine durable docs, planned/local checks, diff/status review
+and small reviewable refactors need no repeated permission.
 ### Approval boundaries
-
-Stop before: release/Docker/Helm/deployment/infra/CI changes beyond the plan; new dependencies or external services; security/auth/credential/permissions changes; large restructures; destructive deletions; ambiguous high-impact options not in the plan; scope expansion.
-
-When stopping: summarize boundary, impacted files, options, recommended next step.
-
+Stop before unplanned release/Docker/Helm/deployment/infra/CI changes, dependencies,
+external services, security/auth/credentials/permissions changes, large restructures,
+destructive deletions, ambiguous high-impact options or scope expansion.
+Explain the boundary, affected files, options and recommended next step.
 ## Implementation Preflight
-
-Before any implementation run: read task docs, inspect `git status` and diff, inspect outward as needed, identify the validation entrypoint, and confirm which durable project docs must change. For older plans without a full command, discover and record the canonical repository full local validation command from repository documentation/build targets, or report a specific blocker if none can be established. Routine local checks remain pre-authorized; do not install dependencies or cross external-service boundaries to clear a blocker.
-
+Read task docs and git status/diff; inspect outward as needed and identify durable docs
+and validation entrypoints. If an older plan omits the full command, discover and record
+it from repo docs/build targets or report a specific blocker. Do not install dependencies
+or cross external-service boundaries to clear missing tools.
 ## Risk Classification
+Low (local docs/narrow config) and medium (subsystem/refactor/validation wiring): proceed.
+High (release, deployment, permissions, cross-repo/user-facing): explicit plan scope required.
+Any approval-boundary crossing requires approval.
 
-- **Low:** local docs, narrow config updates, in-scope changes with low blast radius — proceed autonomously.
-- **Medium:** multi-file implementation in one subsystem, validation wiring, behavior-preserving refactors — proceed autonomously.
-- **High:** release gates, deployment, permissions, cross-repo, user-facing — proceed only when plan explicitly covers the change; otherwise stop.
-- **Approval required:** any approval-boundary crossing.
-
+<!-- PAW:REVIEW -->
+## PR Review Feedback
+Run the supplied `$SCRIPT_DIR/gh-pr-comments.sh <pr_number>`; track every INLINE,
+REVIEW SUMMARY and PR COMMENT item in `## PR Review Comments`, initially unchecked.
+Finish each as addressed, deferred (reason), or declined (reason). Stay within scope.
+Re-fetch before handoff, reconcile new comments, and record planned validation results.
 ## Operating Rules
-
-- Keep changes small, readable, and reviewable; stay within task scope; prefer existing repo conventions.
-- Do not treat `.agent/` notes as durable repo docs.
-- Update durable project docs whenever behavior, commands, workflows, reports, policies, config, validation steps, or user-facing behavior change.
-- Prefer reusable validation over ad hoc commands.
-- Resume from task docs if rate-limited or interrupted.
-
+Keep changes small, readable, reviewable and within scope. Update durable project docs
+for changed behavior, commands, workflows, reports, policy/config or validation.
+Prefer reusable checks; resume from task docs after interruption.
 ### Context Pressure
-
-- When context pressure is materially rising, notify the user only at meaningful pressure changes: first high-pressure signal, near-overflow, or after a compaction/split resets the risk. Do not repeat the same warning every turn.
-- That notification must stay brief and action-oriented: name the pressure level, recommend `paw compact <task-name>`, tell the user to archive stale detail, and split the task if growth continues.
-- When pressure is high, the agent should keep its own progress updates lean: prefer file paths, diff summaries, and task-doc references over pasting large snippets or re-explaining settled context.
-- Keep the working surface lean enough for those notifications to be useful: summarize resolved details once, compact completed phases instead of appending long status history, and avoid adding prompt/template prose that reduces available task headroom without adding operational value.
-
+Notify only at meaningful pressure changes (high, near-overflow, or reset after compaction).
+Keep notices brief: name pressure, recommend `paw compact <task-name>`, archive stale
+detail and split growing tasks. Keep updates lean; refer to docs instead of repeating history.
 ### Plan Length Budget
-
-`plan.md` working surface ≤ 350 lines. Move overflow under `### Archived ...` appendix at the bottom (excluded from lint). Run `PAW_LINT_LENGTH=1 paw lint <task>` to check.
-
+AI authors must keep every Markdown file within 150 physical lines, counting blanks,
+comments, fences and history. Shorten first; split valuable topics into linked files.
+Count and refine internally; do not pack huge lines or truncate evidence. Length is
+an AI responsibility, never a CLI/GUI, lint, CI, approval or completion gate.
+The operator requests work, then reviews it; retain non-length approval safeguards.
 ## Code Best Practices
-
-Apply before flipping any `- [ ]` to `- [x]` in `<!-- PAW:IMPLEMENT -->`/`<!-- PAW:REVIEW -->`; plan commits to these in `<!-- PAW:PLAN -->`.
-
-- **Small and readable.** Functions/classes fit on one screen; if not, justify it.
-- **No hard tooling assumptions.** Any tool should be replaceable without rewrites — thin adapters at the boundary.
-- **Composition over inheritance.** Prefer pure functions; prefer composition for extension.
-- **No premature abstraction.** Three cases earn an abstraction; one or two do not.
-- **Small public surface.** Every exported name is a future migration cost.
-- **Useful error messages.** Name the file and failed expectation; never just "error".
-- **Tests assert behaviour.** Survives clean refactor; fails only when behavior changes, not when implementation details are reorganized.
-- **Vertical slices.** Ship narrow end-to-end increments; avoid subsystem-first horizontal phases.
-- **Test first.** Follow red-green-refactor: write one behavior-focused failing test, make that single test pass with one implementation step, repeat, then refactor production code and tests after the loop if cleanup is still needed.
-- **Plan length budget.** See "Plan Length Budget" above.
-
+Apply before completing checkboxes. Keep functions/classes readable on one screen or
+justify size; use thin replaceable tool adapters, pure functions and composition.
+Three cases earn abstraction; keep public exports small and errors specific to file/failure.
+Use behavior tests that survive refactoring. Repeat red-green-refactor per vertical slice:
+one failing behavior test, one implementation step, repeat; defer test cleanup until then.
 ## Validation Contract
-
-Prefer existing reusable targets. Plans must name targeted changed-area validation first, the full local command required after final implement/diagnose changes, and explicit escalation triggers for earlier broader or full validation. Plan/edit/read-only review remains proportionate. Record one named outcome per required check, with indented Command/Tier/Log metadata. Preserve failures and missing original checks when substitutes pass; only an explicit successful same-name rerun supersedes that check. Context/Development history is distinct from Implementation results; see examples/docs/testing.md for evidence semantics. Full validation remains required for shared/high-risk changes, workflow/CI edits, security-sensitive areas, targeted-check failures, explicit user/reviewer request, unclear blast radius, or PR-ready handoff when full validation has not otherwise been run. Run relevant file-type checks (YAML, shell, JSON, workflow, unit, integration). Record commands run, results, unavailable tools, validation tier chosen with rationale, and the final `git status` plus diff review.
-
+Start with targeted changed-area checks. Escalate for shared/high-risk or workflow/CI
+changes, security, failures, unclear blast radius, explicit request or PR-ready handoff.
+The full local command remains mandatory after final implement/diagnose changes.
+Record `Validation tier chosen: <targeted|broader|full>` and rationale in plan.md.
+Record one named outcome per required check with indented Command/Tier/Log metadata
+and code identities. Only an explicit successful same-name rerun supersedes failure;
+preserve missing original checks when substitutes pass. Separate Context/Development
+history from Implementation results; see [evidence semantics](../examples/docs/testing.md).
+Run applicable file-type/unit/integration checks; record missing tools and final diff/status.
 ## Quality Contract
-
-Plan/edit/prototype producers use Quality policy version 1 for new plans, the
-[canonical quality rubric](../examples/docs/quality.md), an Acceptance Evidence
-table (Criterion, Observable behavior, Planned check, Evidence destination), and a
-post-implementation Review requirement of A- or higher with no production blockers.
-Preserve explicit older/inherited thresholds with their source; A- remains the
-improvement target. Do not retroactively version historical plans without approval.
-Each user constraint and inherited blocker needs a row. Before final full validation,
-perform a bounded self-check: select applicable risk families from the guide, name
-one counterexample and behavioral check for each, and explain exclusions specifically.
-At wrap-up map rows to actual named checks and durable log/code identities; record
-justified waivers without presenting missing required checks as passed. Independent
-Review remains after implementation, outside implementation checkboxes.
-
+New plan/edit/prototype outputs use Quality policy version 1 and the
+[canonical quality rubric](../examples/docs/quality.md). Include an Acceptance Evidence
+table (Criterion, Observable behavior, Planned check, Evidence destination), with a row
+for each user constraint and inherited blocker. Preserve explicit inherited thresholds
+and sources; A- is the improvement target. Do not retroactively version old plans.
+Before final full validation, select applicable risk families, one concrete counterexample
+and behavioral check each, and specific exclusion reasons. At wrap-up map rows to actual
+named checks and durable log/code identities. Explain waivers without blessing missing
+required checks. Independent Review requires A- or higher with no production blockers,
+outside implementation checkboxes; explicit older gates remain authoritative.
 ## Acceptance Criteria
-
-Every plan must define concrete, verifiable criteria before implementation: mapped to approved scope, testable or reviewable, including required durable doc updates and the validation needed for handoff.
-
+Define concrete, verifiable criteria before implementation, tied to approved scope,
+durable docs and required validation.
 ## Final Response Expectations
-
-At handoff, report changes made, durable doc updates, `.agent/` doc updates, validation results, risks or follow-ups, git status plus diff summary, and whether implementation had to stop because the approved plan no longer gave a safe answer. For plan-only runs, note that only `.agent/<task>/` changed and implementation starts only after user approval.
+Report changes, durable/task docs, validation, risks/follow-ups, git status/diff summary,
+and any approved-plan boundary stop. For plan-only runs, state the limited doc scope
+and that implementation needs approval.

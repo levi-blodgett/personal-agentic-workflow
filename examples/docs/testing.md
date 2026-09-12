@@ -1,18 +1,13 @@
 # Validation and recorded evidence
-
 ## Required validation
-
 ```bash
 # Start with checks for the changed area, for example:
 PYTHONDONTWRITEBYTECODE=1 bats tests/makefile.bats tests/plugin-install.bats tests/paw-dispatcher.bats
 # After the final implementation/doc change:
 PYTHONDONTWRITEBYTECODE=1 make check
 ```
-
 Every implement/diagnose completion requires the named full local validation command after the final implementation change, including batch, GUI and docs-only tasks. Start with targeted changed-area checks, escalate earlier for shared/high-risk behavior or failures, then run `PYTHONDONTWRITEBYTECODE=1 make check` on final code. Reuse a successful full run on that final implementation; later implementation changes require another full run. Missing tools and failed checks block completion, including 100%/Review status. Record `Validation tier chosen: full` and the rationale in `plan.md`, followed by status/diff review.
-
 New plans name both targeted and full commands. For older plans, discover and record the canonical repository command from build targets/docs in preflight; if none can be established, report a specific blocker. Routine local validation needs no repeated approval, but this policy does not authorize dependencies or external services. Plan/edit/read-only review stays proportionate. These are agent instructions, not a machine-enforced execution attestation. See [`tests/README.md`](../../tests/README.md) for fixtures and coverage.
-
 
 | Decision | Required action |
 |---|---|
@@ -21,12 +16,10 @@ New plans name both targeted and full commands. For older plans, discover and re
 | Higher risk | Escalate earlier for shared/high-risk areas, CI/workflows, security, targeted failures, explicit request, unclear blast radius or PR-ready handoff without a full run. |
 | Before final full run | Bounded [Quality Contract self-check](quality.md): selected families, counterexamples/checks and specific exclusions. |
 | Handoff | Full command passes on final content; map Acceptance Evidence to actual checks and log/code identity; review status/diff; record 100% / Review. |
-
 Independent grading and production sign-off follow implementation; inherited thresholds
 remain in the Review requirement. A review never substitutes for required implementation
 checks. Runnable suites, prerequisites, fixtures and browser harness instructions belong
 to the [test-suite guide](../../tests/README.md).
-
 ## Recorded validation in the GUI
 
 The dashboard and task details summarize `plan.md` → **Validation Performed**.

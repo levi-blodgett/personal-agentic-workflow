@@ -123,6 +123,12 @@ class Publication(Eligibility):
             return self.remote['url']
         self.fail(str(args))
 
+    def test_oversized_current_and_proposed_body_can_publish(self):
+        self.body.write_text(self.body.read_text() + '\n' * 151)
+        preview = publication.prepare(self.task, self.repo)
+        publication.publish(self.task, self.repo, preview['token'])
+        self.assertIsNotNone(self.remote)
+
     def test_create_repeat_and_second_task_preserve_owner(self):
         first = publication.prepare(self.task, self.repo)
         self.assertNotIn('Unimplemented unrelated', first['candidate'])

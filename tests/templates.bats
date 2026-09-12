@@ -34,64 +34,55 @@ TEMPLATES_DIR="$REPO_ROOT/templates"
 }
 
 @test "templates: prompt_instructions.md mentions vertical slices and canonical TDD guidance" {
-  grep -qF "Prefer vertical slices over horizontal workstreams" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "Use multiple phases or slices when needed" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "follow red-green-refactor" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "behavior-focused failing test" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "fails only when behavior changes" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "defer test-cleanup refactors until the implementation loop is complete" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Use enough vertical slices for the scope." "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Repeat red-green-refactor per vertical slice" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "red-green-refactor" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "one failing behavior test" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "behavior tests that survive refactoring" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "defer test cleanup until then" "$REPO_ROOT/prompts/prompt_instructions.md"
 }
 
 @test "templates: prompt_instructions.md requires adjacent Progress notes for completed items" {
-  grep -qF "paw lint" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF 'one-line `Progress:` note directly beneath that checkbox in the same edit before moving to the next checkbox' "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "do not batch several completed items before updating the plan" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Progress:" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF 'Progress:` in the same edit before moving to the next checkbox' "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Do not batch updates." "$REPO_ROOT/prompts/prompt_instructions.md"
 }
 
 @test "templates: status contract standardizes completion and completed next work" {
   grep -qF "Estimated completion" "$REPO_ROOT/prompts/prompt_instructions.md"
   grep -qF "bare integer percentage" "$REPO_ROOT/prompts/prompt_instructions.md"
   grep -qF "25%" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF 'When `Estimated completion` is `100%`' "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF '`Next work` must be `Review.`' "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF 'At 100%, Next work' "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF 'Next work must be `Review.`' "$REPO_ROOT/prompts/prompt_instructions.md"
 }
 
 @test "templates: prompt_instructions.md defines context-pressure guidance and lean updates" {
-  grep -qF "context pressure" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Context Pressure" "$REPO_ROOT/prompts/prompt_instructions.md"
   grep -qF "meaningful pressure changes" "$REPO_ROOT/prompts/prompt_instructions.md"
   grep -qF "paw compact" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "archive stale detail" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "split the task" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "keep its own progress updates lean" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "archive stale" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "split growing tasks" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Keep updates lean" "$REPO_ROOT/prompts/prompt_instructions.md"
 }
 
 @test "templates: prompt_instructions.md documents user-answer placeholders and implement blocking" {
   grep -qF "USER ANSWER (UNRESOLVED):" "$REPO_ROOT/prompts/prompt_instructions.md"
   grep -qF "USER ANSWER (PROVIDED):" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "ask as many follow-ups as the task needs" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "must not run while any \`USER ANSWER (UNRESOLVED):\` or \`USER ANSWER (PROVIDED):\` line remains in \`plan.md\`" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Ask high-value task-specific questions" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Either marker anywhere in plan.md blocks implementation/diagnosis" "$REPO_ROOT/prompts/prompt_instructions.md"
 }
 
 @test "templates: prompt_instructions.md documents targeted-first validation and escalation" {
-  grep -qF "Run the validation decision ladder" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "targeted changed-area validation" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "validation decision" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "targeted changed-area checks" "$REPO_ROOT/prompts/prompt_instructions.md"
   grep -qF "Validation tier chosen" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "Escalate to broader or full validation" "$REPO_ROOT/prompts/prompt_instructions.md"
-  grep -qF "explicit user/reviewer request" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Escalate for shared/high-risk" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "explicit request" "$REPO_ROOT/prompts/prompt_instructions.md"
 }
 
-@test "templates: prompt_instructions.md working surface <= 300 lines" {
-  local count
-  count=$(awk '
-    /^###[[:space:]]+Archived/ { in_archive=1 }
-    in_archive && /^#{1,2}[[:space:]]/ && !/^###[[:space:]]+Archived/ { in_archive=0 }
-    in_archive { next }
-    /^[[:space:]]*$/ { next }
-    /^[[:space:]]*<!--.*-->[[:space:]]*$/ { next }
-    { lines++ }
-    END { print lines+0 }
-  ' "$REPO_ROOT/prompts/prompt_instructions.md")
-  [ "$count" -le 300 ]
+@test "templates: Markdown length belongs to AI authoring" {
+  grep -qF "AI authors must keep every Markdown file within 150 physical lines" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "never a CLI/GUI, lint, CI, approval or completion gate" "$REPO_ROOT/prompts/prompt_instructions.md"
 }
 
 @test "templates: each template file has an H1 line" {
@@ -116,7 +107,7 @@ TEMPLATES_DIR="$REPO_ROOT/templates"
 }
 
 @test "templates: completion requires final full validation and old-plan discovery" {
-  grep -qF "Every implement/diagnose completion" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "full local command remains mandatory after final implement/diagnose changes" "$REPO_ROOT/prompts/prompt_instructions.md"
   grep -qF "discover and record" "$REPO_ROOT/prompts/prompt_instructions.md"
   grep -qF "Full local validation:" "$TEMPLATES_DIR/plan.md"
   grep -qF "after the final implementation change" "$TEMPLATES_DIR/plan.md"
@@ -197,7 +188,7 @@ MD
 @test "templates: separate independent review from implementation handoff" {
   grep -qF "outside implementation checkboxes" "$TEMPLATES_DIR/plan.md"
   grep -qF "record 100% and" "$TEMPLATES_DIR/plan.md"
-  grep -qF "Preserve explicit task-specific gates" "$REPO_ROOT/prompts/prompt_instructions.md"
+  grep -qF "Preserve task-specific gates" "$REPO_ROOT/prompts/prompt_instructions.md"
 }
 
 @test "templates: illustrative review is complete with synthetic evidence identities" {

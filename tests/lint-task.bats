@@ -300,11 +300,18 @@ MD
   [[ "$output" == *"OK"* ]]
 }
 
-@test "lint-task: length-budget warning fires for bloated fixture" {
-  run env PAW_LINT_LENGTH=1 "$SCRIPTS_DIR/lint-task.sh" "$FIXTURES_DIR/sample-task-bloated"
+@test "lint-task: oversized Markdown remains valid" {
+  local task="$BATS_TEST_TMPDIR/bloated"
+  cp -R "$FIXTURES_DIR/sample-task-valid" "$task"
+  python3 -c 'from pathlib import Path; import sys; Path(sys.argv[1]).write_bytes(b"\n" * 151)' "$task/notes.md"
+  run env PAW_LINT_LENGTH=0 "$SCRIPTS_DIR/lint-task.sh" "$task"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"OK"* ]]
+}
 
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"working surface"* ]]
+@test "lint-task: shared Markdown boundary journeys" {
+  run python3 -B "$SCRIPTS_DIR/../tests/markdown-budget.py"
+  [ "$status" -eq 0 ]
 }
 
 @test "lint-task: repo mode suppresses pr.md info when repo has no template" {

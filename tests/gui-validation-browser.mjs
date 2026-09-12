@@ -247,6 +247,28 @@ gui.main()`,
   await until('formatted A- restriction', () => evaluate("document.querySelector('.grade-a')?.textContent === 'Review grade: A-' && document.body.textContent.includes('Legacy review lacks completed attempt evidence')"));
   console.log('PASS: completed replacement launches stubbed Review; bold B+ stays clean/blue through polling; legacy A- requires completed attempt evidence before publication');
 
+  rmSync(join(task, 'review.md'));
+  rmSync(join(task, 'metadata.gitconfig'));
+  const approved = '## Implementation Phases\n- [ ] Next.\n## Current Status\n- Estimated completion: 50%\n- Next work: Implement.\n';
+  writeFileSync(join(task, 'plan.md'), approved);
+  const previewUrl = `${url}fragments/task-doc/checks?path=${encodeURIComponent(task)}&active_repo=${encodeURIComponent(repo)}&doc=plan&approve=implementation`;
+  assert.match(await (await fetch(previewUrl)).text(), /Approve Implementation/);
+  writeFileSync(join(task, 'plan.md'), approved + '\n'.repeat(151 - approved.split('\n').length + 1));
+  const post = async () => {
+    const response = await call('Runtime.evaluate', {
+      expression: `(async () => (await fetch(${JSON.stringify(url + 'task/checks/implement')}, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:${JSON.stringify(new URLSearchParams({path:task,active_repo:repo}).toString())}})).text())()`,
+      awaitPromise: true, returnByValue: true,
+    });
+    return response.result.value;
+  };
+  assert.match(await post(), /started paw review \(fixture\)/);
+  const linked = 'plan-validation-performed-123456789abc.md';
+  writeFileSync(join(task, linked), '### Implementation results\n- browser: failed\n  Log: original.log; code abc\n- lint: passed (rerun)\n');
+  writeFileSync(join(task, 'plan.md'), `## Validation Performed\n[Validation evidence](${linked}).\n<!-- PAW:VALIDATION ${linked} -->\n`);
+  await call('Page.navigate', {url});
+  await state('attention');
+  console.log('PASS: JavaScript POST accepts approval after growth beyond 150 lines, and linked original browser failure stays Attention');
+
 } catch (error) {
   for (const child of children) if (child.errors) console.error(child.errors.slice(-4000));
   throw error;

@@ -58,4 +58,4 @@ CLI and GUI call the same eligibility, candidate and publication operations. She
 task-store helpers retain canonical body resolution. Branch locks live in the Git
 common directory; immutable preview tokens bind candidate, task/review and remote
 identity. Remote mutation is confined to explicit publish POSTs/CLI invocations.
-See [publication guarantees and limits](workflow.md#reviewed-task-pr-publication).
+See [publication guarantees and limits](publication-workflow.md#reviewed-task-pr-publication).

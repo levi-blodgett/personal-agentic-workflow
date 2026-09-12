@@ -26,9 +26,7 @@
 #   PAW_BACKEND         backend name (default: codex); resolves either the
 #                       built-in module scripts/lib/backends/<name>.sh or an
 #                       external plugin executable named paw-backend-<name>
-#   PAW_LINT_LENGTH     working-surface budget check default: 1 (enabled); set to 0
-#                       to disable in `paw lint` / `lint-task.sh` (blank lines
-#                       and single-line HTML comment lines are not counted)
+#   PAW_LINT_LENGTH     retired; AI authors keep Markdown within 150 physical lines
 #   PAW_BROWSE_PAGER    pager override for `paw browse`; set to cat for
 #                       deterministic terminal output
 #   PAW_PROMPT_OPTIMIZE set to 1 to enable haiku pre-optimizer for `paw plan`:
@@ -266,9 +264,7 @@ Environment overrides:
   PAW_BACKEND         backend name (default: codex); resolves either the
                       built-in module scripts/lib/backends/<name>.sh or an
                       external plugin executable named paw-backend-<name>
-  PAW_LINT_LENGTH     working-surface budget check default: 1 (enabled); set to 0
-                      to disable in `paw lint` / `lint-task.sh` (blank lines
-                      and single-line HTML comment lines are not counted)
+  PAW_LINT_LENGTH     retired; AI authors keep Markdown within 150 physical lines
   PAW_BROWSE_PAGER    pager override for `paw browse`; set to cat for
                       deterministic terminal output
   PAW_PROMPT_OPTIMIZE set to 1 to enable haiku pre-optimizer for `paw plan`:
@@ -3305,61 +3301,8 @@ cmd_compact() {
     exit 2
   fi
 
-  local plan="$task_dir/plan.md"
-  local moved_phases=0
+  python3 -B "$SCRIPT_DIR/lib/markdown_documents.py" "$task_dir" || return $?
 
-  # --- Archive ticked - [x] phase items from plan.md ---
-  if [[ -f "$plan" ]]; then
-    local tmp
-    tmp=$(mktemp)
-    # Collect ticked items plus their immediate Progress line from the
-    # Implementation Phases section.
-    local ticked_items
-    ticked_items=$(awk '
-      /^## Implementation Phases/ { in_phases=1; next }
-      in_phases && /^## / { in_phases=0 }
-      in_phases && /^- \[x\]/ {
-        print
-        capture_progress = 1
-        next
-      }
-      capture_progress && /^[[:space:]]+Progress:/ {
-        print
-        capture_progress = 0
-        next
-      }
-      capture_progress { capture_progress = 0 }
-    ' "$plan")
-
-    if [[ -n "$ticked_items" ]]; then
-      local count
-      count=$(echo "$ticked_items" | wc -l | tr -d ' ')
-      # Remove ticked items from the phases section; append to ### Archived Phases.
-      awk '
-        /^## Implementation Phases/ { in_phases=1; print; next }
-        in_phases && /^## / { in_phases=0 }
-        in_phases && /^- \[x\]/ { skip_progress = 1; next }
-        skip_progress && /^[[:space:]]+Progress:/ { skip_progress = 0; next }
-        skip_progress { skip_progress = 0 }
-        { print }
-      ' "$plan" > "$tmp"
-
-      # Append ### Archived Phases if not already present.
-      if ! grep -q '^### Archived Phases' "$tmp"; then
-        printf '\n### Archived Phases\n' >> "$tmp"
-      fi
-      echo "$ticked_items" >> "$tmp"
-      mv "$tmp" "$plan"
-      moved_phases=$count
-    fi
-  fi
-
-  if [[ $moved_phases -eq 0 ]]; then
-    echo "compact: nothing to archive in $task_name" >&2
-  else
-    echo "compact: archived $moved_phases completed phase(s) → ### Archived Phases in plan.md" >&2
-  fi
-  return 0
 }
 
 cmd_crash_log() {

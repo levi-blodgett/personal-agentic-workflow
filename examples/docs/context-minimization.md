@@ -16,9 +16,10 @@ Reopen original evidence whenever a summary is insufficient.
 These are local code observations, not measured savings:
 
 - `cmd_compact` in [scripts/paw](../../scripts/paw) moves completed checkboxes and
-  adjacent Progress notes into `### Archived Phases` in the **same file**. Reading
-  the whole file still loads the archive. The 350-line working-surface lint budget
-  also excludes archives; it is not a context-token limit.
+  their complete records to linked files, reducing the active plan. All Markdown,
+  including history, has a 150-physical-line AI authoring target; this is not a runtime gate or token limit.
+  Explicitly linked validation is loaded for evidence classification; other history
+  stays available through document links.
 - `emit_prompt_context_notice` estimates launch text length divided by four
   against a warning threshold. It does not observe later file reads, tool output,
   injected instructions or live context occupancy.

@@ -6,7 +6,7 @@
 | [install-paw.sh](install-paw.sh) | Exact checkout-owned launcher links; [installation](../examples/docs/install.md) |
 | [setup-repo.sh](setup-repo.sh) | Local `.agent/` exclusion |
 | [list-tasks.sh](list-tasks.sh) / [lint-task.sh](lint-task.sh) | Central/legacy status and contract checks |
-| [gh-pr-comments.sh](gh-pr-comments.sh) | Paginated unresolved PR feedback; [format](../examples/docs/cli-reference.md#gh-pr-comments-scriptsgh-pr-commentssh) |
+| [gh-pr-comments.sh](gh-pr-comments.sh) | Paginated unresolved PR feedback; [format](../examples/docs/cli-diagnostics.md#gh-pr-comments-scriptsgh-pr-commentssh) |
 | [gh-actions-review.sh](gh-actions-review.sh) | Same-day failure triage and optional deduplicated issue creation |
 | [lib](lib/README.md) | Shared storage, GUI, review and backend modules |
 
@@ -27,7 +27,7 @@ Shared overrides (backend-specific behavior: [backends](../examples/docs/backend
 | `PAW_PROMPT_WARN_TOKENS` | `150000` | Context-pressure telemetry threshold used for the 75% "building" warning and 100% overflow-risk warning before backend invocation |
 | `PAW_TASK_HOME` | `${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks` | Central local task-store root. Tests and advanced users can override it. |
 | `PAW_CODEX_DANGEROUS` | `0` | Codex backend only: use dangerous no-sandbox mode instead of `-s danger-full-access` |
-| `PAW_LINT_LENGTH` | `1` | Working-surface budget check (350-line limit) in `paw lint` / `lint-task.sh`. Default is enabled; set `PAW_LINT_LENGTH=0` to disable. (blank lines and single-line HTML comment lines excluded) |
+| `PAW_LINT_LENGTH` | retired | AI authors keep Markdown within 150 physical lines; no runtime length check. |
 When these defaults matter operationally, defer to `paw model` and the backend docs: when `PAW_MODEL` is unset, resolution still varies by backend, and `codex` is the current default backend.
 
 
@@ -37,7 +37,7 @@ Register public commands in `_paw_command_table()` and model-resolved AI command
 in `_paw_model_command_table()`. Reuse `_seed_task_templates()`, `_join_prompt_extras()`,
 `_prompt_append_human_extras()`, `_prompt_pr_md_usage_note()`, branch PR helpers and
 `_run_model_subcommand()`; use task_store helpers for lookup, metadata and status.
-Extend dispatcher/prompt-body regressions and update the [CLI reference](../examples/docs/cli-reference.md#shared-command-authoring-contract).
+Extend dispatcher/prompt-body regressions and update the [CLI reference](../examples/docs/cli-usage.md#shared-command-authoring-contract).
 Record inspected upstream skills/repo touchpoints in the task package.
 
 PR commands resolve canonical branch bodies through `task_store.sh`; review lookup

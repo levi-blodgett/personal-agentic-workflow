@@ -24,10 +24,7 @@ Usage:
   $(basename "$0") --repo [repo-path]  lint every .agent/<task>/ under a repo
   $(basename "$0") -h | --help         show this message
 
-Environment:
-  PAW_LINT_LENGTH  working-surface budget check; default: 1 (enabled).
-                   Set PAW_LINT_LENGTH=0 to disable.
-                   (blank lines and single-line HTML comment lines are excluded)
+Markdown length is an AI authoring responsibility; PAW_LINT_LENGTH is retired.
 
 Exits 0 when all checked tasks pass, 1 when any task has issues, 2 on usage error.
 EOF
@@ -148,31 +145,6 @@ check_completed_items_have_progress() {
   return 0
 }
 
-check_length_budget() {
-  local plan="$1"
-  local in_archive=0 working_lines=0
-  # _html_re must be a variable: bash [[ =~ ]] misparsed < and > when the pattern
-  # is written inline, treating them as redirects rather than regex metacharacters.
-  local _html_re='^[[:space:]]*<!--.*-->[[:space:]]*$'
-  while IFS= read -r line; do
-    if [[ "$line" =~ ^###[[:space:]]+Archived ]]; then
-      in_archive=1
-    elif [[ $in_archive -eq 1 && "$line" =~ ^#{1,2}[[:space:]] ]]; then
-      in_archive=0
-    fi
-    [[ $in_archive -eq 1 ]] && continue
-    # Exclude blank lines and single-line HTML comment lines from the count.
-    [[ -z "${line//[[:space:]]/}" ]] && continue
-    [[ "$line" =~ $_html_re ]] && continue
-    working_lines=$(( working_lines + 1 ))
-  done < "$plan"
-  if [[ $working_lines -gt 350 ]]; then
-    echo "  WARN: plan.md working surface is $working_lines lines (budget: 350); archive older content under '### Archived ...' to stay within budget"
-    return 1
-  fi
-  return 0
-}
-
 lint_one() {
   local task_dir="$1"
   local task_name
@@ -202,9 +174,6 @@ lint_one() {
     python3 "$SCRIPT_DIR/lib/quality_plan.py" "$plan" || issues=$((issues + 1))
     check_unticked_when_done "$plan" || issues=$((issues + 1))
     check_completed_items_have_progress "$plan" || issues=$((issues + 1))
-    if [[ "${PAW_LINT_LENGTH:-1}" != "0" ]]; then
-      check_length_budget "$plan" || issues=$((issues + 1))
-    fi
   fi
 
   if [[ ! -f "$task_dir/contract.md" ]]; then

@@ -2384,3 +2384,34 @@ assert 'href=\'#dashboard-controls\'' in s and 'Create a New Plan' in s
 assert '0 of 0 tasks' in s
 PY
 }
+
+@test "paw gui: approval accepts a plan grown beyond 150 lines after preview" {
+  local port=0 path encoded_path
+  path="$(real_path "$REPO/.agent/gui-task")"
+  encoded_path="$(url_encode "$path")"
+  start_gui "$port"
+  fetch_gui "$port" "/fragments/task-doc/gui-task?path=$encoded_path&doc=plan&approve=implementation" "$BATS_TEST_TMPDIR/preview.html"
+  python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); p.write_text(p.read_text()+"\n"*(151-len(p.read_text().splitlines())))' "$path/plan.md"
+  post_gui "$port" "/task/gui-task/implement" "$(form_encode "path=$path")" "$BATS_TEST_TMPDIR/accept.html"
+  wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
+  stop_gui
+}
+
+@test "paw gui: linked history opens within the task and rejects symlink reads" {
+  local port=0 path name=plan-decisions-123456789abc
+  path="$(real_path "$REPO/.agent/gui-task")"
+  printf '\n[Historical decisions](%s.md).\n' "$name" >> "$path/plan.md"
+  printf '# Retained decisions\nSource B1 remains open; code abc; original.log.\n' > "$path/$name.md"
+  start_gui "$port"
+  fetch_gui "$port" "/task/gui-task?path=$(url_encode "$path")&doc=plan" "$BATS_TEST_TMPDIR/linked.html"
+  grep -q "doc=$name" "$BATS_TEST_TMPDIR/linked.html"
+  fetch_gui "$port" "/task/gui-task?path=$(url_encode "$path")&doc=$name" "$BATS_TEST_TMPDIR/detail.html"
+  grep -q 'Source B1 remains open' "$BATS_TEST_TMPDIR/detail.html"
+  rm "$path/$name.md"
+  printf 'DO NOT EXPOSE\n' > "$BATS_TEST_TMPDIR/outside.md"
+  ln -s "$BATS_TEST_TMPDIR/outside.md" "$path/$name.md"
+  fetch_gui "$port" "/task/gui-task?path=$(url_encode "$path")&doc=$name" "$BATS_TEST_TMPDIR/rejected-link.html"
+  ! grep -q 'DO NOT EXPOSE' "$BATS_TEST_TMPDIR/rejected-link.html"
+  grep -q 'unavailable' "$BATS_TEST_TMPDIR/rejected-link.html"
+  stop_gui
+}

@@ -215,3 +215,11 @@ FIXTURES_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/fixtures" && pwd)"
     [ ! -e "$prefix" ]
   done
 }
+
+@test "make check and CI: do not gate Markdown length" {
+  run make -C "$REPO_ROOT" -n check
+  [ "$status" -eq 0 ]
+  [[ "$output" != *'markdown_budget.py'* ]]
+  run python3 -c 'from pathlib import Path; assert "make docs-lint" not in Path("'"$REPO_ROOT"'/.github/workflows/tests.yml").read_text()'
+  [ "$status" -eq 0 ]
+}

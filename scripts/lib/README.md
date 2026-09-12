@@ -37,3 +37,8 @@ seeding or submission. See [migration recovery](../../examples/docs/workflow.md#
 CLI `begin --template PATH` supplies the PAW_HOME selection. Seed validation is separate
 from historical completion parsing. Render and validate before archiving or changing
 attempt state, then retain archive-before-replacement and atomic final review replacement.
+
+`markdown_budget.py` owns physical counting and scoped file enumeration.
+`markdown_documents.py` writes linked history and reads explicit validation
+references without loading unrelated history. Counting helpers support AI authoring;
+CLI, GUI, lint and CI do not enforce length. Missing linked validation remains visible as a failure.

@@ -45,10 +45,11 @@ MD
   [ "$status" -eq 0 ]
 
   local plan="$REPO/.agent/compact-tick/plan.md"
-  grep -q "^### Archived Phases" "$plan"
-  grep -q "Phase 1: done step one" "$plan"
-  grep -q "Finished the first vertical slice" "$plan"
-  grep -q "Phase 2: done step two" "$plan"
+  grep -q "^### Completed phase details" "$plan"
+  ! grep -q "Phase 1: done step one" "$plan"
+  grep -q "Phase 1: done step one" "$REPO/.agent/compact-tick"/completed-phase-*.md
+  grep -q "Finished the first vertical slice" "$REPO/.agent/compact-tick"/completed-phase-*.md
+  grep -q "Phase 2: done step two" "$REPO/.agent/compact-tick"/completed-phase-*.md
 }
 
 @test "paw compact: removes ticked items from active Implementation Phases section" {
@@ -105,4 +106,9 @@ MD
   run "$PAW" compact compact-noop
   [ "$status" -eq 0 ]
   [[ "$output" == *"nothing to archive"* ]]
+}
+
+@test "paw compact: interrupted writes and linked evidence preserve failures" {
+  run python3 -B "$SCRIPTS_DIR/../tests/markdown-documents.py"
+  [ "$status" -eq 0 ]
 }

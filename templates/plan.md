@@ -1,3 +1,4 @@
+<!-- Keep every Markdown file <=150 physical lines; shorten first, then link useful detail. -->
 # Plan — `<task-name>`
 
 ## Objective

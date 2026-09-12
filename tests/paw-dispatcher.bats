@@ -764,3 +764,28 @@ MD
   [[ "$output" == *"issue-review: sonnet"* ]]
   [[ "$output" == *"pr-address-comments: sonnet"* ]]
 }
+
+@test "Markdown guidance: oversized tasks launch through model entrypoints" {
+  make_task budget
+  python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); p.write_text(p.read_text()+"\n"*151)' "$REPO/.agent/budget/plan.md"
+  for command in implement edit diagnose to-issues; do
+    run "$PAW" "$command" budget
+    [ "$status" -eq 0 ]
+    [ -e "$BATS_TEST_TMPDIR/claude.args" ]
+  done
+  run "$PAW" review budget
+  [[ "$output" == *"Incomplete review:"* ]]
+  [[ "$output" != *"physical lines"* ]]
+}
+
+@test "Markdown guidance: oversized successful producer stays successful" {
+  make_task budget
+  cat >> "$SHIM_DIR/claude" <<'SHIM'
+python3 -c 'from pathlib import Path; import os; Path(os.environ["REPO"] + "/.agent/budget/notes.md").write_bytes(b"\n" * 151)'
+SHIM
+  export REPO
+  run "$PAW" implement budget
+  [ "$status" -eq 0 ]
+  run python3 -c 'from pathlib import Path; import sys; rows=list(Path(sys.argv[1]).glob("*.gitconfig")); assert rows; assert all("status = failed" not in p.read_text() for p in rows)' "$REPO/.agent/budget/runs"
+  [ "$status" -eq 0 ]
+}
