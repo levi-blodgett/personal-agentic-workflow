@@ -1,386 +1,161 @@
 # CLI Reference
 
-Implement/diagnose completion requires full local validation after final changes, including batch, GUI and docs-only tasks. See [validation policy and recorded evidence](testing.md).
-
-Complete reference for the `paw` CLI subcommands, environment overrides, Makefile targets, and operator-facing runtime behavior.
+[Workflow](workflow.md) owns approval, task storage, review and cleanup policy;
+[GUI](gui.md) covers dashboard operation. Use `paw help` for the dispatcher synopsis.
+All task-relative filenames below refer to the resolved central/legacy package.
 
 ## `paw` CLI
 
-`scripts/paw` wraps the prompts below so day-to-day invocation stays short. Put `scripts/` on your `PATH` (or run `make install` to symlink `scripts/paw` into `~/bin`) to use it from any repo. The install target adds only the `paw` launcher; by default that launcher resolves built-in helper modules from the checkout it points at, and any external `paw-backend-<name>` plugin must already be on your `PATH`.
-
 ```text
 paw plan <task-name> "<prompt>" [--dry-run]
-                                       launch a plan-only run; seeds template files into
-                                       the central task store by default, records the current
-                                       branch/worktree assignment when inside a
-                                       git repo, and investigates repo landmark
-                                       files directly; --dry-run prints the prompt
-                                       and exits without invoking the backend;
-                                       model: PAW_MODEL
-                                       (backend-specific default)
 paw architecture [--pick <candidate-number>] [focus...]
-                                       run a repo-aware architecture review;
-                                       the first pass explores the repo and
-                                       writes numbered candidates to
-                                       `.agent/architecture/candidates.md`,
-                                       then follow-up runs use
-                                       `--pick <candidate-number>` to resume
-                                       the selected path through
-                                       `.agent/architecture/grill.md`; model:
-                                       PAW_MODEL (backend-specific default)
-paw teach [focus...]                   map the relevant modules and callers for
-                                       an unfamiliar area; lightweight repo
-                                       orientation only, with no task package
-                                       and no automatic durable-doc writing;
-                                       model: PAW_MODEL
-                                       (backend-specific default)
-paw review <task-name> [extras...]     run a short task-quality review for a
-                                       completed task package; seeds
-                                       `review.md` and prompts for a grade,
-                                       quality threshold comparison,
-                                       architectural/design choices,
-                                       improvement notes, and recommendations;
-                                       model: PAW_MODEL
-paw prototype <task-name> [extras...]  create a plan-only replacement package
-                                       from a reviewed task plus its
-                                       `review.md`; writes prototype lineage
-                                       metadata, asks the planner to add a
-                                       `## Prototype Source` section, and after
-                                       successful planning attempts to revert
-                                       the reviewed task's tracked local diff
-                                       from saved Git metadata; model: PAW_MODEL
-paw implement <task-name> [extras...]  resume/complete the in-progress task;
-                                       reuses the task's saved branch/worktree
-                                       assignment when safe and otherwise
-                                       errors; also refuses to run while
-                                       plan.md still contains `USER ANSWER
-                                       (UNRESOLVED):` or `USER ANSWER
-                                       (PROVIDED):`; optional extra text is
-                                       appended as "Human extras:" to the prompt
-paw implement-batch <task-name>...     launch multiple eligible approved tasks
-                                       concurrently; rejects the whole batch
-                                       before launch if any selected task is
-                                       missing, complete, already running, or
-                                       still has `USER ANSWER` placeholders
-paw diagnose <task-name> [extras...]   run the debugging-specific workflow for
-                                       an approved task; reuses the same saved
-                                       branch/worktree assignment and
-                                       placeholder guardrails as
-                                       `paw implement`, but forces a
-                                       feedback-loop-first reproduce →
-                                       hypothesize → instrument → fix →
-                                       cleanup flow and keeps reviewable debug
-                                       notes in `plan.md`; model: PAW_MODEL
-paw tighten <task-name> [extras...]    sharpen an existing task package one
-                                       question at a time before implementation;
-                                       reuses the task's saved branch/worktree
-                                       assignment when safe, seeds or reuses
-                                       `.agent/<task>/tighten.md` as the
-                                       interactive checkpoint, keeps `plan.md`
-                                       as the plan source of truth, and uses
-                                       PAW_MODEL (backend-specific default)
-paw edit <task-name> [extras...]       iterate on .agent/<task>/ plan docs
-                                       (plan-only); reuses the task's saved
-                                       branch/worktree assignment when safe;
-                                       uses PAW_MODEL (backend-specific
-                                       default); errors if task missing
-paw completion zsh                     print the zsh completion script for paw;
-                                       v1 is zsh-only and completes top-level
-                                       subcommands only
-paw task-migrate [repo-path ...]       copy legacy `.agent/<task>/` packages for
-                                       one or more explicit repos into the
-                                       central task store and write local
-                                       provenance metadata beside the copied
-                                       Markdown files
+paw teach [focus...]
+paw review <task-name> [extras...]
+paw prototype <task-name> [extras...]
+paw implement <task-name> [extras...]
+paw implement-batch <task-name>...
+paw diagnose <task-name> [extras...]
+paw tighten <task-name> [extras...]
+paw edit <task-name> [extras...]
+paw to-issues <task-name> [--publish]
+paw task-migrate [repo-path ...]
 paw gui [start|stop|restart|kill] [--host 127.0.0.1] [--port 0|<port>] [--repo <path>] [--all]
-                                       foreground, background, stop, restart, or
-                                       force-stop the read-only local dashboard;
-                                       scoped mode shows central plus legacy
-                                       `.agent/<task>/` packages for one repo,
-                                       while `--all` shows every central task
-                                       store grouped by repo identity; binds to
-                                       127.0.0.1 by default, prints the URL,
-                                       and refuses non-local hosts
-paw to-issues <task-name>              draft tracer-bullet issue slices under
-                                       .agent/<task>/issues/ for an approved
-                                       task package; writes an index.md review
-                                       breakdown plus one draft file per slice;
-                                       model: PAW_MODEL
-paw to-issues <task-name> --publish    publish the reviewed drafts in
-                                       .agent/<task>/issues/*.md through GitHub
-                                       in dependency order; updates per-draft
-                                       metadata and plan.md issue tracking;
-                                       requires gh
-paw pr-submit <task-name>              create a draft PR from the branch PR body;
-                                       reuses the task's saved branch/worktree
-                                       assignment when safe; records PR number +
-                                       URL back into plan.md and the PR body;
-                                       requires gh
-paw issue-submit <task-name>           create a GitHub issue from
-                                       .agent/<task>/issue.md; reuses the task's
-                                       saved branch/worktree assignment when
-                                       safe; records issue number + URL back
-                                       into plan.md and issue.md; requires gh
-paw pr-review <pr-number>              first run collects PR comments into
-                                       .agent/<task>/review.md; later runs submit
-                                       that saved draft as a PR review comment;
-                                       requires gh (and jq on first-run fetch)
-paw issue-review <issue-number>        create or refresh
-                                       .agent/<issue-number>-issue-review/,
-                                       fetch the GitHub issue title/body into
-                                       issue.md, and run a plan-only pass from
-                                       the saved issue body; model: PAW_MODEL;
-                                       requires gh
-paw pr-address-comments <pr-number>    create a plan for addressing PR review
-                                       comments; seeds .agent/<pr-number>-review/
-                                       with templates and comments.md; plan only —
-                                       use 'paw implement <pr-number>-review' to
-                                       execute; model: PAW_MODEL;
-                                       requires gh and jq
-paw compact <task-name>                archive completed Implementation Phases items
-                                       in plan.md to keep the working surface lean;
-                                       idempotent
-paw archive <task-name>                move a central task package under the
-                                       repo store's `.archive/` folder so
-                                       active CLI and GUI task lists omit it
-paw browse <task-name>                 browse a resolved task package's Markdown
-                                       docs in the terminal; resolves central
-                                       tasks before legacy `.agent/<task>/`
-                                       packages; uses PAW_BROWSE_PAGER, then
-                                       PAGER, then less -R, otherwise stdout
-paw crash-log <task-name>              print crash log for a task
-                                       (.agent/<task>/crash.log); prints
-                                       "no crashes recorded" when absent; exit 0
-paw list [repo-path]                   list central and legacy task packages plus current status
-                                       and lightweight running state
-paw lint [task-dir|--repo p]           verify task package(s) against the contract
-paw model [-v|--verbose]               print resolved model for each subcommand;
-                                       with -v/--verbose also prints PAW_BACKEND,
-                                       PAW_STREAM, and PAW_MAX_TURNS
-paw setup [repo-path]                  add .agent/ to .git/info/exclude for legacy/local compatibility
-paw help                               show this message
+paw completion zsh
+paw pr-submit <task-name>
+paw issue-submit <task-name>
+paw pr-review <pr-number>
+paw issue-review <issue-number>
+paw pr-address-comments <pr-number>
+paw gh-actions-review [--create-issue]
+paw compact <task-name>
+paw archive <task-name>
+paw browse <task-name>
+paw list [repo-path]
+paw lint [task-dir|--repo p]
+paw model [-v|--verbose]
+paw setup [repo-path]
+paw crash-log <task-name>
+paw help
 ```
 
-Every AI-backed subcommand prints a consistent launch banner to stderr before invoking the backend:
+| Commands | Behavior / output |
+|---|---|
+| plan | Seed central task docs, record current assignment, inspect repo landmarks; `--dry-run` prints prompt without invoking backend. |
+| edit / implement | Refine plan only / execute approved scope; optional trailing text becomes Human extras. |
+| diagnose | Approved debugging: reproduce → hypothesize → instrument → fix → cleanup; keep debug notes in plan. |
+| tighten | Plan-only, one highest-value question with recommended answer; discover repo answers locally. `tighten.md` tracks interaction, `plan.md` owns approval. |
+| teach | Explain modules/callers/vocabulary; no task package or automatic durable-doc writing. |
+| architecture | Save numbered candidates in `.agent/architecture/candidates.md`; `--pick` continues through `grill.md`; extras work on either pass. Durable design capture is optional. |
+| review / prototype | Task-quality review / plan-only replacement followed by guarded cleanup; see [review rules](workflow.md#review-completion-and-inherited-findings). Old prototype `--question`, `--logic`, `--ui` flags are rejected with compatibility guidance. |
+| implement-batch | Preflight all approved selections, launch normal implement children concurrently; [limits](workflow.md#branch-and-worktree-assignment). |
+| to-issues | Draft `issues/index.md` and one issue file per slice. `--publish` sends reviewed drafts in dependency order, updates per-draft metadata and plan tracking. |
+| pr-submit | Require branch PR body (legacy `pr.md` fallback), derive title, create draft PR and record number/URL in plan/body under PR Tracking. |
+| issue-submit | Require `issue.md`, create issue and record number/URL in plan/issue. |
+| pr-review | First fetch comments and save `review.md` for the PR task; later submit that saved draft as a COMMENT review. Separate from task-quality review. |
+| issue-review | Refresh issue title/body into `issue.md` in `<number>-issue-review`; plan only from saved issue body. |
+| pr-address-comments | Fetch `comments.md` into `<number>-review`, then plan only; execute later with approved `paw implement <number>-review`. |
+| gh-actions-review | Inspect same-day failures; `--create-issue` creates at most one issue for the first undocumented pipeline, matching existing issues by workflow/job and normalized failing log. |
+| compact / archive | Archive completed checklist detail / move central package out of active lists; [storage](workflow.md#architecture-of-workflow). |
+| browse | Aggregate available Markdown and crash log with headings; missing optional docs skipped. Pager: PAW_BROWSE_PAGER → PAGER → less -R → stdout. |
+| task-migrate / setup | Explicit legacy copy into central store / exclude `.agent/` locally. |
+| list / lint | Current task status/running metadata / contract checks; lint exits nonzero for violations. |
+| model | Resolved models; `-v` adds backend, streaming and max turns. Configuration reporting does not verify execution. |
+| gui | Local foreground/managed dashboard; [options and lifecycle](gui.md#start-and-stop). |
+| completion / crash-log / help | zsh subcommands / saved failure diagnostics / command synopsis. |
 
-```text
-Launching: paw <sub> (PAW_BACKEND=<backend> model=<model> stream=<0|1>) for .agent/<task>/
-```
+Issue drafts keep `## Draft Metadata`: stable slug, HITL/AFK type, blocker slugs,
+submission status and eventual issue fields. `--publish` submits pending drafts and
+rewrites blockers to published URLs. The index includes the review quiz. Issue submission
+records `## Issue Tracking`; issue-review excludes comments unless later scope authorizes them.
+PR-comment plans retain every item as addressed, deferred-with-reason or declined-with-reason;
+implementation re-fetches feedback before handoff to catch newly posted comments.
 
-Environment overrides: see the canonical reference table in [`scripts/README.md`](../../scripts/README.md). The most operationally important ones are `PAW_BACKEND`, `PAW_MODEL`, `PAW_STREAM`, `PAW_PROMPT_OPTIMIZE`, `PAW_PROMPT_WARN_TOKENS`, and `PAW_BROWSE_PAGER`.
+GitHub helpers require authenticated `gh`; comment fetch/triage also requires `jq`.
+They publish only on the corresponding explicit command, not from the GUI.
 
 ### Task Store And GUI
 
-PAW stores new task packages under `${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}` by default. The store is grouped per repo using a stable local repo slug, and each task package keeps Markdown docs plus `metadata.gitconfig` with repo path, Git common dir, worktree, branch/head state, and created or migrated timestamps.
-
-Legacy `.agent/<task>/` packages remain readable. `paw list`, `paw lint --repo`, `paw edit`, `paw implement`, `paw review`, `paw prototype`, `paw browse`, PR/issue helpers, `paw compact`, and `paw crash-log` resolve central tasks first and fall back to legacy packages. `paw archive` archives central packages; migrate legacy packages before archiving them. If you already have repo-local task packages, run `paw task-migrate` from that repo or pass one or more explicit repo paths:
-
-```bash
-paw task-migrate
-paw task-migrate ../api ../web
-```
-
-Use `paw browse <task-name>` when you want to inspect a task package from the terminal without finding the central store path manually. The command aggregates available docs such as `contract.md`, `plan.md`, `review.md`, issue/tighten/comment notes, and `crash.log` with readable file headings; missing optional docs are skipped. For deterministic output in scripts or tests:
-
-```bash
-PAW_BROWSE_PAGER=cat paw browse my-task
-```
-
-`paw gui` serves the local dashboard:
-
-```bash
-paw gui                              # foreground on http://127.0.0.1:8765/
-paw gui --port 0 --repo ..           # foreground with an ephemeral localhost port
-paw gui start --all                  # background server showing every central repo
-paw gui restart                      # replace the recorded background server
-paw gui stop                         # graceful stop of recorded PAW GUI process
-paw gui kill                         # force-stop fallback for the recorded process
-```
-
-`paw gui`, `paw gui start`, and `paw gui restart` use port `8765` by default. Pass `--port 0` to opt into an ephemeral localhost port. Managed GUI lifecycle metadata lives under `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/active.gitconfig` with the PID, host, port, repo path, task-home path, `--all` mode, URL, log paths, and start time. `paw gui start` refuses to overwrite an active recorded process and cleans stale metadata when the PID is gone. `paw gui restart` stops only the validated recorded PAW GUI process, then starts a managed replacement using the recorded host, port, repo path, task-home path, and `--all` mode unless you pass new options. With no active metadata, restart behaves like managed start. `paw gui stop` and `paw gui kill` validate the recorded command before signalling it so unrelated processes are not stopped.
-
-The GUI is a local task control surface. It shows task lists, repo identity plus branch/head-state context, Markdown detail pages, checklist counts, follow-up placeholder blocks, validation state, and per-task run status recorded under `runs/*.gitconfig`. `--repo <path>` seeds the startup/default repo, and **Manage repos → Add repo path** can register more existing local Git repos at runtime. Registered repos are stored in `${XDG_STATE_HOME:-$HOME/.local/state}/paw/gui/repos.gitconfig`, while stale or non-Git paths are rejected with browser-visible errors. The Active repo dropdown navigates on selection with JavaScript, preserves applicable filters, and clears task selection. Without JavaScript, submit **Switch**. It changes scoped central-plus-legacy task listing and the working directory used for new Plan actions. With `--all`, the table still shows every central task store, and Active repo controls only where a new Plan action launches. The main table lists newest activity first, preferring run end/start timestamps, then task metadata creation or migration timestamps, then task-file modification time for legacy packages. State, repo-text, and completion filters live behind a closed-by-default disclosure that opens when a filter is active. Each row has a Stage column plus a Next column with the next eligible workflow action. Stage is derived from current task files and metadata: active `running` metadata becomes `Running`; unresolved/provided user-answer markers become `Needs edit`; explicit source statuses (`prototyped`, `source-reverted`, `revert-blocked`, `revert-unavailable`) become `Prototype` with Archive guidance; successful replacement statuses and lineage-only metadata continue through normal approval/review; incomplete replacement planning becomes `Needs edit`; `review.md` becomes `Reviewed`; and `100%` completion with `Next work: Review.` becomes `Review` until review/prototype artifacts move the workflow forward. Default `Review.` next-work text is not repeated in Review, Reviewed, or Prototype Next cells. For reviewed tasks, the Next column also shows the first non-pending `- Grade:` value from `review.md` as a color-coded grade badge; pending, empty, or missing grades are omitted. The reviewed-task prototype control is labelled `Use as Prototype` while still calling `paw prototype`, except grades of `A-` or higher disable the GUI control and direct GUI prototype POST. Task names open task details; action rows no longer include a redundant Open control. Secondary utilities include editing and `plan.md` preview, followed by adjacent amber Archive and red Delete. Implementation-ready approval remains in Next and task detail; `contract.md` remains available from task detail pages. When task metadata records `paw.branch-name` and that local branch still exists in the task repo, row and detail actions also include `View PR`, which resolves the current PR with `gh pr view <branch> --json url --jq .url` only when clicked and shows an inline link on the dashboard on task detail too (a local result page without JavaScript). Dashboard submissions retain filters and interaction state, and log panels follow new output only when already at the bottom. Missing `gh`, deleted branches, and branches with no current PR produce browser-visible local errors without mutating task files, branches, or GitHub state. Authentication/configuration failures retain `gh` guidance (such as `gh auth login` or `GH_TOKEN`) instead of claiming no PR exists. Other lookup failures display escaped stderr, stdout when stderr is empty, or an exit-status fallback when both are empty. Successful output with an empty or invalid URL is reported as an invalid PR URL. The approval preview renders `plan.md` with the safe Markdown path, then offers `paw edit`, the local manual `plan.md` path, and an `Approve Implementation` button that posts to the existing implement endpoint. Blocked tasks use an `Answer Questions` edit overlay that shows parseable pending question text and an answer textarea when `plan.md` contains `USER ANSWER` placeholders. The compact header keeps Home, Archived, and the page title on one row with concise scope context; repo paths, task paths, repo slugs, worktree paths, and central-store paths are available behind expandable details rather than always visible. Header and body content share a responsive wide shell, and dense tables scroll horizontally inside the content area on narrow or crowded views. The index plus task detail pages poll local HTML fragments so open views reflect task file and run metadata changes without a browser refresh. Active PID-bearing GUI-launched tasks expose `Stream` next to `Cancel`, the task detail page embeds `Live Run Logs`, and `/task/<task-name>/stream` opens a standalone polling stream view. Stream output is HTML-escaped and tails bounded stdout/stderr content only from matching GUI-created log files in that task package's own `runs/` directory. Pidless, stale, missing, or unmatched metadata shows clear unavailable text instead of reading arbitrary paths or guessing at historical logs. Every normal page includes Home and Archived links. Task Markdown is rendered with a safe built-in subset: headings, paragraphs, emphasis, inline code, links, lists, task checkboxes, tables, blockquotes, horizontal rules, and fenced code blocks. Raw HTML from task files is escaped.
-
-Previews and input overlays share Close, Escape and backdrop-only dismissal, labelled dialog semantics, keyboard focus containment, background inertness and scroll restoration. Interior clicks/selection/scrolling keep the overlay open. Unsent drafts survive reopening and polling for the current page session; explicit repo navigation may reset them. Preview requests are invalidated on dismissal/replacement so late success or errors cannot reopen them. Dashboard submissions freeze their inputs while pending, block duplicate submits, and retain persistent acceptance/error feedback even after dismissal; closing does not cancel or retry a sent action. Approval remains an explicit submit. Task detail keeps workflow warnings visible above a collapsed **Task metadata** disclosure.
-
-Validation details start collapsed on ordinary task navigation. Select the summary (or focus it and press Space) to expand the complete evidence; the aggregate badge stays visible. Dashboard **Validation details** links open the evidence directly. Polling refreshes records while preserving your open/closed choice. Homepage rendering shares task discovery and metadata reads within each request; subsequent visits and polls read current task data.
-
-The GUI header’s **Theme** selector offers **System** (default), **Light**, and **Dark**. System follows live OS appearance changes. Explicit choices persist in browser storage for the current origin; changing the host or port uses a separate preference. If storage is unavailable, switching still works on the current page. Without JavaScript, pages follow the system appearance and retain native forms.
-
-GUI validation summarizes recorded checks in `plan.md` → **Validation Performed**. Gray **Unvalidated** means absent/context-only evidence; **Passed** requires explicit success without unresolved checks; **Attention** identifies failures or blocked checks; **Recorded** retains incomplete or uncertain checks. **Validation details** exposes complete escaped history and the exact plan source. Results do not establish current-run freshness or required-check completeness. See [outcomes, scope and exact per-check reruns](testing.md#recorded-validation-in-the-gui).
-
-Archived central tasks live under `${PAW_TASK_HOME}/<repo-slug>/.archive/<task-name>` and are excluded from normal `paw list`, scoped GUI views, and `paw gui --all`. The GUI's Archived header link opens a scoped archived-task dashboard; it lists central archived packages for the current repo or all central stores, shows a clear empty state, and offers Unarchive for packages whose submitted path still resolves under the central `.archive` root. Unarchive moves the package back beside active tasks, records `paw.unarchived-at` when metadata is present, and refuses to overwrite an existing active package or trust arbitrary paths. Prototype replacement tasks record `paw.prototype-source`, `paw.prototype-review`, and `paw.prototype-status` metadata so the GUI can show lineage/status markers without parsing Markdown.
-
-Task `## Current Status` keeps the source label `Estimated completion`, but the value should be a bare integer percentage such as `25%` or `100%`. `Next work` is free-form unless completion is `100%`; then use `Review.` or `Review.` plus a genuinely important follow-up.
-
-The index page can start `paw plan <task-name> "<prompt>"` from an overlay prompt in the currently active repo. The same overlay can Queue a valid task name and prompt as a local-only saved item under the active repo task store, without launching PAW. Queued prompts appear in the Plan overlay with their full escaped text and line breaks preserved, plus Edit, Plan, and Remove actions. Edit opens a form to save a changed task name and/or prompt without launching PAW. Invalid task names, blank prompts, missing queued items, and names already used by another queued item produce a visible error and leave saved prompts unchanged; triggering one launches the normal `paw plan` flow for the active repo and removes the queued item after a successful start. The Queue button has a tooltip explaining that it saves the prompt locally so planning can be started later. The compact toolbar offers **New Plan**, with an explicit destination repo in its overlay, and **Queued Plans (count)** opens that same overlay at the editable queue. A nonzero eligible selection reveals its count and adjacent Archive selected/Delete selected controls; Delete reveals confirmation. The ordinary selected-action dropdown/Apply form remains available without JavaScript. Checkboxes remain for unfinished, not-running, unblocked tasks; selected Archive moves central tasks under `.archive`, and selected Delete removes resolved central/legacy task packages only after confirmation, exact listed-path validation, and all-or-nothing preflight. The GUI no longer exposes selected mass implementation or posts to `/actions/implement-batch`; use CLI `paw implement-batch` for concurrent approved implementation. Home-row Next controls can open approval preview, collect prototype instructions, or start `paw review` or `paw archive` when that is the derived next stage; blocked tasks point to the `Answer Questions` edit overlay. Running tasks with a live PID-bearing `runs/*-<pid>.gitconfig` entry show Cancel, which verifies the recorded PID still looks like a PAW process, sends `SIGTERM` to its process group when it is the group leader or to that process otherwise, waits briefly, and records `paw.status=cancelled` plus an exit status if the GUI performs the terminal update. When matching GUI stdout/stderr files are available for that active run, the same Next cell shows `Stream` to the left of `Cancel`; stream routes refresh with local polling and read only the bounded tail of the task-local `runs/*-gui-*.stdout.log` and `.stderr.log` pair whose timestamp matches the active run window. Pidless running metadata remains active for duplicate-run blocking but is not presented as safely cancellable or streamable; stale PID metadata is ignored. Task pages retain controls for `paw edit <task-name> [extras...]`, `paw review <task-name> [extras...]`, `paw prototype <task-name> [extras...]`, `paw archive <task-name>`, approval-gated `paw implement <task-name>`, and read-only `View PR` lookup for saved live branches. GUI plan/edit/review/prototype actions collect optional instructions in overlays where needed; for blocked edit actions, submitted answers are appended to the `paw edit` extras so the edit run can replace or reconcile the `USER ANSWER` placeholders. The GUI does not write those answers directly into `plan.md`. GUI implementation deliberately sends no extras after approval and ignores any unexpected submitted `extras` field, while CLI `paw implement <task-name> [extras...]` remains unchanged. Mutating GUI actions delegate to `scripts/paw` in a background subprocess from the selected repo for new Plan actions and from each task's own recorded repo for task-specific actions, so prompt construction, task-store metadata, branch/worktree assignment, archive filtering, prototype metadata, and implement follow-up guards stay in the CLI path. The HTTP request returns immediately with a status message; subprocess stdout/stderr logs are written under the task's `runs/` directory, and CLI run metadata continues to appear as `runs/*.gitconfig`. GUI model launches also record immediate PID-bearing run metadata and terminal status, closing the gap before CLI run creation. Archive does not create a running entry that would block its own CLI guard.
+[Task layout and migration](workflow.md#architecture-of-workflow),
+[GUI journeys](gui.md), [recorded validation](testing.md#recorded-validation-in-the-gui).
 
 ### Batch implementation
 
-Use `paw implement-batch <task-a> <task-b> ...` when several already-approved tasks should run at the same time. The command preflights every selected task before launching any subprocess. It refuses missing tasks, duplicated names, completed tasks, tasks with active `runs/*.gitconfig` status, and tasks whose `plan.md` still contains `USER ANSWER (UNRESOLVED):` or `USER ANSWER (PROVIDED):`.
-
-Each accepted task launches through the normal `paw implement <task-name>` path in the background, so saved branch/worktree assignment, prompt construction, run metadata, crash logging, and placeholder guardrails remain the same as single-task implementation. Batch launch does not add a scheduler or conflict resolver; use separate branches/worktrees for tasks that might touch overlapping files.
-
-Archive is the normal cleanup path for central task packages that should leave active views without being deleted, and Unarchive is the guarded restore path from the archived dashboard. Delete is intentionally narrow: the submitted task must resolve from the central/legacy task list, the submitted path must match that listed task path, the confirmation must come from the GUI's "Are you sure?" prompt, and deletion is unavailable while a running PAW subprocess is recorded. The GUI does not publish PRs/issues, bind externally, expose arbitrary shell commands, expose arbitrary filesystem previews, stop arbitrary non-PAW processes, or make a database authoritative.
+[Selection preflight and worktree limits](workflow.md#branch-and-worktree-assignment).
 
 ### `paw completion zsh`
 
-Use the built-in completion generator to enable native `zsh` completion for `paw`:
-
 ```bash
 autoload -U compinit && compinit
-source <(paw completion zsh)
-paw completion zsh >> ~/.zshrc
+source <(paw completion zsh)     # current shell
+paw completion zsh >> ~/.zshrc # future shells
 ```
 
-`source <(paw completion zsh)` makes completion available in the current shell immediately. Appending the same output to `~/.zshrc` keeps it enabled for future shells.
-
-If you only append to `~/.zshrc`, your already-open shell does not change; run `source <(paw completion zsh)` there too if you want completion before opening a new terminal.
-
-The generated script completes top-level subcommands only in v1. For example, typing `paw gh-` and pressing Tab can expand to `gh-actions-review`. Bash and argument-level completion remain out of scope for this first slice.
+Only top-level zsh subcommands are completed (for example `paw gh-` + Tab).
+See [installation](install.md#optional-zsh-completion).
 
 ### Branch/worktree assignment
 
-When `paw plan` runs inside a Git worktree, it stores the task's current branch/worktree assignment in local metadata under the repo's Git common dir. That metadata is shared across sibling worktrees in the same repo and is not committed.
-
-- `paw` does not create branches or worktrees. It only records the branch/worktree you were already using.
-- `paw edit`, `paw implement`, `paw diagnose`, `paw to-issues`, `paw pr-submit`, `paw issue-submit`, and `paw pr-review` try to resume from the saved assignment before touching task-local state.
-- If the saved assignment is another registered worktree in the same repo, `paw` re-execs from that worktree path after checking the current worktree is clean apart from `.agent/` docs.
-- If resuming would require clobbering dirty state, auto-detaching HEAD, auto-creating/switching to an unborn branch, or crossing into another repo/common-dir, `paw` stops with a clear error instead.
+[Recorded assignment and safe resume](workflow.md#branch-and-worktree-assignment).
 
 ### Required follow-up answer workflow
 
-Use indented hyphenated answer placeholders in `plan.md` whenever a follow-up needs user input:
-
-```markdown
-- <question>
-  - USER ANSWER (UNRESOLVED):
-```
-
-When the user replies, replace that line with:
-
-```markdown
-  - USER ANSWER (PROVIDED): <answer>
-```
-
-Then run `paw edit <task-name>` so the plan absorbs the answer. `paw implement <task-name>` exits non-zero while either placeholder form still exists anywhere in `plan.md`.
-
-`paw diagnose <task-name>` uses the same placeholder guardrail.
-
-`paw tighten <task-name>` intentionally does not use that guardrail, because tightening runs are allowed to reconcile existing placeholder answers back into the task docs.
+[Answer placeholders and edit reconciliation](workflow.md#required-follow-up-answer-workflow).
 
 ### Implementation checklist discipline
 
-Implementation plans can and should use multiple phases when the task warrants it. When a checklist item under `## Implementation Phases / Checklist` is completed, flip it to `- [x]` and add an adjacent `Progress:` line in the same edit before starting the next item. `paw lint` exits non-zero if a completed implementation item is missing that line.
+[Adjacent Progress notes and status format](workflow.md#implementation-checklist-discipline).
 
 ### Extra prompt argument (`paw implement` / `paw diagnose` / `paw tighten` / `paw edit`)
 
-Any positional arguments after `<task-name>` are joined and appended to the
-standard prompt body as a `Human extras:` block:
-
 ```bash
-paw implement my-task "Focus on the README diff and skip tests."
-paw diagnose flaky-test "Focus on the shortest deterministic repro loop."
-paw tighten my-task "Pressure-test the acceptance criteria wording."
-paw edit my-task "Tighten the non-goals section."
+paw implement my-task "Focus on the README diff; run the required validation."
+paw diagnose flaky-test "Find the shortest deterministic reproduction."
+paw tighten my-task "Pressure-test the acceptance criteria."
+paw edit my-task "Tighten the non-goals."
 ```
 
-This is an *extension* — the standard prompt body is unchanged. Omitting the
-extras leaves the prompt unchanged (no trailing `Human extras:` header).
+Trailing positional arguments join into `Human extras:` without replacing the standard
+prompt; omitted extras add no header. GUI implementation sends no extras after approval.
 
 ### `paw diagnose`
 
-Use `paw diagnose` when the next unknown is reproduction, root cause, or the smallest useful instrumentation, not when the fix path is already obvious.
-
-```bash
-paw diagnose flaky-test
-paw diagnose flaky-test "Prefer a single failing test before adding logs."
-```
-
-- `paw diagnose` is a sibling of `paw implement`, not a hidden mode inside it.
-- It still works inside an approved `.agent/<task>/` package and may finish the fix in the same run.
-- The prompt requires a deterministic feedback loop first, then narrowed reproduction, ranked hypotheses, targeted instrumentation, the fix, and explicit cleanup.
-- Diagnose runs should keep concise reviewable debug notes in `plan.md`, including the feedback loop, ranked hypotheses, instrumentation/debug artifacts, and cleanup expectations.
+Use when reproduction/root cause is still unknown; approved fixes may finish in the
+same run. The plan records the feedback loop, ranked hypotheses, instrumentation and
+cleanup. [Validation](testing.md) applies to both implement and diagnose.
 
 ### `paw tighten`
 
-Use `paw tighten` when the task package exists but the plan language still needs pressure: ambiguous scope, fuzzy acceptance criteria, unresolved terminology, or a likely mismatch between the draft plan and the repo.
-
-```bash
-paw tighten my-task
-paw tighten my-task "Focus on the test strategy and approval boundaries."
-```
-
-- `paw tighten` is a first-class top-level command, not a hidden mode inside `paw edit`.
-- It works inside an existing `.agent/<task>/` package and keeps the run plan-only: task docs first, no normal implementation work.
-- Each run asks at most one highest-value next question unless the latest answer or repo exploration already resolves the uncertainty.
-- User-facing questions must include a recommended answer with brief reasoning.
-- Repo-discoverable answers should come from direct code/doc inspection instead of bouncing the question back to the user.
-- The command seeds or reuses `.agent/<task>/tighten.md` as the running checkpoint for repo findings, settled decisions, the current top question, the recommendation, and the latest user answer.
-- `plan.md` remains the source of truth for the actual approved plan. `tighten.md` is only the interactive checkpoint.
-- Durable docs such as `CONTEXT.md` or `docs/adr/` remain optional. Only suggest or update them when the repo already uses them or the discussion surfaces a genuinely durable glossary/decision need.
+Use for ambiguous scope/acceptance before implementation. Existing answer placeholders
+are allowed; the checkpoint does not replace the approved plan. Optional durable docs
+belong only where the repo/conversation establishes a lasting decision or glossary need.
 
 ### `paw teach`
 
-Use `paw teach` when the next need is orientation rather than planning: you want a concise map of the relevant modules, main callers, and repo vocabulary for an unfamiliar area.
-
 ```bash
-paw teach
 paw teach "focus on command dispatch and branch/worktree assignment"
 ```
 
-- `paw teach` is a first-class top-level command, not a hidden mode inside `paw plan` or `paw architecture`.
-- It stays intentionally lighter-weight than planning: no `.agent/<task>/` package is required, and the default run should not silently write durable docs.
-- If the map reveals a real follow-up need, the response should recommend an explicit next step such as `paw plan <task> "..."` or a focused documentation task instead of doing that work automatically.
-
-GUI prototype handoff: both entry points collect optional instructions, reject missing reviews and A- or higher grades, and disclose reuse of an existing replacement. Polling preserves open dialogs and their drafts while updating task data. The source remains the launch view; **Open replacement** resolves a listed package in the same repo. The replacement links back to an active source, or explains that it is archived/unavailable. Central and legacy discovery retain their usual precedence; legacy sources require migration before archival.
-
-Source GUI logs and replacement CLI metadata describe the same operation. Both views use the source GUI run for Stream/Cancel when available, retaining PID verification and bounded reads inside the resolved owner's `runs/` directory. Duplicate starts and replacement actions are blocked during that operation. Failed, cancelled or interrupted planning keeps approval unavailable; inspect task-detail failure logs and retry from the source deliberately, reusing existing documents, or edit/reconcile the replacement. No automatic retry occurs. Successfully planned replacements offer approval regardless of cleanup success, blocked cleanup or unavailable cleanup, with cleanup follow-up still visible. Approval preview and POST recheck readiness. Completed replacements advance to Review; a retained review older than the successful replacement planning run is treated as stale and must be rerun. When older packages lack run evidence, the prototype metadata modification time is the conservative cutoff. Using a replacement as a new source later gives it source archival guidance.
+A discovered implementation need should become an explicit follow-up plan.
 
 ### `paw review` / `paw prototype`
 
-Use `paw review` after a task reaches completion and you want a durable quality read before deciding whether to keep the work.
-
 ```bash
-paw review task-quality-pass
-paw review task-quality-pass "Use B+ as the minimum quality threshold."
+paw review my-task "Also grade the current review/prototype workflow and cleanup readiness."
+paw prototype my-task "Preserve the CLI behavior and address every source blocker."
 ```
 
-- `paw review` seeds `review.md` and launches an implementation-class review session against the resolved task package.
-- The review prompt asks for the reviewed scope, a grade, the quality threshold used, whether the work meets that threshold, architectural/design choices, whether those choices could be improved, blocking production-readiness issues, and concrete recommendations.
-- When task docs or human extras request it, review should grade the current overall workflow or subsystem state rather than only the latest task delta. For review/prototype remediation, ask it to rate the overall current state of `paw review` and `paw prototype`, including prototype cleanup readiness.
-- This task-quality review is separate from GitHub PR review helpers. Use `paw pr-review` or `paw pr-address-comments` for PR comments.
-
-Use `paw prototype` after a reviewed task falls below the threshold, or when the review says the implementation should become source material for a cleaner replacement plan.
-
-```bash
-paw prototype task-quality-pass
-paw prototype task-quality-pass "Preserve the CLI behavior but simplify the GUI slice."
-```
-
-- `paw prototype` requires a complete source review (see Review completion and inherited findings below); the old throwaway `--question`, `--logic`, and `--ui` flags are rejected with compatibility guidance.
-- The command seeds or reuses a `<task-name>-prototype` task package and runs a plan-only `<!-- PAW:PLAN -->` prompt using the source task docs and `review.md`.
-- Replacement plans should include a `## Prototype Source` section with source task, review, grade/recommendation context, and revert/prototype status.
-- Successful `paw implement` runs save a checksum-verified `prototype.patch` with full blob identities, result bytes, deletions and modes, plus baseline/index metadata and `paw.prototype-owned-path` entries. Pre-existing dirty paths are excluded; resumed runs invalidate previous cleanup authority. Missing or ambiguous evidence records `paw.prototype-provenance-status/message` instead. Provenance statuses are `recorded`, `no-owned-paths`, `blocked`, and `unavailable`. The local manifest uses `paw.prototype-patch-hash`, `paw.prototype-patch-head`, and `paw.prototype-index-contract=baseline-v1`.
-- Metadata keys `paw.prototype-source`, `paw.prototype-review`, `paw.prototype-status`, and `paw.prototype-cleanup-message`, and the source’s `paw.prototype-replacement` path let the GUI show lineage and cleanup state without parsing Markdown.
-- `paw prototype` creates the replacement plan first and exits zero when planning succeeds. Automatic cleanup requires the saved patch checksum, baseline and current content/modes to match, the entire index to equal the saved baseline, and no unowned tracked changes or untracked non-`.agent` files. It reverses the verified saved patch and checks the worktree/index postcondition. Legacy path-only metadata never authorizes cleanup. Blocked/unavailable cleanup preserves the replacement package and exposes a manual-follow-up reason through `paw.prototype-status` and `paw.prototype-cleanup-message`. Replacement statuses are `planned-source-reverted`, `planned-revert-blocked`, or `planned-revert-unavailable`; source statuses omit `planned-`.
-- Supported cleanup includes tracked binary content, deletions, executable modes, spaces, tabs, Unicode, quotes and literal pathspec characters. Newline paths, symlink/directory results, content-normalizing attributes or enabled `core.autocrlf`, staged changes, and ambiguous renames block. Git enumeration or metadata failures never grant cleanup permission.
-- For manual recovery, inspect `prototype.patch`, `git diff`, and `git diff --cached`; preserve unrelated edits and remove only reviewed source changes. Never populate path-only metadata to force cleanup. Keep the worktree idle during capture/cleanup: ordinary Git worktree edits cannot be transactionally locked.
+Review records task scope/grade, threshold/result, design choices, blockers and
+recommendations; requested overall subsystem grading is additional.
+Replacement plans retain a Prototype Source section with source/review/grade and cleanup
+context. See [completion and inheritance](workflow.md#review-completion-and-inherited-findings)
+and [cleanup proof and recovery](workflow.md#prototype-cleanup).
 
 ### `paw architecture`
 
-Use `paw architecture` when you want a repo-aware architecture review without opening a normal implementation task first.
-
 ```bash
-paw architecture
-paw architecture "focus on the test/data seams around scripts/paw"
-paw architecture --pick 2 "Prefer the smallest reviewable seam first."
+paw architecture "focus on test/data seams"
+paw architecture --pick 2 "Prefer the smallest reviewable seam."
 ```
-
-- The first run explores the repo, presents numbered deepening candidates, and writes the same list to `.agent/architecture/candidates.md`.
-- Follow-up runs use `--pick <candidate-number>` to continue the selected candidate through `.agent/architecture/grill.md`.
-- Extra trailing text is appended as `Human extras:` on both the exploration pass and the `--pick` follow-up pass, so you can narrow scope or answer the latest grilling question.
-- The workflow keeps durable design capture optional; only write long-lived design docs when the conversation surfaces a real decision worth preserving.
 
 ### Shared command authoring contract
 
@@ -390,11 +165,11 @@ When adding a new top-level `paw` command, treat the shell surface as shared inf
 - Add AI-backed entries to `_paw_model_command_table()` so `paw model` reflects the same command set that actually resolves models and launches prompts.
 - Reuse the shared prompt/template helpers in `scripts/paw` instead of copying heredoc assembly, task-template seeding, or `Human extras:` formatting into each command body.
 - Update `tests/paw-dispatcher.bats` and `tests/paw-prompt-body.bats` with the smallest coverage that proves dispatch, prompt anchor/body, and launcher behavior for the new command.
-- In the child `.agent/<task>/` package for that command, record which upstream skill files and repo touchpoints were actually inspected so later resumes have a verifiable trail.
+- In the resolved task package for that command, record which upstream skill files and repo touchpoints were actually inspected so later resumes have a verifiable trail.
 
 ### Crash log (`paw crash-log`)
 
-When `paw` invokes the backend and it exits non-zero, a crash record is appended to `.agent/<task>/crash.log`. Silent failures (exit 0 but JSON contains an `.error` field) are also recorded.
+When `paw` invokes the backend and it exits non-zero, a crash record is appended to `<task>/crash.log`. Silent failures (exit 0 but JSON contains an `.error` field) are also recorded.
 
 ```text
 ===
@@ -433,6 +208,12 @@ When a JSON error type is available, it is prepended to the classification (e.g.
 | `interrupted (SIGINT)` | exit code 130 |
 | `terminated (SIGTERM)` | exit code 143 |
 | `unknown (exit N)` | none of the above |
+
+For quota/rate limits, overload, timeout or 5xx errors, inspect provider status and retry
+when appropriate. Lower PAW_MAX_TURNS/split long tasks for resource pressure; compact
+context overflow. Inspect/rephrase policy-sensitive content for content_filter. Resume
+SIGINT/SIGTERM interruptions with approved `paw implement <task>`; inspect stderr for
+unknown failures. `paw crash-log` prints “no crashes recorded” and exits zero when absent.
 
 #### Always-on exit status line
 
@@ -485,107 +266,38 @@ PR COMMENT @author
 Pagination is followed for all three collections. Set `PAW_PR_PAGE_LIMIT` (default `10`) to cap pages per collection; a warning is printed to stderr if the cap is hit.
 
 `paw pr-address-comments` invokes this script on the shell side before the AI call,
-writing output to `.agent/<pr-number>-review/comments.md`. The first pass of
-`paw pr-review` also uses this script when it builds `.agent/<task>/review.md`.
+writing output to `<resolved-number-review>/comments.md`. The first pass of
+`paw pr-review` also uses this script when it builds `<resolved-task>/review.md`.
 No dependency on a user-local `gh_pr_comments` shell function. Requires `gh`
 (authenticated) and `jq`.
 
 ## Makefile
 
-The repo ships a top-level `Makefile` that consolidates the central operator commands. Run `make help` from the repo root to discover all targets:
-
 | Target | Purpose |
-|--------|---------|
-| `help` | List all targets (default) |
-| `install` | Symlink `scripts/paw` into `$(PREFIX)` (default: `~/bin`); external `paw-backend-<name>` plugins stay separately installed on `PATH` |
-| `uninstall` | Remove only this checkout’s exact owned `$(PREFIX)/paw` symlink |
-| `test` | Run the full bats test suite |
-| `lint` | Lint all `.agent/` task packages in this repo |
-| `shellcheck` | Run shellcheck over all shell scripts |
-| `check` | `test` + `lint` + `shellcheck` — canonical local validation |
-| `list` | List `.agent/` task packages |
-| `ci-deps` | Install CI dependencies (bats, jq, shellcheck) |
+|---|---|
+| help | List targets (default) |
+| install / uninstall | [Checkout-owned symlink](install.md); PREFIX is executable directory, default ~/bin |
+| test | `bats tests/` |
+| lint / list | Central/legacy repo task contracts / listings |
+| shellcheck | Shell scripts and backend modules |
+| check | test + lint + shellcheck; required final full local validation |
+| ci-deps | Install Bats, jq and ShellCheck for CI |
 
-```bash
-make check   # run all validation locally
-make install # put paw on your PATH via ~/bin
-```
-
-`make install` only creates the launcher symlink. By default, the installed launcher derives `PAW_HOME` from its resolved path back to the checkout it points at, so built-ins keep working even when the repo lives somewhere other than `$HOME/git/personal-agentic-workflow`. `PAW_HOME` overrides templates/instructions and resource paths passed to backends; built-ins and helpers still load from the resolved launcher checkout.
-
-Installation uses PREFIX directly (no appended `bin`), creates missing directories,
-and refuses files, directories, and foreign links. Repeated install and absent
-uninstall succeed. Only an exact absolute link to this checkout’s launcher is
-owned, including a dangling link at uninstall. Inspect collisions or stale links
-before manually removing them and reinstalling. Run make in the checkout or with
-`make -C`; keep that checkout available. See the [installation journey](../../README.md#install)
-for prerequisites, PATH persistence, upgrades, and recovery.
+Run make from the checkout or use `make -C /path/to/checkout`.
+[Test-suite instructions](../../tests/README.md) distinguish local full validation from CI.
 
 ## Model And Backend Behavior
 
-Use `paw model` to print the resolved model for each subcommand. Add `-v` to also print the active backend, streaming mode, and max-turn setting.
-
-`paw` resolves models through the active backend:
-
-- On the default `codex` backend, an unset `PAW_MODEL` resolves to `gpt-6-astra`.
-- On the `claude` backend, an unset `PAW_MODEL` falls back to the backend's own default model family.
-- External plugins may honor `PAW_MODEL` directly or resolve models independently. When a plugin ignores `PAW_MODEL`, it should expose `display-model` so `paw model` and the launch banner report the actual effective model.
-
-Use `PAW_MODEL` to override the model for every model-resolved AI subcommand: `paw plan`, `paw architecture`, `paw teach`, `paw review`, `paw prototype`, `paw edit`, `paw implement`, `paw diagnose`, `paw tighten`, `paw to-issues`, `paw issue-review`, and `paw pr-address-comments`.
-
-Backend-specific details and tradeoffs live in [`docs/backends.md`](backends.md).
-
-**Quality guardrail:** on the `claude` backend, `paw implement` rejects `PAW_MODEL=haiku` at launch and prints a clear error.
-
-**Prompt optimization (opt-in):** set `PAW_PROMPT_OPTIMIZE=1` to enable a `claude`-backend haiku pre-pass that tightens your `paw plan` prompt before the main model run.
+See [backend defaults, hooks and streaming](backends.md) and the canonical
+[environment table](../../scripts/README.md#environment-variables).
+Every AI launch prints `Launching: paw <sub> (PAW_BACKEND=… model=… stream=…)`
+to stderr. `PAW_MODEL` applies to model-resolved commands; external plugins can
+report an independently resolved model through `display-model`.
 
 ### Implementation handoff and review grades
 
-Replacement planning creates a plan for a later `paw implement` run. Once approved
-implementation, documentation, tests and final full validation pass, record 100%
-and `Next work: Review.`. Independent grading and inherited production quality
-thresholds belong in the subsequent Review stage; 100% describes implementation
-completion, not production sign-off. Self-checks and genuine blockers remain part
-of implementation. Reconcile explicit conflicting old approved gates per task;
-existing task histories are not automatically rewritten.
-
-Reviews should write plain metadata, for example `- Grade: B+` under
-`## Review Metadata`, with explanations and threshold results in separate fields.
-The GUI also reads case-insensitive A/B/C/D/F grades with optional plus/minus,
-one balanced bold, italic or backtick wrapper, and an optional final period.
-Supported grades share badge text, color and prototype eligibility (A- or higher
-blocks prototype). Pending/empty grades have no badge; unsupported values remain
-escaped neutral text without a guessed rank. Review files are preserved.
+[Completion vs Review and grade formatting](workflow.md#implementation-handoff-and-review-grades).
 
 ## Review completion and inherited findings
 
-New plans follow [Quality policy version 1](quality.md): A- / no production
-blockers at independent Review, a criterion/check/evidence table, and bounded
-risk-specific self-checks before final full validation. Explicit inherited thresholds
-remain authoritative. Unversioned plans are not retroactively rejected.
-
-Review completion requires matching task identity, resolved scope, a recognized
-grade, explicit threshold/result and a blockers disposition (list or None). New
-attempts also carry policy version, attempt and reviewed code identity, and an
-explicit completion marker. A backend returning zero with pending content fails;
-failed/interrupted attempts cannot reuse prior success. `paw review` preserves prior
-bytes in collision-safe `review-history/` files before seeding a fresh attempt;
-archival failure stops without overwriting the prior review. Legacy records remain
-readable, but incomplete records need **Run Review** before replacement planning.
-Completion checks establish structure, not truth, coverage or production sign-off.
-
-CLI prototype accepts complete adverse reviews and explicit complete high-grade
-requests. GUI row/detail/POST additionally restrict A- or higher; that existing
-product distinction remains. Pending, unknown-grade, stale and interrupted reviews
-cannot authorize replacement seeding or cleanup. Source evidence is checked again
-before cleanup; changed evidence stops the run. Existing cleanup ownership,
-content/index and idle-worktree guards still apply.
-
-Replacement prompts resolve same-repo sources and ancestors from active central,
-archived central or legacy packages. Recorded paths must match repo/task identity;
-missing, ambiguous, escaped or cross-repo evidence and lineage cycles block planning.
-Archive moves preserve source content. Each blocker needs a finding → invariant →
-acceptance/test mapping; non-blockers need planned, deferred-with-reason or
-resolved-with-evidence dispositions. Preserve all origins when deduplicating shared
-findings. A better grade never silently resolves a blocker; scope conflicts require
-reconciliation. Missing evidence never authorizes discarding retained source work.
+[Canonical review identity, attempts, CLI/GUI eligibility and source findings](workflow.md#review-completion-and-inherited-findings).

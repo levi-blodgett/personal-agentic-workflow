@@ -1,6 +1,6 @@
 # `tests/fixtures/`
 
-Pre-built `.agent/<task>/` packages and JSON blobs used as test inputs by the bats suite. Each fixture is intentionally small and exercises one contract edge.
+Small task packages, JSON responses and backend executables for hermetic tests.
 
 ## Fixtures
 

@@ -36,14 +36,14 @@ bats tests/lint-task.bats
 | `list-tasks.bats` | `scripts/list-tasks.sh` status and running-state output |
 | `lint-task.bats` | `scripts/lint-task.sh` |
 | `task-store.bats` | central task-store resolution, archive moves/filtering, metadata, legacy fallback, eligibility/running-state predicates, and explicit multi-repo migration helpers |
-| `gui-server.bats` | `paw gui` Markdown rendering, newest-first task sorting, auto-refresh fragment plumbing, main-table filters, active repo registry/selector behavior, combined repo/branch display, home navigation, concise action labels, overlay prompts/previews, no-extra GUI implementation, local plan/edit/implement/review/prototype/archive actions, click-time View PR lookup for saved live branches (success, missing branch/tool, no PR, auth guidance, escaped generic diagnostics, silent failure, and invalid/empty URLs), selected-task archive/delete, prototype markers and cleanup messages, guarded deletion, foreground smoke, managed start/stop/restart/kill lifecycle, stable default-port coverage, stale PID protection, and multi-repo dashboard coverage |
+| `gui-server.bats` | GUI HTTP/actions, lifecycle, task/repo guards and imported Python journeys; browser checks below cover interaction/layout. |
 | `makefile.bats` | Make targets, conservative install ownership, spaces, launcher chains, source checks and relocation recovery |
 | `plugin-install.bats` | Real copied external-plugin Makefile; install lifecycle, conflicts, overrides, source resources, capture/stream, failures, optional hooks and executable discovery |
 | `paw-dispatcher.bats` | `scripts/paw` subcommand dispatch, review/prototype/archive command surfaces, `implement-batch`, worktree resume, and launcher behavior |
 | `paw-completion-docs.bats` | Durable docs coverage for `paw completion zsh` and the narrowed `zsh`-only scope |
 | `paw-codex.bats` | Default codex backend wiring, auth banner, sandbox flags, and usage parsing |
 | `paw-crash.bats` | Crash classification, crash log writing, and prompt-size warnings |
-| `paw-prompt-body.bats` | Prompt body + launch banner for every subcommand, including broader review records, immutable patch provenance capture, same-path drift/index preservation, literal unusual paths, binary/deletion/mode round trips, legacy/tampered evidence blocking, capture/resume and failure handling, and review-driven prototype planning/conservative cleanup behavior (stub backend) |
+| `paw-prompt-body.bats` | Stub prompt/launcher contracts, review/prototype planning, immutable cleanup provenance, unusual paths, content/mode/index drift, retries and failure preservation. |
 | `paw-pr-workflow.bats` | Shell-side `paw pr-submit` / `paw pr-review` workflow coverage |
 | `paw-issue-workflow.bats` | Shell-side `paw issue-submit` / `paw issue-review` / `paw to-issues --publish` workflow coverage |
 | `paw-gh-actions-workflow.bats` | Shell-side `paw gh-actions-review` dispatch and flag-forwarding coverage |
@@ -54,13 +54,7 @@ bats tests/lint-task.bats
 
 ## Fixtures
 
-`tests/fixtures/` holds pre-built `.agent/<task>/` packages and JSON responses used as input:
-
-- `sample-task-valid/` — all required sections present; lint must pass
-- `sample-task-missing-sections/` — required sections intentionally absent; lint must warn
-- `sample-task-bloated/` — plan exceeds the 350-line working-surface budget; triggers PAW_LINT_LENGTH=1 warn
-- `backend-plugins/` — executable backend-plugin fixtures used by dispatcher tests
-- `gh-pr-comments/` — JSON GraphQL responses for `gh-pr-comments.bats` (`unresolved.json`, `resolved.json`)
+See [fixture catalog and extension rules](fixtures/README.md).
 
 ## Helpers
 
@@ -69,7 +63,7 @@ bats tests/lint-task.bats
 | File | Purpose |
 |------|---------|
 | `hermetic.bash` | Sets `LC_ALL=C`, `LANG=C`, `TZ=UTC` and unsets all `PAW_*` env vars so tests behave identically on macOS (BSD coreutils) and Linux (GNU coreutils) CI. |
-| `exit_code` | bats-core helper (loaded via `load`) for asserting specific exit codes. |
+| `exit_code.bash` | Loaded Bats helper for specific exit-code assertions. |
 
 ## Notes
 
@@ -84,9 +78,27 @@ bats tests/lint-task.bats
 - Tests that need a real git repo create a temporary one in `$BATS_TEST_TMPDIR`
   and clean up on teardown.
 
-Prototype journey coverage in `gui-server.bats` includes `gui-prototype.py` behavior checks for replacement/source roles, instructions, immediate and linked run tracking, duplicate starts, cancellation, stale approval, failure logs, reuse and same-repo navigation. `paw-prompt-body.bats` verifies failed planning preserves source work, retry retains replacement notes, successful cleanup follows planning, and source archival preserves the replacement. Fixtures use isolated task stores and stub/local subprocesses; no model service is called.
+## Focused checks
 
-`gui-validation.py`, invoked by `gui-server.bats`, covers diagnostic-invariant outcomes, named incomplete results, shared nested/compound vocabulary, exact per-check reruns, forward scope, unknown evidence, fenced/commented diagnostics, full escaped source, central/legacy task identity, substitutions and dashboard/detail fragments. [Canonical evidence semantics](../examples/docs/testing.md#recorded-validation-in-the-gui) describe the supported writing format.
+```bash
+PYTHONDONTWRITEBYTECODE=1 bats tests/makefile.bats tests/plugin-install.bats tests/paw-dispatcher.bats
+PYTHONDONTWRITEBYTECODE=1 python3 tests/gui-validation.py
+PYTHONDONTWRITEBYTECODE=1 python3 tests/gui-prototype.py
+PYTHONDONTWRITEBYTECODE=1 python3 tests/review-record.py
+PYTHONDONTWRITEBYTECODE=1 bats tests/gui-server.bats
+```
+
+The installer suite copies the published [plugin Makefile](../examples/backend-plugin/Makefile)
+into a temporary external checkout and invokes installed PAW from a third directory.
+HOME/PREFIX/PATH/task storage are isolated; capture and streaming are both checked.
+Model discovery alone cannot certify provider execution.
+
+Python review/prototype journeys cover source/replacement roles, run linkage, duplicate
+starts, stale approval, cancellation/failure/reuse, complete reviews, grade grammar and
+archived ancestry. The evidence classifier covers formatting/diagnostic invariants,
+exact reruns, scope and central/legacy fragment identity; the
+[canonical writing grammar](../examples/docs/testing.md#recorded-validation-in-the-gui)
+explains expected outcomes. These are hermetic fixtures, not model-quality evidence.
 
 ### Compact GUI and overlay journeys
 
@@ -149,23 +161,11 @@ behavior is asserted at the launcher boundary without binding port 8765; a
 cleanup regression checks that an independent fixture stays alive. Cleanup must
 never match processes by port or stop a live dashboard to make tests pass.
 
-The recorded-evidence parser/fragment matrix also covers instruction-like check names, exact-name reruns, all reserved metadata labels with multiline indentation ownership, compound tails, sibling resumption, diagnostic scope headings and movement of reruns into/out of diagnostics. Central/legacy fragments retain escaped history and task identity. The Chrome journey reproduces both reviewed false-Passed cases and checks dashboard/detail agreement, unrelated versus exact reruns and disclosure state through polling.
-
-Formatting invariants cover dash, star and numbered bullets with spaces or tabs,
-future/unknown outcomes and instruction-like names, both alone and beside an
-unrelated success. Metadata cases move exact reruns through plain, fenced and
-commented diagnostics, then back to real peers; case-mismatched reruns cannot
-resolve the original check. Chrome also exercises a numbered nested `next check`.
-
-Prototype handoff regressions in `gui-prototype.py` cover central/legacy completed
-replacements launching Review, 95% remaining incomplete, formatted grade grammar,
-metadata scope, escaped unknown values and A/A- display/POST restrictions. The
-recorded-validation browser harness also checks completed replacement → stubbed
-Review launch, bold B+ blue badge through polling, and formatted A- restrictions.
-No real model launch or live task is used. Producer regressions cover independent
-review after implementation and canonical plain Grade metadata with pending seeds.
-
-Review quality coverage: `review-record.py` checks completion, exact history bytes, interrupted attempts and archived/ambiguous lineage; the `quality lifecycle` Bats case uses a hermetic reviewer fixture through real CLI dispatch. `gui-prototype.py` exercises row/control/POST refusal and formatted grades; `gui-validation-browser.mjs` retains pending-review recovery alongside delayed-input UX and exact-rerun journeys. The post-spawn reaping example is a planning mechanism demonstration, not a historical launcher fix. Prompt assertions are routing evidence, not model compliance or fresh grades.
+Prompt assertions prove routing, not model compliance or fresh grades. The quality
+lifecycle fixture exercises real CLI dispatch with a stub reviewer. Browser checks
+retain pending-review recovery, completed replacement → stubbed Review, bold B+ through
+polling, formatted A- restrictions, exact reruns and delayed-input journeys. The post-spawn
+reaping example is a planning mechanism demonstration, not a historical launcher fix.
 
 ### GUI theme evidence
 

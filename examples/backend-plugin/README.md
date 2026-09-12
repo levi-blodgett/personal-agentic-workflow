@@ -6,10 +6,8 @@ it does not call PAW checkout helpers. Supply your own executable adapter at
 See the [author guide](../docs/backends.md#external-plugin-backend-example) and
 [executable protocol](../../scripts/lib/backends/_iface.md).
 
-The backend id is `acme`, its installed executable is `paw-backend-acme`, and the
-selector is `PAW_BACKEND=acme`. Your Git repository/directory may have any name.
-Use lowercase letters, digits, and hyphens as a naming convention; avoid built-in
-ids `codex`, `claude`, and `stub` because built-ins take precedence.
+`acme` selects `paw-backend-acme` via `PAW_BACKEND=acme`; repo names are independent.
+Use a distinct id: built-ins `codex`, `claude` and `stub` take precedence.
 
 ```bash
 cd "/path/to/your plugin repo"

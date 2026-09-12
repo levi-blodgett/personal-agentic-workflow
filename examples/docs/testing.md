@@ -1,47 +1,31 @@
-# Testing
+# Validation and recorded evidence
 
-How to install and run the PAW test suite, plus which commands count as canonical validation for docs and code changes.
-
-The `tests/` directory contains a [bats-core](https://github.com/bats-core/bats-core) suite covering the `paw` CLI, helper scripts, backend adapters, and task-package contract checks.
+## Required validation
 
 ```bash
-# Install bats (macOS)
-brew install bats-core
-
-# Run the full bats suite
-bats tests/
-
-# Or use the repo entrypoints
-make test
-make shellcheck
-make check   # canonical full validation: test + lint + shellcheck
+# Start with checks for the changed area, for example:
+PYTHONDONTWRITEBYTECODE=1 bats tests/makefile.bats tests/plugin-install.bats tests/paw-dispatcher.bats
+# After the final implementation/doc change:
+PYTHONDONTWRITEBYTECODE=1 make check
 ```
 
 Every implement/diagnose completion requires the named full local validation command after the final implementation change, including batch, GUI and docs-only tasks. Start with targeted changed-area checks, escalate earlier for shared/high-risk behavior or failures, then run `PYTHONDONTWRITEBYTECODE=1 make check` on final code. Reuse a successful full run on that final implementation; later implementation changes require another full run. Missing tools and failed checks block completion, including 100%/Review status. Record `Validation tier chosen: full` and the rationale in `plan.md`, followed by status/diff review.
 
 New plans name both targeted and full commands. For older plans, discover and record the canonical repository command from build targets/docs in preflight; if none can be established, report a specific blocker. Routine local validation needs no repeated approval, but this policy does not authorize dependencies or external services. Plan/edit/read-only review stays proportionate. These are agent instructions, not a machine-enforced execution attestation. See [`tests/README.md`](../../tests/README.md) for fixtures and coverage.
 
-Key implementation details:
 
-- `paw-dispatcher.bats` uses a PATH-shimmed `claude` fake for dispatcher and worktree-resume tests.
-- The dispatcher suite covers subcommand help/completion output, task-assignment resume behavior, and shell-side launcher behavior without calling live backends.
-- `paw-pr-workflow.bats` covers the shell-side `paw pr-submit` / `paw pr-review` flow, including PR tracking metadata and saved `review.md` drafts.
-- `paw-issue-workflow.bats` covers the shell-side `paw issue-submit` / `paw issue-review` / `paw to-issues --publish` flow, including `issue.md` tracking metadata, per-draft issue metadata, dependency-ordered publication, and rerun refreshes of fetched issue bodies.
-- `paw-prompt-body.bats` uses `PAW_BACKEND=stub` so prompt-body assertions never need a real backend binary.
-- Dedicated `paw-codex.bats` coverage stays in this repo, while backend-specific compatibility checks for separately distributed plugins should live with each plugin repo; PAW itself keeps seam-level external-plugin coverage in `paw-dispatcher.bats`.
-- Every `*.bats` file sources `tests/helpers/hermetic.bash`, which sets `LC_ALL=C`, `LANG=C`, and `TZ=UTC` and unsets all `PAW_*` env vars so tests behave identically on macOS and Linux CI runners.
+| Decision | Required action |
+|---|---|
+| Preflight | Name targeted checks and the repository full command in the plan. |
+| Changed-area work | Run targeted checks first; preserve each failure/blocker by name. |
+| Higher risk | Escalate earlier for shared/high-risk areas, CI/workflows, security, targeted failures, explicit request, unclear blast radius or PR-ready handoff without a full run. |
+| Before final full run | Bounded [Quality Contract self-check](quality.md): selected families, counterexamples/checks and specific exclusions. |
+| Handoff | Full command passes on final content; map Acceptance Evidence to actual checks and log/code identity; review status/diff; record 100% / Review. |
 
-Installer/plugin changed-area validation:
-
-```bash
-bats tests/makefile.bats tests/plugin-install.bats tests/paw-dispatcher.bats
-```
-
-The plugin suite copies the [published Makefile](../backend-plugin/Makefile) into
-a temporary external checkout, supplies a harmless adapter, and runs installed
-PAW from a third directory with isolated HOME/PREFIX/PATH/task storage. It checks
-capture and streaming separately; model discovery alone is insufficient. Full
-`make check` is required for installer changes before handoff.
+Independent grading and production sign-off follow implementation; inherited thresholds
+remain in the Review requirement. A review never substitutes for required implementation
+checks. Runnable suites, prerequisites, fixtures and browser harness instructions belong
+to the [test-suite guide](../../tests/README.md).
 
 ## Recorded validation in the GUI
 
@@ -156,21 +140,3 @@ keyboard toggling and polling without losing the open/closed choice.
 These are recorded-evidence summaries, not proof that every required check ran
 or that results belong to the current run. Starting a run does not reset them.
 The task's validation contract still determines which checks must run.
-
-Run the reproducible isolated browser regression after relevant GUI changes:
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 python3 tests/gui-validation.py
-PYTHONDONTWRITEBYTECODE=1 bats tests/gui-server.bats
-PYTHONDONTWRITEBYTECODE=1 node tests/gui-validation-browser.mjs
-```
-
-See [browser prerequisites and fixture ownership](../../tests/README.md#recorded-validation-browser-regression).
-These checks supplement the required full `make check` gate for shared GUI changes.
-
-Implementation completion includes self-checks and final full local validation.
-Independent grading/production sign-off follows in Review; keep inherited quality
-thresholds in a post-implementation review requirement when writing new plans.
-An independent review is not a substitute for required implementation checks.
-
-See [Quality policy and worked risk examples](quality.md) for the A- Review rubric and acceptance-evidence mapping.

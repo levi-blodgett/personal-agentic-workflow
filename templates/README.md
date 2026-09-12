@@ -1,24 +1,18 @@
-# `templates/`
+# Task templates
 
-Empty skeleton files for PAW task planning. `paw plan` copies task docs into `.agent/<task-name>/` or the central task store; the PR body template is used for the branch-level PR file when the repo has a pull request template.
+| Template | Use |
+|---|---|
+| [contract.md](contract.md) | Request, exact constraints, repo context and assumptions |
+| [plan.md](plan.md) | Approved scope, checklist, status and evidence |
+| [pr.md](pr.md) | Branch PR body when a repo has `.github/pull_request_template.md` (either case) |
 
-## Files
+`paw plan` seeds central packages by default; legacy packages remain supported.
+The [agent contract](../prompts/prompt_instructions.md) owns section order, answer
+placeholders, adjacent Progress notes and status conventions. See the
+[workflow examples](../examples/docs/workflow.md#what-the-task-package-owns).
+PAW writes cost tracking separately in `.agent/cost-log.md`.
 
-| Template | Purpose |
-|----------|---------|
-| [`contract.md`](contract.md) | Raw task request, constraints, repo context, and unresolved assumptions. |
-| [`plan.md`](plan.md) | Single task surface for planning and implementation progress: objective, questions, implementation checklist, acceptance criteria, scope, status, validation, decisions, and handoff notes. |
-| [`pr.md`](pr.md) | Concise branch-level PR body derived from `plan.md`. **Opt-in:** used by `paw plan` when the repo has `.github/pull_request_template.md` (either case). |
-
-## Conventions to note
-
-- `prompts/prompt_instructions.md` is the canonical rulebook. Keep templates, examples, fixtures, and docs aligned with it instead of restating rules loosely.
-- `plan.md` section order is fixed: `Objective`, `Open Questions / Follow-Ups`, `Implementation Phases / Checklist`, `Acceptance Criteria`, then the remaining sections.
-- Follow-up questions use the indented `USER ANSWER (UNRESOLVED):` / `USER ANSWER (PROVIDED):` placeholder pattern. `paw implement` stays blocked until `paw edit` reconciles any provided answer back into the plan.
-- Implementation checklist items stay `- [ ]` until complete. When you flip one to `- [x]`, add an adjacent one-line `Progress:` note in the same edit.
-- Keep the `## Current Status` fields (`Plan position`, `Estimated completion`, `Next work`) current and keep the working surface lean. Use `paw compact <task>` if the task grows noisy.
-- Task plans do not own cost tracking. `paw` appends repo-level entries to `.agent/cost-log.md`.
-
-See `prompts/prompt_instructions.md` for the full workflow contract these templates implement.
-
-New plans seed Quality policy version 1 with an Acceptance Evidence table and a post-implementation independent A- / no-blockers Review target. Fill planned checks before approval; record actual named log/code evidence at wrap-up. Explicit source thresholds remain authoritative; see [quality guidance](../examples/docs/quality.md).
+New plans seed [Quality policy version 1](../examples/docs/quality.md): planned
+Acceptance Evidence and independent post-implementation A- / no-blockers Review,
+while retaining explicit inherited thresholds. Fill planned checks before approval
+and actual named log/code evidence at handoff.

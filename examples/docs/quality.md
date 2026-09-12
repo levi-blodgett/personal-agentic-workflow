@@ -3,9 +3,8 @@
 New plans target **A- or higher with no production blockers** at independent
 post-implementation Review. A- means every scoped criterion is met, boundary
 behavior is demonstrated, final evidence is credible, changes are maintainable,
-and user-facing documentation is accurate. B+ describes useful work with material
-quality limitations: for example, happy paths pass but a relevant retry or browser
-race remains unverified. Explain the actual limitation; test counts are not grades.
+and user-facing documentation is accurate. B+ may have material limitations such as an unverified retry/browser race; name
+the limitation. Test counts are not grades.
 Explicit older or inherited thresholds remain authoritative; A- is the improvement
 target when a source requires a different threshold. Reconcile conflicting approved
 gates before implementation. Implementation self-checks and final full validation

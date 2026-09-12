@@ -1,29 +1,21 @@
-# `scripts/lib/backends/`
+# Built-in backends
 
-Built-in AI backend modules for `paw`. Each module is a self-contained bash file that implements the required runtime functions defined in [`_iface.md`](_iface.md).
-
-## Shipped built-ins
-
-| File | `PAW_BACKEND` value | Required functions | `backend_display_model` | Purpose |
-|------|---------------------|--------------------|-------------------------|---------|
-| [`claude.sh`](claude.sh) | `claude` | ✓ | — (uses `PAW_MODEL`) | Wraps the `claude` CLI. Supports capture and streaming modes. Aggregates token counts across all session iterations. |
-| [`codex.sh`](codex.sh) | `codex` (default) | ✓ | — (uses `PAW_MODEL`, default `gpt-6-astra`) | Wraps the `codex` CLI (`codex exec`). Honors `PAW_MODEL` for model selection, defaults to `gpt-6-astra`, and parses current Codex JSONL usage when available. |
-| [`stub.sh`](stub.sh) | `stub` | ✓ | — (uses `PAW_MODEL`) | Test-only backend. Writes argv and the prompt to `$BATS_TEST_TMPDIR` without making any real API calls. Used by `tests/paw-prompt-body.bats`. |
+| Module | Selector | Role |
+|---|---|---|
+| [codex.sh](codex.sh) | `codex` (default) | Codex CLI capture/stream, auth banner and usage parsing |
+| [claude.sh](claude.sh) | `claude` | Claude CLI capture/stream and session token aggregation |
+| [stub.sh](stub.sh) | `stub` | Test-only argv/prompt capture under BATS_TEST_TMPDIR |
 
 ## Adding a built-in backend
 
-1. Create `scripts/lib/backends/<name>.sh` and implement the four required functions from `_iface.md`.
-2. If the backend ignores `PAW_MODEL` and uses its own model, add `backend_display_model` so the banner and `paw model` report the correct model.
-3. Optionally add `backend_usage_banner` or `backend_display_model` when the backend needs custom launch context or model reporting.
-4. Set `PAW_BACKEND=<name>` — no other changes to `scripts/paw` are required.
-5. Add a row to the table above and backend-specific coverage under `tests/`.
+Implement the four required functions in [_iface.md](_iface.md), plus model/banner
+hooks as needed; add this table row and focused tests. `PAW_BACKEND=<name>` selects it
+without dispatcher changes. Built-ins/helpers load from the resolved launcher checkout;
+PAW_HOME changes templates/instructions and passed resource paths.
 
 ## External plugins
 
-When a backend should live outside this repo, install an executable named `paw-backend-<name>` on `PATH` instead of adding a new built-in file here. The executable protocol is documented in [`_iface.md`](_iface.md). Keep backend-specific compatibility coverage with the plugin's own repo; this repo only carries the generic dispatcher and protocol seam tests.
-
-For naming, PATH setup, source-relative resources and troubleshooting, follow the
-[author guide](../../../examples/docs/backends.md#external-plugin-backend-example)
-and [standalone installer template](../../../examples/backend-plugin/README.md).
-Built-ins/helpers load from the resolved launcher checkout, independently of the
-PAW_HOME template/instruction override.
+For separate ownership, install `paw-backend-<name>` on PATH. Built-ins take precedence.
+Keep provider-specific compatibility tests with the plugin; PAW tests the shared seam.
+Use the [author guide](../../../examples/docs/backends.md#external-plugin-backend-example)
+and [standalone installer](../../../examples/backend-plugin/README.md).

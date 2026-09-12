@@ -1,31 +1,28 @@
 # `scripts/lib/`
 
-Shared bash helpers sourced by `scripts/paw`. Each file exports one or more functions and is designed to be independently testable.
+| Module | Boundary |
+|---|---|
+| [task_store.sh](task_store.sh) | Central-first task lookup, legacy fallback, provenance, branch PR paths, migration/archive and run state |
+| [gui_lifecycle.sh](gui_lifecycle.sh) | Managed GUI state and verified recorded-process start/stop/restart/kill |
+| [gui_server.py](gui_server.py) | stdlib HTTP, safe Markdown, action guards, recorded-evidence parser, polling and themes |
+| [review_record.py](review_record.py) | Shared CLI/GUI review completeness, code/attempt identity and exact history |
+| [review_lineage.py](review_lineage.py) | Read-only same-repo active/archived/legacy ancestry resolution |
+| [quality_plan.py](quality_plan.py) | Opt-in v1 planned-evidence lint; no execution attestation |
+| [crash_log.sh](crash_log.sh) | Failure classification and task-local crash records |
+| [prompt_optimizer.sh](prompt_optimizer.sh) | Opt-in planning pre-pass |
+| [claude_invoke.sh](claude_invoke.sh) | Compatibility shim for the Claude backend |
+| [backends](backends/README.md) | Built-in modules; [_iface.md](backends/_iface.md) owns exact protocol |
 
-## Helper files
+GUI GET requests share discovery and Git-compatible metadata within a context-local
+snapshot; POST guards read live state. Polling reconciles task/run identity and owns
+only connected log pollers. Dialogs retain drafts/focus and invalidate late previews;
+submissions capture FormData before freezing controls. Named STYLE tokens own presentation.
 
-| File | Exports | Purpose |
-|------|---------|---------|
-| [`crash_log.sh`](crash_log.sh) | crash classification and append helpers | Records backend failures to `.agent/<task>/crash.log` with structured metadata and a stderr tail. |
-| [`task_store.sh`](task_store.sh) | task path, metadata, listing, migration, and branch PR body helpers | Resolves central task-store packages first, falls back to legacy `.agent/<task>/`, writes `metadata.gitconfig`, resolves branch-level PR body paths, and copies legacy packages for `paw task-migrate`. |
-| [`gui_lifecycle.sh`](gui_lifecycle.sh) | GUI process metadata helpers | Stores `paw gui start` PID/URL/log/mode metadata under local state, detects stale records, and validates the recorded PAW GUI process before stop/restart/kill. |
-| [`prompt_optimizer.sh`](prompt_optimizer.sh) | `prompt_optimize` | Optional `paw plan` pre-pass that rewrites the user prompt when `PAW_PROMPT_OPTIMIZE=1`; otherwise it passes the prompt through unchanged. |
-| [`gui_server.py`](gui_server.py) | local HTTP server | Python standard-library server used by `paw gui` to render compact task lists, safe Markdown detail pages, expandable path metadata, local `paw plan`/`edit`/`implement` action forms, guarded task deletion, and `--all` central-store repo grouping. Shares task discovery and Git-compatible bulk metadata reads within GET requests using a context-local snapshot; POST guards read live data. Validation evidence uses a native disclosure, closed by default with explicit hash navigation support. Reconciles live fragments by task/run identity, owns connected log pollers, retains interaction/scroll state, and provides structured inline dashboard action results with ordinary POST fallback. |
-| [`claude_invoke.sh`](claude_invoke.sh) | (thin shim) | Backwards-compatibility shim that sources `backends/claude.sh`. Callers that imported `claude_invoke.sh` directly continue to work. |
+Source/replacement views prefer the linked source GUI run for Stream/Cancel. Immediate
+GUI PID metadata and terminal reaping complement CLI run records;
+`paw.prototype-replacement-name` bridges early discovery, with lineage fallback for old runs.
+Archive skips launch tracking to avoid blocking itself.
 
-## `backends/` — pluggable AI backends
-
-`scripts/paw` resolves a backend based on the `PAW_BACKEND` env var:
-
-```bash
-source "$LIB_DIR/backends/$PAW_BACKEND.sh"   # built-in, e.g. backends/codex.sh
-paw-backend-$PAW_BACKEND                     # external executable plugin on PATH
-```
-
-Built-ins implement four required shell functions (`backend_run_capture`, `backend_run_stream`, `backend_parse_tokens`, `backend_parse_stream_tokens`) plus optional hooks such as `backend_display_model` and `backend_usage_banner`. External plugins expose the same runtime surface through an executable subcommand protocol. The full contract is defined in [`backends/_iface.md`](backends/_iface.md); the built-ins shipped today are listed in [`backends/README.md`](backends/README.md).
-
-GUI prototype run ownership: discovery links source/replacement packages within one repo. GUI launches record immediate PID-bearing run metadata and reap terminal outcomes; the CLI records its normal backend run separately. Both package views prefer the linked source GUI operation for logs/cancel, with existing process verification and task-local log checks. The GUI run’s optional `paw.prototype-replacement-name` bridges discovery before CLI lineage is written; older runs fall back to existing lineage. Archive is exempt from launch tracking to avoid its own running guard.
-
-GUI presentation: `gui_server.py` retains native GET/POST forms, enhances repo selection with GET navigation, and uses one dialog lifecycle for previews and input overlays. The lifecycle labels dialogs, contains focus, restores prior inertness/scroll, preserves drafts, and invalidates/aborts preview requests on close or replacement. Polling reconciles task identity and re-applies modal semantics without replacing unchanged previews. Dashboard submissions capture FormData before freezing associated controls, then restore controls after acceptance/error; dismissal does not cancel a submitted operation. Compact toolbar and lifecycle button styles use named tokens in `STYLE`.
-
-`review_record.py` is the shared CLI/GUI review-completeness and attempt-history boundary; `review_lineage.py` performs read-only same-repo source resolution using task-store paths supplied by the shell. `quality_plan.py` checks opt-in v1 planned evidence without requiring execution results. See [quality guidance](../../examples/docs/quality.md) and [operator semantics](../../examples/docs/cli-reference.md#review-completion-and-inherited-findings).
+Operator guarantees: [GUI](../../examples/docs/gui.md),
+[review/lineage](../../examples/docs/workflow.md#review-completion-and-inherited-findings),
+[evidence grammar](../../examples/docs/testing.md#recorded-validation-in-the-gui).

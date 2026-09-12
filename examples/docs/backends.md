@@ -31,8 +31,6 @@ immediately after the standard launch banner. The shipped
 
 See [`scripts/lib/backends/README.md`](../../scripts/lib/backends/README.md) for the built-ins that ship in this repo and the plugin-install path for private backends.
 
-The `codex`, `claude`, and `stub` backends ship in this repo today. `codex` is the default. Private or separate-distribution backends can install as external plugins without changing this repo.
-
 ## Shipped backends at a glance
 
 | Backend | Default? | Typical use | Notes |
@@ -43,33 +41,15 @@ The `codex`, `claude`, and `stub` backends ship in this repo today. `codex` is t
 
 ## External plugin backends
 
-Install an executable named `paw-backend-<name>` on `PATH` when a backend
-should live outside this repo. That keeps private integrations out of the
-public PAW tree while preserving the same `PAW_BACKEND=<name>` operator surface.
-This remains true after `make install`: the installed `paw` launcher symlink
-still discovers external backend plugins from `PATH` rather than copying them
-into `$(PREFIX)`.
-
-Plugin subcommands:
-
-- `run-capture <out-json-path> [tool args...]`
-- `run-stream <out-json-path> [tool args...]`
-- `parse-tokens <json-file> [field]`
-- `parse-stream-tokens <json-file> [field]`
-- Optional: `display-model [fallback-model]`
-- Optional: `usage-banner`
+The installed launcher still discovers separate `paw-backend-<name>` executables on PATH;
+it does not copy plugins into PREFIX. [Protocol](../../scripts/lib/backends/_iface.md).
 
 ## `claude` backend
 
-The claude backend wraps the `claude` CLI. Model is selected from `PAW_MODEL`
-when set and otherwise falls back to the backend default model family.
+Uses PAW_MODEL when set, otherwise its backend default. `paw implement` rejects
+`PAW_MODEL=haiku`. `PAW_PROMPT_OPTIMIZE=1` enables an opt-in haiku planning pre-pass.
 
 ## External plugin backend example
-
-Use an external plugin when a backend should live outside this repo because it
-is private, separately distributed, or owned by another team. PAW discovers any
-executable named `paw-backend-<name>` on `PATH`, so an operator can install the
-plugin independently and then activate it with `PAW_BACKEND=<name>`.
 
 ### Name and install your adapter
 
@@ -161,14 +141,8 @@ and generic seam with harmless adapters; they do not certify a live provider.
 
 ### Choose a plugin vs a built-in
 
-Prefer an external plugin when the backend:
-
-- depends on private tooling or credentials that should not ship in this repo
-- has its own release cadence or ownership boundary
-- needs richer backend-specific validation than PAW should carry centrally
-
-Prefer a built-in backend when the integration is part of PAW's core supported
-surface and should be versioned, documented, and tested in-repo.
+Keep private tooling, separate release ownership and provider-specific compatibility
+in a plugin repo. Built-ins belong to PAW's versioned/tested supported surface.
 
 ## `codex` backend
 
@@ -194,11 +168,6 @@ Key properties:
     PAW warns for models outside that list, including older `o*` / `gpt-4*` models.
   - OpenAI API key: named OpenAI model IDs are forwarded normally.
 
-- **Usage banner:** when the codex backend is active, `paw` prints the output of
-  `codex login status` to stderr immediately after the standard launch line.  This
-  gives you immediate auth context before a long-running run starts.
-  (`codex login status` writes to stderr; the backend captures both streams.)
-
 - **Streaming errors:** when `PAW_STREAM=1`, API errors (e.g. unsupported model) are
   printed as `paw/codex error: <message>` so they are visible instead of silently dropped.
 
@@ -213,16 +182,6 @@ Key properties:
 - **Token telemetry:** the backend parses current Codex JSONL usage from
   `turn.completed.usage` plus older `token_count` events so shared prompt and
   debugging flows can still inspect usage counts when needed.
-
-Example invocations:
-
-```bash
-# Default Codex path
-paw implement my-task
-PAW_MODEL=gpt-6-astra paw implement my-task
-PAW_MODEL=gpt-6-astra paw plan my-task "add observability"
-PAW_BACKEND=codex PAW_CODEX_DANGEROUS=1 PAW_MODEL=o4-mini paw implement my-task  # CI
-```
 
 ## Streaming output (`PAW_STREAM=1`)
 
