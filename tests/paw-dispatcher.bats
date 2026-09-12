@@ -294,7 +294,7 @@ SH
 
   run "$PAW" review review-task
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 1 ] # Stub leaves review incomplete.
   [[ "$output" != *"has been replaced by paw pr-address-comments"* ]]
   wait_for_run_metadata review-task
 }
@@ -390,6 +390,21 @@ MD
   [[ "$output" == *"implement-batch: started 2 task(s)."* ]]
   wait_for_run_metadata batch-a
   wait_for_run_metadata batch-b
+  local task_name meta ready attempt
+  for task_name in batch-a batch-b; do
+    ready=0
+    for attempt in {1..100}; do
+      meta=$(find "$REPO/.agent/$task_name/runs" -name '*.gitconfig' -print -quit)
+      if [[ "$(git config --file "$meta" --get paw.status 2>/dev/null)" == complete ]]; then
+        ready=1
+        break
+      fi
+      sleep 0.1
+    done
+    [ "$ready" -eq 1 ]
+  done
+  args_contain "bounded self-check"
+  args_contain "Acceptance Evidence"
 }
 
 @test "paw lint: delegates to lint-task.sh on a valid fixture" {

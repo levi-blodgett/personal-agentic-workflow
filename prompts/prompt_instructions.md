@@ -174,6 +174,21 @@ Apply before flipping any `- [ ]` to `- [x]` in `<!-- PAW:IMPLEMENT -->`/`<!-- P
 
 Prefer existing reusable targets. Plans must name targeted changed-area validation first, the full local command required after final implement/diagnose changes, and explicit escalation triggers for earlier broader or full validation. Plan/edit/read-only review remains proportionate. Record one named outcome per required check, with indented Command/Tier/Log metadata. Preserve failures and missing original checks when substitutes pass; only an explicit successful same-name rerun supersedes that check. Context/Development history is distinct from Implementation results; see examples/docs/testing.md for evidence semantics. Full validation remains required for shared/high-risk changes, workflow/CI edits, security-sensitive areas, targeted-check failures, explicit user/reviewer request, unclear blast radius, or PR-ready handoff when full validation has not otherwise been run. Run relevant file-type checks (YAML, shell, JSON, workflow, unit, integration). Record commands run, results, unavailable tools, validation tier chosen with rationale, and the final `git status` plus diff review.
 
+## Quality Contract
+
+Plan/edit/prototype producers use Quality policy version 1 for new plans, the
+[canonical quality rubric](../examples/docs/quality.md), an Acceptance Evidence
+table (Criterion, Observable behavior, Planned check, Evidence destination), and a
+post-implementation Review requirement of A- or higher with no production blockers.
+Preserve explicit older/inherited thresholds with their source; A- remains the
+improvement target. Do not retroactively version historical plans without approval.
+Each user constraint and inherited blocker needs a row. Before final full validation,
+perform a bounded self-check: select applicable risk families from the guide, name
+one counterexample and behavioral check for each, and explain exclusions specifically.
+At wrap-up map rows to actual named checks and durable log/code identities; record
+justified waivers without presenting missing required checks as passed. Independent
+Review remains after implementation, outside implementation checkboxes.
+
 ## Acceptance Criteria
 
 Every plan must define concrete, verifiable criteria before implementation: mapped to approved scope, testable or reviewable, including required durable doc updates and the validation needed for handoff.

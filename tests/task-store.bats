@@ -183,3 +183,7 @@ MD
     done
   done
 }
+
+@test "task-store: review evidence and archive lineage boundaries" {
+  PYTHONDONTWRITEBYTECODE=1 python3 "$REPO_ROOT/tests/review-record.py"
+}

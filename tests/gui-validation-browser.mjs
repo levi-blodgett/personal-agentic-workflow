@@ -223,12 +223,15 @@ gui.main()`,
   await until('completed replacement offers Review', () => evaluate("!!document.querySelector('form[action$=review]')"));
   await evaluate("document.querySelector('form[action$=review] button').click()");
   await until('stubbed Review launch', () => evaluate("document.body.textContent.includes('started paw review (fixture)')"));
-  writeFileSync(join(task, 'review.md'), '## Review Metadata\n- Grade: **B+**.\n');
+  writeFileSync(join(task, 'review.md'), '# Review\n');
+  await until('pending review recovery', () => evaluate("document.body.textContent.includes('Run Review') && !document.querySelector('form[action$=prototype]')"));
+  console.log('PASS: heading-only review retains Run Review recovery and no prototype form');
+  writeFileSync(join(task, 'review.md'), `## Review Metadata\n- Task: ${task.split('/').at(-1)}\n- Grade: **B+**.\n- Scope Reviewed: fixture delta\n- Quality Threshold: B+\n- Threshold Result: met\n\n## Blocking Production-Readiness Issues\n- None.\n`);
   await until('clean B+ badge', () => evaluate("document.querySelector('.review-grade.grade-b')?.textContent === 'Review grade: B+'"));
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.grade-b')).color"), 'rgb(29, 78, 216)');
   await sleep(5500);
   assert.equal(await evaluate("document.querySelector('.review-grade').textContent"), 'Review grade: B+');
-  writeFileSync(join(task, 'review.md'), '## Review Metadata\n- Grade: **A-**.\n');
+  writeFileSync(join(task, 'review.md'), `## Review Metadata\n- Task: ${task.split('/').at(-1)}\n- Grade: **A-**.\n- Scope Reviewed: fixture delta\n- Quality Threshold: B+\n- Threshold Result: met\n\n## Blocking Production-Readiness Issues\n- None.\n`);
   await until('formatted A- restriction', () => evaluate("document.querySelector('.grade-a')?.textContent === 'Review grade: A-' && document.body.textContent.includes('Prototype disabled for review grade A-')"));
   console.log('PASS: completed replacement launches stubbed Review; bold B+ stays clean/blue through polling; A- restricts prototype');
 

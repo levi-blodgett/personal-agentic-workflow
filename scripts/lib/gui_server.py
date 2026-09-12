@@ -24,6 +24,12 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 
+# Imported by path as well as launched directly by the CLI/server.
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import review_record
+
+
 PAW_SCRIPT = Path(__file__).resolve().parents[1] / "paw"
 TASK_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 LOG_TAIL_BYTES = 64 * 1024
@@ -695,12 +701,7 @@ def review_grade(review: str) -> str:
 
 
 def _normalized_grade(value: str) -> str:
-    candidate = value.strip().removesuffix('.').rstrip()
-    for wrapper in ('**', '__', '*', '_', '`'):
-        if candidate.startswith(wrapper) and candidate.endswith(wrapper):
-            candidate = candidate[len(wrapper):-len(wrapper)].strip()
-            break
-    return candidate.upper() if re.fullmatch(r'[ABCDFabcdf][+-]?', candidate) else ''
+    return review_record.normalized_grade(value)
 
 
 def review_grade_class(grade: str) -> str:
@@ -725,6 +726,9 @@ def prototype_disabled_reason(task: "Task") -> str:
         return "Run Review first: this task has no review.md."
     if task.review_is_stale:
         return "Run Review again: review.md predates the replacement plan."
+    reason = task.review_incomplete_reason
+    if reason:
+        return "Run Review again: " + reason + "."
     grade = review_grade(task.review)
     rank = grade_rank(grade)
     if rank is not None and rank >= 11:
@@ -1171,13 +1175,11 @@ class Task:
 
     @cached_property
     def review_is_stale(self) -> bool:
-        if not self.prototype_status.startswith("planned") or not (self.path / "review.md").exists():
-            return False
-        planning_runs = [file_mtime(run) for run in (self.path / "runs").glob("*.gitconfig")
-                         if metadata_value(run, "subcommand") == "prototype"
-                         and metadata_value(run, "status") == "complete"]
-        planned_at = max(planning_runs, default=file_mtime(self.path / "metadata.gitconfig"))
-        return file_mtime(self.path / "review.md") <= planned_at
+        return (self.path / "review.md").is_file() and review_record.stale(self.path, metadata_value)
+
+    @cached_property
+    def review_incomplete_reason(self) -> str:
+        return review_record.check(self.path, self.name, check_stale=False)
 
     @property
     def blocked(self) -> bool:
@@ -1313,6 +1315,8 @@ def task_workflow(task: Task) -> TaskWorkflow:
                             failure or "Replacement planning has not succeeded. Retry reuses the existing package.", reason)
     if task.prototype_status in {"prototyped", "source-reverted", "revert-blocked", "revert-unavailable"}:
         return TaskWorkflow("Prototype", "Archive", "archive", next_work)
+    if task.review and not task.review_is_stale and task.review_incomplete_reason:
+        return TaskWorkflow("Review incomplete", "Run Review", "review", prototype_disabled_reason(task))
     if task.review and not task.review_is_stale:
         reason = prototype_disabled_reason(task)
         if reason:

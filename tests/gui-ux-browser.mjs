@@ -91,7 +91,7 @@ try {
     const directory = join(repo, '.agent', name);
     mkdirSync(directory, { recursive: true });
     writeFileSync(join(directory, 'plan.md'), plan(name, percent) + (name === 'blocked' ? '\n- USER ANSWER (UNRESOLVED):\n' : ''));
-    if (name === 'reviewed') writeFileSync(join(directory, 'review.md'), '## Review Metadata\n- Grade: B+\n');
+    if (name === 'reviewed') writeFileSync(join(directory, 'review.md'), '## Review Metadata\n- Task: reviewed\n- Grade: B+\n- Scope Reviewed: fixture delta\n- Quality Threshold: B+\n- Threshold Result: met\n\n## Blocking Production-Readiness Issues\n- None.\n');
     if (name === 'running') { mkdirSync(join(directory, 'runs')); writeFileSync(join(directory, 'runs', 'fixture.gitconfig'), '[paw]\nstatus = running\n'); }
   }
   mkdirSync(join(root, 'tasks'));

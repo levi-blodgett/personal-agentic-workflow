@@ -172,3 +172,5 @@ Implementation completion includes self-checks and final full local validation.
 Independent grading/production sign-off follows in Review; keep inherited quality
 thresholds in a post-implementation review requirement when writing new plans.
 An independent review is not a substitute for required implementation checks.
+
+See [Quality policy and worked risk examples](quality.md) for the A- Review rubric and acceptance-evidence mapping.

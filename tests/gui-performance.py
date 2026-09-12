@@ -30,7 +30,7 @@ def fixture(root):
         path = central / name
         (path / 'runs').mkdir(parents=True)
         (path / 'plan.md').write_text('## Current Status\n- Estimated completion: 100%\n- Next work: Review.\n## Validation Performed\n- tests: passed\n')
-        (path / 'review.md').write_text('# Review\n- Grade: B\n')
+        (path / 'review.md').write_text(f'## Review Metadata\n- Task: {name}\n- Grade: B\n- Scope Reviewed: fixture delta\n- Quality Threshold: B+\n- Threshold Result: below threshold\n\n## Blocking Production-Readiness Issues\n- None.\n')
         (path / 'metadata.gitconfig').write_text(f'[paw]\nrepo-root = {repo}\nbranch-name = main\n')
         for n in range(3):
             (path / 'runs' / f'2026090{n+1}.gitconfig').write_text('[paw]\nstatus = complete\nsubcommand = implement\nstarted-at = 2026-09-01T00:00:00Z\n')

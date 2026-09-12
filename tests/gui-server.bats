@@ -269,6 +269,13 @@ MD
 
 ## Review Metadata
 - Grade: B-
+- Task: reviewed-task
+- Scope Reviewed: task delta
+- Quality Threshold: B+ / no blockers
+- Threshold Result: below threshold
+
+## Blocking Production-Readiness Issues
+- None.
 MD
   cp "$REPO/.agent/done-task/plan.md" "$REPO/.agent/pending-review-task/plan.md"
   cat > "$REPO/.agent/pending-review-task/review.md" <<'MD'
@@ -345,18 +352,39 @@ MD
 
 ## Review Metadata
 - Grade: A
+- Task: grade-a
+- Scope Reviewed: task delta
+- Quality Threshold: B+ / no blockers
+- Threshold Result: met
+
+## Blocking Production-Readiness Issues
+- None.
 MD
   cat > "$REPO/.agent/grade-a-minus/review.md" <<'MD'
 # Review
 
 ## Review Metadata
 - Grade: A-
+- Task: grade-a-minus
+- Scope Reviewed: task delta
+- Quality Threshold: B+ / no blockers
+- Threshold Result: met
+
+## Blocking Production-Readiness Issues
+- None.
 MD
   cat > "$REPO/.agent/grade-b-plus/review.md" <<'MD'
 # Review
 
 ## Review Metadata
 - Grade: B+
+- Task: grade-b-plus
+- Scope Reviewed: task delta
+- Quality Threshold: B+ / no blockers
+- Threshold Result: met
+
+## Blocking Production-Readiness Issues
+- None.
 MD
   cat > "$REPO/.agent/grade-pending/review.md" <<'MD'
 # Review
@@ -378,8 +406,8 @@ MD
   grep -q "Prototype disabled for review grade A" "$BATS_TEST_TMPDIR/prototype-grades.html"
   grep -q "Prototype disabled for review grade A-" "$BATS_TEST_TMPDIR/prototype-grades.html"
   grep -q "/task/grade-b-plus/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
-  grep -q "/task/grade-pending/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
-  grep -q "/task/grade-missing/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  ! grep -q "/task/grade-pending/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
+  ! grep -q "/task/grade-missing/prototype" "$BATS_TEST_TMPDIR/prototype-grades.html"
   grep -q "prototype blocked: Prototype disabled for review grade A" "$BATS_TEST_TMPDIR/prototype-a-post.html"
   grep -q "grade-b-plus-prototype" "$BATS_TEST_TMPDIR/backend.prompt"
 }
@@ -1122,6 +1150,8 @@ MD
 
   grep -q "already has a running PAW subprocess" "$BATS_TEST_TMPDIR/implement-blocked.html"
   grep -q "PAW:IMPLEMENT" "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -qF "bounded self-check" "$BATS_TEST_TMPDIR/backend.prompt"
+  grep -qF "Acceptance Evidence" "$BATS_TEST_TMPDIR/backend.prompt"
   ! grep -q "finish the approved slice" "$BATS_TEST_TMPDIR/backend.prompt"
 }
 
@@ -1252,6 +1282,17 @@ PY
   grep -q "PAW:IMPLEMENT" "$BATS_TEST_TMPDIR/backend.prompt"
   grep -q "Threshold is B+" "$BATS_TEST_TMPDIR/backend.prompt"
   rm -f "$BATS_TEST_TMPDIR/backend.prompt"
+  # The stub does not author reviews. Supply completed evidence for the next action.
+  python3 - "$REPO/.agent/gui-task" "$REPO_ROOT/scripts" <<'PY_REVIEW'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[2]) / 'lib'))
+import review_record
+path = Path(sys.argv[1])
+text = (path / 'review.md').read_text().replace('pending', 'assessed').replace('- Grade: assessed', '- Grade: B+').replace('- Quality Threshold: assessed', '- Quality Threshold: B+').replace('- Threshold Result: assessed', '- Threshold Result: met').replace('- Completion: assessed', '- Completion: complete').replace('- Pending.', '- None.')
+(path / 'review.md').write_text(text)
+review_record.finish(path, 'gui-task')
+PY_REVIEW
 
   post_gui "$port" "/task/gui-task/prototype" "$(form_encode "path=$path" "extras=Use the review as source")" "$BATS_TEST_TMPDIR/prototype-post.html"
   wait_for_file "$BATS_TEST_TMPDIR/backend.prompt"
@@ -1951,10 +1992,10 @@ for all_repos in (False, True):
             result = action('same', 'edit', second, extras='other repo')
             assert result['ok'] and launch.call_args.args[0] == other and launch.call_args.args[2] == second
             assert not action('same', 'prototype', first)['ok']  # missing review
-            (first / 'review.md').write_text('## Review Metadata\n- Grade: F\n')
+            (first / 'review.md').write_text('## Review Metadata\n- Task: same\n- Grade: F\n- Scope Reviewed: task delta\n- Quality Threshold: B+\n- Threshold Result: below threshold\n\n## Blocking Production-Readiness Issues\n- None.\n')
             assert action('same', 'prototype', first, extras='prototype instructions')['ok']
             assert launch.call_args.args[3] == ['prototype', 'same', 'prototype instructions']
-            (first / 'review.md').write_text('## Review Metadata\n- Grade: A\n')
+            (first / 'review.md').write_text('## Review Metadata\n- Task: same\n- Grade: A\n- Scope Reviewed: task delta\n- Quality Threshold: B+\n- Threshold Result: met\n\n## Blocking Production-Readiness Issues\n- None.\n')
             assert not action('same', 'prototype', first)['ok']
             (first / 'plan.md').write_text(plan + '\n- USER ANSWER (UNRESOLVED):\n')
             assert not action('same', 'implement', first)['ok']

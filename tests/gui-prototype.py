@@ -15,6 +15,13 @@ sys.modules[spec.name] = gui
 spec.loader.exec_module(gui)
 
 
+def complete_review(task='replacement', grade='B'):
+    return (f'## Review Metadata\n- Task: {task}\n- Grade: {grade}\n'
+            '- Scope Reviewed: task delta\n- Quality Threshold: B+ / no blockers\n'
+            '- Threshold Result: below threshold\n\n## Blocking Production-Readiness Issues\n'
+            '- Repair the scoped invariant.\n')
+
+
 class PrototypeJourney(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -64,7 +71,7 @@ class PrototypeJourney(unittest.TestCase):
                 self.assertEqual(launch.call_args.args[-1], ['review', 'replacement'])
 
     def test_reported_bold_grade_badge_and_rank(self):
-        raw = '# Review\n## Review Metadata\n- Grade: **B+**.\n'
+        raw = complete_review(grade='**B+**.')
         (self.path / 'review.md').write_text(raw)
         grade = gui.review_grade(self.task().review)
         self.assertEqual(grade, 'B+')
@@ -90,7 +97,7 @@ class PrototypeJourney(unittest.TestCase):
             self.assertEqual(gui.review_grade('## Review Metadata\n- Grade: ' + value), value)
             self.assertIsNone(gui.grade_rank(value))
             self.assertEqual(gui.review_grade_class(value), 'grade-unknown')
-            (self.path / 'review.md').write_text('## Review Metadata\n- Grade: ' + value)
+            (self.path / 'review.md').write_text(complete_review(grade=value))
             rendered = self.handler.workflow_next_cell(self.task(), gui.task_workflow(self.task()))
             self.assertNotIn('<script>', rendered)
         for value in ('', 'pending', 'PENDING'):
@@ -100,7 +107,7 @@ class PrototypeJourney(unittest.TestCase):
 
     def test_formatted_grade_controls_display_and_post_guard(self):
         for value, allowed in (('**A**.', False), ('`a-`', False), ('**B+**.', True)):
-            (self.path / 'review.md').write_text('## Review Metadata\n- Grade: ' + value)
+            (self.path / 'review.md').write_text(complete_review(grade=value))
             workflow = gui.task_workflow(self.task())
             control = self.handler.workflow_action_control(self.task(), workflow)
             self.assertEqual("name='extras'" in control, allowed)
@@ -108,9 +115,20 @@ class PrototypeJourney(unittest.TestCase):
                 self.post('prototype')
                 self.assertEqual(launch.called, allowed)
 
+    def test_pending_unknown_and_incomplete_review_refused_by_workflow_and_post(self):
+        for raw in ('# Review', complete_review(grade='pending'), complete_review(grade='E'),
+                    complete_review().replace('task delta', 'pending'),
+                    complete_review().replace('- Repair the scoped invariant.', '- Pending.')):
+            (self.path / 'review.md').write_text(raw)
+            self.assertEqual(gui.task_workflow(self.task()).action, 'review')
+            self.assertIn('Run Review', gui.prototype_disabled_reason(self.task()))
+            with patch.object(gui, 'launch_paw', return_value=(True, 'started')) as launch:
+                self.post('prototype')
+                launch.assert_not_called()
+
     def test_prototype_requires_review_and_collects_instructions(self):
         self.assertIn('review.md', gui.prototype_disabled_reason(self.task()))
-        (self.path / 'review.md').write_text('# Review\n- Grade: B\n')
+        (self.path / 'review.md').write_text(complete_review())
         task = self.task()
         self.assertEqual(gui.prototype_disabled_reason(task), '')
         control = self.handler.workflow_action_control(task, gui.task_workflow(task))
@@ -189,7 +207,7 @@ class PrototypeJourney(unittest.TestCase):
         source = self.repo / '.agent' / 'source'
         source.mkdir()
         (source / 'plan.md').write_text(self.task().plan)
-        (source / 'review.md').write_text('# Review\n- Grade: B\n')
+        (source / 'review.md').write_text(complete_review('source'))
         self.meta('prototype-source', 'source')
         self.meta('prototype-status', 'planning-failed')
         self.meta('prototype-status', 'source-reverted', source)
@@ -223,7 +241,7 @@ class PrototypeJourney(unittest.TestCase):
             launch.assert_not_called()
 
     def test_duplicate_launch_and_replacement_action_are_blocked_until_cancel(self):
-        (self.path / 'review.md').write_text('# Review\n- Grade: B\n')
+        (self.path / 'review.md').write_text(complete_review())
         replacement = self.path.with_name('replacement-prototype')
         replacement.mkdir()
         (replacement / 'plan.md').write_text(self.task().plan)
@@ -306,13 +324,13 @@ class PrototypeJourney(unittest.TestCase):
     def test_reused_replacement_does_not_reuse_its_old_review(self):
         import os
         review = self.path / 'review.md'
-        review.write_text('# Review\n- Grade: B\n')
+        review.write_text(complete_review())
         os.utime(review, (1, 1))
         self.meta('prototype-status', 'planned')
         self.assertEqual(gui.task_workflow(self.task()).action, 'approve-implementation')
         (self.path / 'plan.md').write_text('## Current Status\n- Estimated completion: 100%\n- Next work: Review.\n')
         self.assertEqual(gui.task_workflow(self.task()).action, 'review')
-        review.write_text('# Review\n- Grade: B\n')
+        review.write_text(complete_review())
         self.assertEqual(gui.task_workflow(self.task()).action, 'prototype')
 
 

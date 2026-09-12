@@ -199,6 +199,7 @@ lint_one() {
         issues=$((issues + 1))
       fi
     done
+    python3 "$SCRIPT_DIR/lib/quality_plan.py" "$plan" || issues=$((issues + 1))
     check_unticked_when_done "$plan" || issues=$((issues + 1))
     check_completed_items_have_progress "$plan" || issues=$((issues + 1))
     if [[ "${PAW_LINT_LENGTH:-1}" != "0" ]]; then

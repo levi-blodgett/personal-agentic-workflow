@@ -164,7 +164,7 @@ MD
 @test "paw review: prompt contains PAW:IMPLEMENT anchor and task-quality guidance" {
   make_task review-task
   run "$PAW" review review-task
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 1 ] # Stub leaves the review pending; routing still captured.
   prompt_contains "PAW:IMPLEMENT"
   prompt_contains 'This is a `paw review` run'
   prompt_contains "Assign a clear grade"
@@ -180,7 +180,7 @@ MD
 @test "paw review: seeds review.md for durable grade and recommendations" {
   make_task review-task
   run "$PAW" review review-task
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 1 ] # Stub leaves the review pending; routing still captured.
   [ -f "$REPO/.agent/review-task/review.md" ]
   grep -q "Scope Reviewed" "$REPO/.agent/review-task/review.md"
   grep -q "Overall Workflow / Subsystem Grade" "$REPO/.agent/review-task/review.md"
@@ -193,7 +193,7 @@ MD
 @test "paw review: supports overall workflow grading when requested" {
   make_task review-task
   run "$PAW" review review-task "Rate the overall state of paw review and paw prototype, not just this task delta."
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 1 ] # Stub leaves the review pending; routing still captured.
   prompt_contains "grade the current overall workflow or subsystem state"
   prompt_contains 'overall current state of `paw review` and `paw prototype`'
   prompt_contains "Human extras:"
@@ -203,7 +203,7 @@ MD
 @test "paw review: appends Human extras when extra arg given" {
   make_task review-task
   run "$PAW" review review-task "Threshold is B+."
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 1 ] # Stub leaves the review pending; routing still captured.
   prompt_contains "Human extras:"
   prompt_contains "Threshold is B+."
 }
@@ -225,7 +225,7 @@ MD
 
 @test "paw prototype: prompt contains PAW:PLAN anchor and reviewed source references" {
   make_task proto-task
-  printf '# Review\n\n## Recommendations\n- Replace the flow.\n' > "$REPO/.agent/proto-task/review.md"
+  complete_review "$REPO/.agent/proto-task/review.md" proto-task
   run "$PAW" prototype proto-task
   [ "$status" -eq 0 ]
   prompt_contains "PAW:PLAN"
@@ -237,7 +237,7 @@ MD
 
 @test "paw prototype: seeds replacement plan package and records prototype metadata" {
   make_task proto-task
-  printf '# Review\n' > "$REPO/.agent/proto-task/review.md"
+  complete_review "$REPO/.agent/proto-task/review.md" proto-task
   run "$PAW" prototype proto-task
   [ "$status" -eq 0 ]
   local matches=("$PAW_TASK_HOME"/*/proto-task-prototype/plan.md)
@@ -263,7 +263,7 @@ capture_prototype_source() {
   cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$source_dir/plan.md"
   run env PAW_STUB_MUTATE_FILE="$REPO/README.md" "$PAW" implement proto-task
   [ "$status" -eq 0 ]
-  printf '# Review\n' > "$source_dir/review.md"
+  complete_review "$source_dir/review.md" proto-task
 }
 
 @test "paw prototype: preserves later same-path edits after provenance capture" {
@@ -301,7 +301,7 @@ capture_prototype_source() {
   [ "$status" -eq 0 ]
   local source_dir
   source_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task" -type d -print -quit)
-  printf '# Review\n' > "$source_dir/review.md"
+  complete_review "$source_dir/review.md" proto-task
   git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path README.md
   printf 'changed\n' > "$REPO/README.md"
   capture_fixture_provenance
@@ -330,7 +330,7 @@ capture_prototype_source() {
   [ "$status" -eq 0 ]
   local source_dir
   source_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task" -type d -print -quit)
-  printf '# Review\n' > "$source_dir/review.md"
+  complete_review "$source_dir/review.md" proto-task
   git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path README.md
   printf 'changed\n' > "$REPO/README.md"
 
@@ -353,7 +353,7 @@ capture_prototype_source() {
   [ "$status" -eq 0 ]
   local source_dir
   source_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task" -type d -print -quit)
-  printf '# Review\n' > "$source_dir/review.md"
+  complete_review "$source_dir/review.md" proto-task
   printf 'changed\n' > "$REPO/README.md"
 
   run "$PAW" prototype proto-task
@@ -375,7 +375,7 @@ capture_prototype_source() {
   [ "$status" -eq 0 ]
   local source_dir
   source_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task" -type d -print -quit)
-  printf '# Review\n' > "$source_dir/review.md"
+  complete_review "$source_dir/review.md" proto-task
   git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path ../README.md
   printf 'changed\n' > "$REPO/README.md"
 
@@ -396,7 +396,7 @@ capture_prototype_source() {
   [ "$status" -eq 0 ]
   local source_dir
   source_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task" -type d -print -quit)
-  printf '# Review\n' > "$source_dir/review.md"
+  complete_review "$source_dir/review.md" proto-task
   git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path README.md
   printf 'changed\n' > "$REPO/README.md"
   capture_fixture_provenance
@@ -425,7 +425,7 @@ capture_prototype_source() {
   [ "$status" -eq 0 ]
   local source_dir
   source_dir=$(find "$PAW_TASK_HOME" -path "*/proto-task" -type d -print -quit)
-  printf '# Review\n' > "$source_dir/review.md"
+  complete_review "$source_dir/review.md" proto-task
   git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path "file with spaces.md"
   git config --file "$source_dir/metadata.gitconfig" --add paw.prototype-owned-path delete-me.md
   printf 'space changed\n' > "$REPO/file with spaces.md"
@@ -453,7 +453,7 @@ capture_prototype_source() {
   [ "$status" -eq 0 ]
   local source_dir
   source_dir=$(find "$PAW_TASK_HOME" -path '*/proto-task' -type d -print -quit)
-  printf '# Review\n' > "$source_dir/review.md"
+  complete_review "$source_dir/review.md" proto-task
   for path in "${paths[@]}"; do printf 'task\0bytes\n' > "$REPO/$path"; done
   chmod +x "$REPO/é.md"
   capture_fixture_provenance
@@ -599,7 +599,7 @@ capture_prototype_source() {
 
 @test "paw prototype: uses plan-class model defaults when PAW_MODEL is unset" {
   make_task proto-task
-  printf '# Review\n' > "$REPO/.agent/proto-task/review.md"
+  complete_review "$REPO/.agent/proto-task/review.md" proto-task
   run "$PAW" prototype proto-task
   [ "$status" -eq 0 ]
   args_contain "sonnet"
@@ -607,7 +607,7 @@ capture_prototype_source() {
 
 @test "paw prototype: appends Human extras when extra arg given" {
   make_task proto-task
-  printf '# Review\n' > "$REPO/.agent/proto-task/review.md"
+  complete_review "$REPO/.agent/proto-task/review.md" proto-task
   run "$PAW" prototype proto-task "Prefer the smallest replacement slice."
   [ "$status" -eq 0 ]
   prompt_contains "Human extras:"
@@ -1413,4 +1413,110 @@ MD
   [ "$status" -eq 0 ]
   [ -f "$replacement/plan.md" ]
   [ ! -d "$source_dir" ]
+}
+
+@test "quality policy: new plan seeds measurable independent Review contract (routing evidence)" {
+  init_git_repo
+  run "$PAW" plan quality-task "Quality fixture"
+  [ "$status" -eq 0 ]
+  local plan
+  plan=$(find "$PAW_TASK_HOME" -path '*/quality-task/plan.md' -print -quit)
+  grep -qF 'Quality policy version: 1' "$plan"
+  grep -qF '## Acceptance Evidence' "$plan"
+  grep -qF '## Post-Implementation Review Requirement' "$plan"
+  grep -qF 'A- or higher' "$plan"
+}
+
+@test "quality policy: implement and diagnose route bounded risk self-checks" {
+  make_task quality
+  for command in implement diagnose; do
+    run "$PAW" "$command" quality
+    [ "$status" -eq 0 ]
+    prompt_contains 'bounded self-check'
+    prompt_contains 'counterexample'
+    prompt_contains 'Acceptance Evidence'
+  done
+}
+
+@test "review completeness: heading-only prototype refuses before seeding" {
+  make_task pending-review
+  printf '# Review\n' > "$REPO/.agent/pending-review/review.md"
+  run "$PAW" prototype pending-review
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Run Review'* ]]
+  [ ! -e "$REPO/.agent/pending-review-prototype" ]
+  [ ! -e "$BATS_TEST_TMPDIR/backend.prompt" ]
+}
+
+complete_review() {
+  cat > "$1" <<EOF_REVIEW
+## Review Metadata
+- Task: $2
+- Scope Reviewed: task delta
+- Grade: B+
+- Quality Threshold: B+ / no blockers
+- Threshold Result: met
+
+## Blocking Production-Readiness Issues
+- None.
+
+## Recommendations
+- Preserve the tested behavior.
+EOF_REVIEW
+}
+
+@test "quality lifecycle: plan handoff pending refusal archived ancestry and preserved rereview" {
+  init_git_repo
+  run "$PAW" plan lifecycle "Preserve immutable bytes and structural parser invariants."
+  [ "$status" -eq 0 ]
+  local task_dir replacement archive_dir
+  task_dir=$(find "$PAW_TASK_HOME" -path '*/lifecycle/plan.md' -print -quit)
+  task_dir="${task_dir%/plan.md}"
+  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$task_dir/plan.md"
+  run "$PAW" implement lifecycle
+  [ "$status" -eq 0 ]
+  run "$PAW" review lifecycle
+  [ "$status" -eq 1 ]
+  run "$PAW" prototype lifecycle
+  [ "$status" -eq 1 ]
+  [ ! -d "${task_dir}-prototype" ]
+
+  # A hermetic reviewer resolves the seed, preserving attempt identity.
+  export FIXTURE_REVIEW_DIR="$task_dir"
+  cat > "$EMPTY_BIN/paw-backend-review-fixture" <<'PLUGIN'
+#!/usr/bin/env python3
+import os, sys
+from pathlib import Path
+if sys.argv[1] in ('run-capture', 'run-stream'):
+    path = Path(os.environ['FIXTURE_REVIEW_DIR']) / 'review.md'
+    text = path.read_text().replace('- Scope Reviewed: pending', '- Scope Reviewed: fixture delta').replace('- Grade: pending', '- Grade: C').replace('- Quality Threshold: pending', '- Quality Threshold: A- / no blockers').replace('- Threshold Result: pending', '- Threshold Result: below threshold').replace('- Completion: pending', '- Completion: complete').replace('- Pending.', '- Preserve immutable bytes and structural parser invariants.')
+    path.write_text(text)
+    Path(sys.argv[2]).write_text('{"result":"fixture"}')
+elif sys.argv[1] in ('parse-tokens', 'parse-stream-tokens'):
+    print('0')
+PLUGIN
+  chmod +x "$EMPTY_BIN/paw-backend-review-fixture"
+  PAW_BACKEND=review-fixture run "$PAW" review lifecycle
+  [ "$status" -eq 0 ]
+  cp "$task_dir/review.md" "$BATS_TEST_TMPDIR/completed-review"
+  run "$PAW" prototype lifecycle
+  [ "$status" -eq 0 ]
+  replacement="${task_dir}-prototype"
+  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$replacement/plan.md"
+  complete_review "$replacement/review.md" lifecycle-prototype
+  run "$PAW" archive lifecycle
+  [ "$status" -eq 0 ]
+  archive_dir="${task_dir%/*}/.archive/lifecycle"
+  run "$PAW" prototype lifecycle-prototype
+  [ "$status" -eq 0 ]
+  prompt_contains "$archive_dir/review.md"
+  prompt_contains 'immutable bytes and structural parser invariants'
+  prompt_contains 'finding → invariant → acceptance/test'
+  prompt_contains 'already-resolved-with-evidence'
+  # Legacy source history remains byte-identical through archive and planning.
+  cmp "$BATS_TEST_TMPDIR/completed-review" "$archive_dir/review.md"
+  export FIXTURE_REVIEW_DIR="$replacement"
+  PAW_BACKEND=review-fixture run "$PAW" review lifecycle-prototype
+  [ "$status" -eq 0 ]
+  [ -d "$replacement/review-history" ]
 }

@@ -333,3 +333,27 @@ MD
   [ "$status" -eq 0 ]
   [[ "$output" != *"pr.md missing"* ]]
 }
+
+@test "lint-task: quality v1 requires planned evidence and independent Review; legacy stays valid" {
+  local task="$BATS_TEST_TMPDIR/quality"
+  cp -R "$FIXTURES_DIR/sample-task-valid" "$task"
+  printf '\nQuality policy version: 1\n' >> "$task/plan.md"
+  run "$SCRIPTS_DIR/lint-task.sh" "$task"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Acceptance Evidence'* ]]
+  cat >> "$task/plan.md" <<'MD'
+
+## Acceptance Evidence
+
+| Criterion | Observable behavior | Planned check | Evidence destination |
+|---|---|---|---|
+| CLI parity | Equal output | flags | validation/flags.log |
+
+## Post-Implementation Review Requirement
+
+Independent Review: B+ with no blockers (explicit inherited source threshold);
+A- or higher remains the improvement target after implementation.
+MD
+  run "$SCRIPTS_DIR/lint-task.sh" "$task"
+  [ "$status" -eq 0 ]
+}

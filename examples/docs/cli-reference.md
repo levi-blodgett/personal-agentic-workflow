@@ -356,7 +356,7 @@ paw prototype task-quality-pass
 paw prototype task-quality-pass "Preserve the CLI behavior but simplify the GUI slice."
 ```
 
-- `paw prototype` now requires the source task to have `review.md`; the old throwaway `--question`, `--logic`, and `--ui` flags are rejected with compatibility guidance.
+- `paw prototype` requires a complete source review (see Review completion and inherited findings below); the old throwaway `--question`, `--logic`, and `--ui` flags are rejected with compatibility guidance.
 - The command seeds or reuses a `<task-name>-prototype` task package and runs a plan-only `<!-- PAW:PLAN -->` prompt using the source task docs and `review.md`.
 - Replacement plans should include a `## Prototype Source` section with source task, review, grade/recommendation context, and revert/prototype status.
 - Successful `paw implement` runs save a checksum-verified `prototype.patch` with full blob identities, result bytes, deletions and modes, plus baseline/index metadata and `paw.prototype-owned-path` entries. Pre-existing dirty paths are excluded; resumed runs invalidate previous cleanup authority. Missing or ambiguous evidence records `paw.prototype-provenance-status/message` instead. Provenance statuses are `recorded`, `no-owned-paths`, `blocked`, and `unavailable`. The local manifest uses `paw.prototype-patch-hash`, `paw.prototype-patch-head`, and `paw.prototype-index-contract=baseline-v1`.
@@ -554,3 +554,36 @@ one balanced bold, italic or backtick wrapper, and an optional final period.
 Supported grades share badge text, color and prototype eligibility (A- or higher
 blocks prototype). Pending/empty grades have no badge; unsupported values remain
 escaped neutral text without a guessed rank. Review files are preserved.
+
+## Review completion and inherited findings
+
+New plans follow [Quality policy version 1](quality.md): A- / no production
+blockers at independent Review, a criterion/check/evidence table, and bounded
+risk-specific self-checks before final full validation. Explicit inherited thresholds
+remain authoritative. Unversioned plans are not retroactively rejected.
+
+Review completion requires matching task identity, resolved scope, a recognized
+grade, explicit threshold/result and a blockers disposition (list or None). New
+attempts also carry policy version, attempt and reviewed code identity, and an
+explicit completion marker. A backend returning zero with pending content fails;
+failed/interrupted attempts cannot reuse prior success. `paw review` preserves prior
+bytes in collision-safe `review-history/` files before seeding a fresh attempt;
+archival failure stops without overwriting the prior review. Legacy records remain
+readable, but incomplete records need **Run Review** before replacement planning.
+Completion checks establish structure, not truth, coverage or production sign-off.
+
+CLI prototype accepts complete adverse reviews and explicit complete high-grade
+requests. GUI row/detail/POST additionally restrict A- or higher; that existing
+product distinction remains. Pending, unknown-grade, stale and interrupted reviews
+cannot authorize replacement seeding or cleanup. Source evidence is checked again
+before cleanup; changed evidence stops the run. Existing cleanup ownership,
+content/index and idle-worktree guards still apply.
+
+Replacement prompts resolve same-repo sources and ancestors from active central,
+archived central or legacy packages. Recorded paths must match repo/task identity;
+missing, ambiguous, escaped or cross-repo evidence and lineage cycles block planning.
+Archive moves preserve source content. Each blocker needs a finding → invariant →
+acceptance/test mapping; non-blockers need planned, deferred-with-reason or
+resolved-with-evidence dispositions. Preserve all origins when deduplicating shared
+findings. A better grade never silently resolves a blocker; scope conflicts require
+reconciliation. Missing evidence never authorizes discarding retained source work.

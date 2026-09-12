@@ -181,3 +181,5 @@ one balanced bold, italic or backtick wrapper, and an optional final period.
 Supported grades share badge text, color and prototype eligibility (A- or higher
 blocks prototype). Pending/empty grades have no badge; unsupported values remain
 escaped neutral text without a guessed rank. Review files are preserved.
+
+New plans use the [A- quality rubric and acceptance-evidence guide](examples/docs/quality.md). [Review completion and inheritance](examples/docs/cli-reference.md#review-completion-and-inherited-findings) describes pending-review recovery, preserved attempts, archived source lookup, and CLI/GUI eligibility distinctions.

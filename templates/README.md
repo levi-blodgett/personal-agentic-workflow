@@ -20,3 +20,5 @@ Empty skeleton files for PAW task planning. `paw plan` copies task docs into `.a
 - Task plans do not own cost tracking. `paw` appends repo-level entries to `.agent/cost-log.md`.
 
 See `prompts/prompt_instructions.md` for the full workflow contract these templates implement.
+
+New plans seed Quality policy version 1 with an Acceptance Evidence table and a post-implementation independent A- / no-blockers Review target. Fill planned checks before approval; record actual named log/code evidence at wrap-up. Explicit source thresholds remain authoritative; see [quality guidance](../examples/docs/quality.md).

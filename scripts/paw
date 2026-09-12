@@ -592,6 +592,7 @@ _validation_policy_prompt_note() {
   cat <<'EOF'
 
 Validation policy reminder:
+- Before final full validation, perform a bounded self-check using the shared Quality Contract: select applicable risk families, one concrete counterexample/check each, and specific exclusion reasons. Map Acceptance Evidence rows to actual named checks and log/code identities; preserve source blockers and explicit inherited thresholds.
 - After approved implementation, docs, tests and required final full validation pass, record 100% and `Next work: Review.`. Finish routine authorized work without asking for permission. Keep self-checks inside implementation; independent grading and production sign-off follow in Review. Preserve explicit task-specific gates and approval boundaries: reconcile conflicting old approved plans rather than silently overriding them.
 - Run the validation decision ladder from the task plan before handoff.
 - Start with targeted changed-area validation, then escalate when the plan or risk requires it.
@@ -677,44 +678,7 @@ EOF
 
 _review_doc_seed() {
   local task_dir="$1" task_name="$2"
-  local review_file="$task_dir/review.md"
-  if [[ -f "$review_file" ]]; then
-    return 0
-  fi
-
-  cat > "$review_file" <<EOF
-# Task Quality Review — \`$task_name\`
-
-## Review Metadata
-
-- Task: \`$task_name\`
-- Scope Reviewed: pending
-- Grade: pending
-- Overall Workflow / Subsystem Grade: pending
-- Quality Threshold: pending
-- Threshold Result: pending
-- Prototype Cleanup Production-Ready: pending
-
-## Summary
-
-- Pending.
-
-## Architectural / Design Choices
-
-- Pending.
-
-## Improvement Opportunities
-
-- Pending.
-
-## Blocking Production-Readiness Issues
-
-- Pending.
-
-## Recommendations
-
-- Pending.
-EOF
+  python3 -B "$SCRIPT_DIR/lib/review_record.py" begin "$task_dir" "$task_name" "$PWD"
 }
 
 _review_prompt_task_doc_requirements() {
@@ -738,7 +702,7 @@ Review requirements:
 - Give concrete recommendations for improvement or for a later `paw prototype <task-name>` replacement-plan run.
 
 Update requirements:
-- Keep `review.md` as the durable review record.
+- Keep `review.md` as the durable review record. Preserve the seeded Task, Attempt, Reviewed Code and Quality Policy Version identities; resolve scope, grade, threshold/result and explicit blockers disposition, then set `- Completion: complete`. Backend success alone does not complete review. Prior attempts are preserved in `review-history/`.
 - Add or update a concise task-review marker in `plan.md` so future operators can see that review happened.
 - Do not create commits.
 EOF
@@ -759,6 +723,7 @@ Task-package requirements:
 - Fill in the new replacement task's `contract.md` and `plan.md`, plus the branch PR body file when present.
 - Add a `## Prototype Source` section to the replacement task's `plan.md`.
 - Mention the source task, `review.md`, grade, recommendations, and revert/prototype status.
+- Map every source/ancestor blocker as finding → invariant → acceptance/test in Acceptance Evidence; retain source paths, attempt/code identities and all origins when deduplicating shared findings. Give each non-blocker a planned, deferred-with-reason or already-resolved-with-evidence disposition. A better overall grade never resolves an individual blocker. Missing evidence blocks planning; conflicts with approved scope block implementation for reconciliation. Preserve resolved code and immutable content/index postconditions and structural parser invariants. Consider a narrow repair instead of another broad replacement when appropriate.
 - Carry source quality thresholds and recommendations into a post-implementation Review requirement, not an implementation checkbox requiring an independent reviewer. Implementation self-checks and final full validation still precede completion.
 - Preserve the normal PAW plan contract and leave implementation for a later `paw implement`.
 EOF
@@ -2332,6 +2297,11 @@ cmd_prototype() {
     exit 1
   fi
 
+  python3 -B "$SCRIPT_DIR/lib/review_record.py" check "$source_task_dir" "$task_name" || return $?
+
+  local source_evidence
+  source_evidence="$(python3 -B "$SCRIPT_DIR/lib/review_lineage.py" "$PWD" "$(paw_task_repo_store "$PWD")" "$task_name")" || return $?
+
   replacement_task_name="${task_name}-prototype"
   replacement_task_dir="$(_task_dir_for_plan "$replacement_task_name")"
   include_pr=0
@@ -2360,6 +2330,9 @@ Follow $INSTRUCTIONS, with <!-- PAW:PLAN --> as the primary section for this run
 The source task being treated as the prototype is $display_source_dir/.
 The durable review record is $display_source_dir/review.md.
 
+Resolved source and ancestor evidence (read-only):
+$source_evidence
+
 The replacement task package files for this workflow are:
 $seeded_list
 
@@ -2374,6 +2347,16 @@ EOF
   if [[ "$run_status" -ne 0 ]]; then
     git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planning-failed" 2>/dev/null || true
     return "$run_status"
+  fi
+  local final_source_evidence
+  final_source_evidence="$(python3 -B "$SCRIPT_DIR/lib/review_lineage.py" "$PWD" "$(paw_task_repo_store "$PWD")" "$task_name")" || {
+    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planning-failed"
+    return 1
+  }
+  if [[ "$final_source_evidence" != "$source_evidence" ]]; then
+    echo "error: source review evidence changed during planning; reconcile and Run Review before retrying. No cleanup performed." >&2
+    git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planning-failed"
+    return 1
   fi
   git config --file "$(paw_task_metadata_file "$replacement_task_dir")" paw.prototype-status "planned" 2>/dev/null || true
   _prototype_revert_source_work "$task_name" "$source_task_dir" "$replacement_task_dir"
@@ -3165,11 +3148,12 @@ cmd_review() {
 
   local task_dir extras prompt
   task_dir="$(_task_dir_for_existing "$task_name")"
-  _review_doc_seed "$task_dir" "$task_name"
+  _review_doc_seed "$task_dir" "$task_name" || return $?
   extras=$(_join_prompt_extras "$@")
   prompt="Follow $INSTRUCTIONS, with <!-- PAW:IMPLEMENT --> as the primary section for this run, and review the completed task package in $(_task_display_path "$task_dir")/. Do not create commits.$(_prompt_pr_md_usage_note "$task_dir")$(_review_prompt_task_doc_requirements)"
   prompt=$(_prompt_append_human_extras "$prompt" "$extras")
-  _run_model_subcommand review "$task_dir" "review" "$prompt"
+  _run_model_subcommand review "$task_dir" "review" "$prompt" || return $?
+  python3 -B "$SCRIPT_DIR/lib/review_record.py" finish "$task_dir" "$task_name"
 }
 
 cmd_archive() {

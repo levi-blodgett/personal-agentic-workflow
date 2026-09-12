@@ -164,3 +164,5 @@ recorded-validation browser harness also checks completed replacement → stubbe
 Review launch, bold B+ blue badge through polling, and formatted A- restrictions.
 No real model launch or live task is used. Producer regressions cover independent
 review after implementation and canonical plain Grade metadata with pending seeds.
+
+Review quality coverage: `review-record.py` checks completion, exact history bytes, interrupted attempts and archived/ambiguous lineage; the `quality lifecycle` Bats case uses a hermetic reviewer fixture through real CLI dispatch. `gui-prototype.py` exercises row/control/POST refusal and formatted grades; `gui-validation-browser.mjs` retains pending-review recovery alongside delayed-input UX and exact-rerun journeys. The post-spawn reaping example is a planning mechanism demonstration, not a historical launcher fix. Prompt assertions are routing evidence, not model compliance or fresh grades.

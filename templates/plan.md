@@ -96,3 +96,20 @@ Stop and ask before:
 ## Risks / Follow-Ups
 
 - <follow-up or risk worth noting, or "None">
+
+## Quality Contract
+
+Quality policy version: 1
+
+## Acceptance Evidence
+
+| Criterion | Observable behavior | Planned check | Evidence destination |
+|---|---|---|---|
+| <criterion / user constraint / inherited blocker> | <observable behavior> | <named behavioral check> | <log and code identity destination> |
+
+## Post-Implementation Review Requirement
+
+Independent Review: A- or higher with no production blockers. Preserve explicit
+older/inherited thresholds; record their source and retain A- as the improvement
+target when the authoritative threshold differs. Independent grading and
+production sign-off follow implementation completion.

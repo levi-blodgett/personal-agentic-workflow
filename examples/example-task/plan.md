@@ -97,3 +97,23 @@ Stop and ask before:
 ## Risks / Follow-Ups
 
 - If the project later migrates to `importlib.metadata.version`, this flag wiring will need a separate follow-up change.
+
+## Quality Contract
+
+Quality policy version: 1
+
+## Acceptance Evidence
+
+| Criterion | Observable behavior | Planned check | Evidence destination |
+|---|---|---|---|
+| Version output and parity | Both flags print the same version and exit 0 | Long/short CLI behavior tests | Validation Performed: named CLI checks, final code identity |
+| Regression safety | Existing behavior remains supported | Full unit suite | Validation Performed: full-suite log |
+| Documentation | README shows both flags accurately | CLI docs review | Reviewed README diff |
+| Dependency constraint | Existing parser and version source are reused | Dependency diff inspection | Reviewed code identity |
+
+## Post-Implementation Review Requirement
+
+Independent Review: A- or higher with no production blockers. Preserve explicit
+older/inherited thresholds; record their source and retain A- as the improvement
+target when the authoritative threshold differs. Independent grading and
+production sign-off follow implementation completion.

@@ -268,3 +268,5 @@ git diff
 2. Use the AI to correct the changes, and comb over all the changes again.
 3. **Confirm you can actually take ownership of these changes**!!!
 4. Submit PR as ready to review and assign reviewers.
+
+See [Quality policy and worked risk examples](quality.md) for the A- Review rubric and acceptance-evidence mapping.
