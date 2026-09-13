@@ -300,11 +300,18 @@ MD
   [[ "$output" == *"OK"* ]]
 }
 
-@test "lint-task: length-budget warning fires for bloated fixture" {
-  run env PAW_LINT_LENGTH=1 "$SCRIPTS_DIR/lint-task.sh" "$FIXTURES_DIR/sample-task-bloated"
+@test "lint-task: oversized Markdown remains valid" {
+  local task="$BATS_TEST_TMPDIR/bloated"
+  cp -R "$FIXTURES_DIR/sample-task-valid" "$task"
+  python3 -c 'from pathlib import Path; import sys; Path(sys.argv[1]).write_bytes(b"\n" * 151)' "$task/notes.md"
+  run env PAW_LINT_LENGTH=0 "$SCRIPTS_DIR/lint-task.sh" "$task"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"OK"* ]]
+}
 
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"working surface"* ]]
+@test "lint-task: shared Markdown boundary journeys" {
+  run python3 -B "$SCRIPTS_DIR/../tests/markdown-budget.py"
+  [ "$status" -eq 0 ]
 }
 
 @test "lint-task: repo mode suppresses pr.md info when repo has no template" {
@@ -320,7 +327,7 @@ MD
   [[ "$output" != *"pr.md missing"* ]]
 }
 
-@test "lint-task: reports optional pr.md when repo has a PR template" {
+@test "lint-task: does not report missing task-level pr.md when repo has a PR template" {
   local repo="$BATS_TEST_TMPDIR/repo"
   mkdir -p "$repo/.agent/task-with-pr" "$repo/.github"
   cp "$FIXTURES_DIR/sample-task-valid/contract.md" "$repo/.agent/task-with-pr/"
@@ -331,5 +338,29 @@ MD
   run "$SCRIPTS_DIR/lint-task.sh" "$repo/.agent/task-with-pr"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"pr.md missing"* ]]
+  [[ "$output" != *"pr.md missing"* ]]
+}
+
+@test "lint-task: quality v1 requires planned evidence and independent Review; legacy stays valid" {
+  local task="$BATS_TEST_TMPDIR/quality"
+  cp -R "$FIXTURES_DIR/sample-task-valid" "$task"
+  printf '\nQuality policy version: 1\n' >> "$task/plan.md"
+  run "$SCRIPTS_DIR/lint-task.sh" "$task"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Acceptance Evidence'* ]]
+  cat >> "$task/plan.md" <<'MD'
+
+## Acceptance Evidence
+
+| Criterion | Observable behavior | Planned check | Evidence destination |
+|---|---|---|---|
+| CLI parity | Equal output | flags | validation/flags.log |
+
+## Post-Implementation Review Requirement
+
+Independent Review: B+ with no blockers (explicit inherited source threshold);
+A- or higher remains the improvement target after implementation.
+MD
+  run "$SCRIPTS_DIR/lint-task.sh" "$task"
+  [ "$status" -eq 0 ]
 }

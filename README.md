@@ -1,80 +1,75 @@
 # Personal Agentic Workflow (PAW)
 
 [![Tests](https://github.com/levi-blodgett/personal-agentic-workflow/actions/workflows/tests.yml/badge.svg)](https://github.com/levi-blodgett/personal-agentic-workflow/actions/workflows/tests.yml)
-[![Shell](https://img.shields.io/badge/shell-bash-4EAA25?logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](https://github.com/levi-blodgett/personal-agentic-workflow)
 
-> ## "You can outsource your thinking, but you can't outsource your understanding." - Andrej Karpathy
-
-PAW is a plan-first, file-backed framework for AI-assisted development. The human owns scope review and commits; the agent implements inside an approved task package and leaves a local audit trail behind.
-
-This repo ships a GitHub PR template, so tasks planned here seed `.agent/<task>/pr.md` automatically.
+PAW turns a request into a local, reviewable plan that an AI agent implements inside human-approved scope; you own the final diff and commits.
 
 ```mermaid
 flowchart LR
-    A([prompt]) --> B[paw plan]
-    B --> C{Human review}
-    C -->|iterate| D[paw edit]
-    D --> C
-    C -->|approve| E[paw implement]
-    E --> F([review & merge])
+    P[Plan] --> H{Human approval}
+    H -->|Revise| E[Edit]
+    E --> H
+    H -->|Approve| I[Implement and validate]
+    I --> R[Independent Review]
 ```
 
 ## Install
 
+On macOS or Linux, install Git, make, Bash, jq and your backend CLI separately.
+PAW defaults to Codex; [backend setup](examples/docs/backends.md) covers alternatives.
+Python 3 is needed for the optional GUI; GitHub helpers need authenticated `gh`.
+
 ```bash
-# Install paw on your PATH (symlinks this checkout's scripts/paw into ~/bin by default)
+git clone https://github.com/levi-blodgett/personal-agentic-workflow.git
+cd personal-agentic-workflow
 make install
+export PATH="$HOME/bin:$PATH" # also add once to your shell startup file
+paw help
+paw model -v
 ```
 
-### Optional zsh Completion
-
-```bash
-# Enable zsh subcommand completion
-autoload -U compinit && compinit
-source <(paw completion zsh)   # current shell
-paw completion zsh >> ~/.zshrc # future shells
-```
+Keep the checkout: installation creates a symlink into it. `paw model` reports
+configuration; it does not verify provider authentication or execution.
+See [installation](examples/docs/install.md) for upgrades, custom PREFIX and recovery.
+For optional zsh completion, use `source <(paw completion zsh)`;
+[completion setup](examples/docs/install.md#optional-zsh-completion) persists it.
 
 ## Quick Start
 
+Run in the target repo and branch/worktree you want to use:
+
 ```bash
-# In any target repo, wire up local-only task tracking
 paw setup
-
-# Start a new task (plan-only run)
-paw plan <task-name> "<prompt>"
-
-# Implement / resume an approved task
-paw implement <task-name>
-
-# Optional PR helpers after implementation
-paw pr-submit <task-name>
-paw pr-review <pr-number>
-paw pr-address-comments <pr-number>
-
-# Optional issue helpers
-paw to-issues <task-name>
-paw to-issues <task-name> --publish
-paw issue-submit <task-name>
-paw issue-review <issue-number>
-
-# Optional same-day GitHub Actions triage
-paw gh-actions-review
-paw gh-actions-review --create-issue
+paw plan add-version "Add a --version flag with a behavior test."
+paw browse add-version      # read the plan
+paw edit add-version "Clarify the version output format."
+# Review and approve the reconciled plan before implementation:
+paw implement add-version
+paw review add-version
+paw gui                    # optional local dashboard
 ```
 
-`paw` defaults to the `codex` backend today. Shipped built-ins load from the checkout the launcher resolves through `PAW_HOME`, and external backends remain separate executables on your `PATH` exposed as `paw-backend-<name>`. Switch backends with `PAW_BACKEND=<name>` when you need one of those built-ins (`claude` or the test-only `stub`) or an installed external plugin.
+PAW records existing branch/worktree assignments; it does not create them.
+New tasks use `${PAW_TASK_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/paw/tasks}`;
+legacy `.agent/<task>/` packages still resolve. [Workflow](examples/docs/workflow.md)
+covers answers, migration, replacement plans and safe cleanup.
 
-`paw completion zsh` prints a small `compdef` script for native `zsh` completion. Load it with `source <(paw completion zsh)` in the current shell, and append it to `~/.zshrc` for future shells. v1 is `zsh`-only and completes top-level subcommands only.
+Implementation and diagnose completion require final full local validation,
+including batch, GUI and docs-only tasks. For PAW itself, run
+`PYTHONDONTWRITEBYTECODE=1 make check`; see [validation and recorded evidence](examples/docs/testing.md).
+100% / `Review.` means implementation is complete; independent Review and
+production sign-off follow. New plans target [A- with no blockers](examples/docs/quality.md),
+while explicit inherited thresholds remain authoritative.
 
 ## Documentation
 
-- [examples/docs/workflow.md](examples/docs/workflow.md) — end-to-end workflow, task-package contract, review gates, and operational constraints
-- [examples/docs/cli-reference.md](examples/docs/cli-reference.md) — complete `paw` subcommand reference, Makefile targets, and runtime behavior
-- [examples/docs/architecture.md](examples/docs/architecture.md) — repo layout and how templates, examples, and local `.agent/` state fit together
-- [examples/docs/testing.md](examples/docs/testing.md) — canonical validation entrypoints and test-suite notes
-- [examples/docs/backends.md](examples/docs/backends.md) — backend selection, model behavior, and streaming details
-- [scripts/README.md](scripts/README.md) — CLI subcommands, helper scripts, and environment variables
-- [tests/README.md](tests/README.md) — canonical validation entrypoints and bats suite notes
-- [scripts/lib/README.md](scripts/lib/README.md) — shared helpers and backend modules
+| Guide | Use it for |
+|---|---|
+| [Install](examples/docs/install.md) | Ownership, upgrades, completion and recovery |
+| [Workflow](examples/docs/workflow.md) | Plan → approval → implementation → review/replacement |
+| [GUI](examples/docs/gui.md) | Repos, queue, approvals, logs and interaction limits |
+| [CLI reference](examples/docs/cli-reference.md) | Commands, options and troubleshooting |
+| [Backends](examples/docs/backends.md) | Selection, streaming and external plugins |
+| [Testing](examples/docs/testing.md) / [Quality](examples/docs/quality.md) | Validation evidence and independent Review |
+| [Architecture](examples/docs/architecture.md) | Components, storage and contributor navigation |
+| [Test suite](tests/README.md) | Runnable suites, fixtures and browser harness |

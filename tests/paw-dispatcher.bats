@@ -43,6 +43,7 @@ SHIM
   # Point PAW_HOME at this repo so prompts/prompt_instructions.md is found.
   export PAW_HOME="$(cd "$SCRIPTS_DIR/.." && pwd)"
   export PAW_BACKEND=claude
+  export PAW_TASK_HOME="$BATS_TEST_TMPDIR/paw-state/tasks"
 
   # Run from inside the temp repo so .agent/ relative paths resolve.
   cd "$REPO"
@@ -68,10 +69,24 @@ make_task() {
   mkdir -p "$REPO/.agent/$name"
   cp "$(dirname "$BATS_TEST_FILENAME")/fixtures/sample-task-valid/plan.md" \
      "$REPO/.agent/$name/plan.md"
+  local matches=("$PAW_TASK_HOME"/*/"$name")
+  if [[ -d "${matches[0]}" ]]; then
+    cp "$(dirname "$BATS_TEST_FILENAME")/fixtures/sample-task-valid/plan.md" \
+       "${matches[0]}/plan.md"
+  fi
 }
 
 physical_path() {
   cd "$1" && pwd -P
+}
+
+wait_for_run_metadata() {
+  local task_name="$1"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    find "$REPO/.agent/$task_name/runs" -name "*.gitconfig" -print -quit 2>/dev/null | grep -q . && return 0
+    sleep 0.2
+  done
+  return 1
 }
 
 assignment_file() {
@@ -88,18 +103,26 @@ assignment_file() {
   run "$PAW" help
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *'paw prototype <task-name> [--question "<question>"] [--logic|--ui] [extras...]'* ]]
+  [[ "$output" == *'paw review <task-name> [extras...]'* ]]
+  [[ "$output" == *'paw prototype <task-name> [extras...]'* ]]
+  [[ "$output" == *'paw archive <task-name>'* ]]
   [[ "$output" == *'paw lint [task-dir|--repo p]'* ]]
   [[ "$output" == *'paw model [-v|--verbose]'* ]]
   [[ "$output" == *"paw architecture"* ]]
   [[ "$output" == *"paw teach"* ]]
   [[ "$output" == *"paw prototype"* ]]
+  [[ "$output" == *"paw review"* ]]
+  [[ "$output" == *"paw archive"* ]]
+  [[ "$output" == *"paw browse <task-name>"* ]]
   [[ "$output" == *"paw completion zsh"* ]]
   [[ "$output" == *"paw plan"* ]]
   [[ "$output" == *"paw implement"* ]]
+  [[ "$output" == *"paw implement-batch"* ]]
   [[ "$output" == *"paw diagnose"* ]]
   [[ "$output" == *"paw tighten"* ]]
   [[ "$output" == *"paw to-issues"* ]]
+  [[ "$output" == *"paw task-migrate"* ]]
+  [[ "$output" == *"paw gui [start|stop|restart|kill]"* ]]
   [[ "$output" == *"paw pr-submit"* ]]
   [[ "$output" == *"paw pr-review"* ]]
   [[ "$output" == *"paw pr-address-comments"* ]]
@@ -107,6 +130,32 @@ assignment_file() {
   [[ "$output" == *"paw issue-review"* ]]
   [[ "$output" == *"paw gh-actions-review"* ]]
   [[ "$output" == *"PAW_STREAM"* ]]
+}
+
+@test "paw gui: accepts restart lifecycle subcommand" {
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+
+  run "$PAW" gui restart --repo "$REPO" --port 0
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"paw gui: http://127.0.0.1:"* ]]
+  [ -f "$XDG_STATE_HOME/paw/gui/active.gitconfig" ]
+  "$PAW" gui kill >/dev/null 2>&1 || true
+}
+
+@test "paw gui --help: prints lifecycle usage without starting server" {
+  run "$PAW" gui --help
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == "usage: paw gui [start|stop|restart|kill]"* ]]
+  [[ "$output" == *"[--all]"* ]]
+}
+
+@test "paw gui start: rejects non-local hosts" {
+  run "$PAW" gui start --host 0.0.0.0
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"local-only"* ]]
 }
 
 @test "paw completion zsh: prints a zsh completion script with live subcommands" {
@@ -118,12 +167,167 @@ assignment_file() {
   [[ "$output" == *"'gh-actions-review:inspect same-day GitHub Actions failures'"* ]]
   [[ "$output" == *"'architecture:explore repo architecture candidates, then continue grilling the selected path'"* ]]
   [[ "$output" == *"'teach:map the relevant modules and callers for an unfamiliar area'"* ]]
-  [[ "$output" == *"'prototype:run a bounded throwaway prototype workflow for one concrete question'"* ]]
+  [[ "$output" == *"'review:review completed task quality and record recommendations'"* ]]
+  [[ "$output" == *"'prototype:create a replacement plan from a reviewed task prototype'"* ]]
+  [[ "$output" == *"'archive:move a central task package out of active listings'"* ]]
+  [[ "$output" == *"'browse:browse a task package's Markdown docs in the terminal'"* ]]
+  [[ "$output" == *"'implement-batch:launch multiple eligible approved tasks concurrently'"* ]]
   [[ "$output" == *"'diagnose:run the feedback-loop-first debugging workflow for an approved task'"* ]]
   [[ "$output" == *"'tighten:sharpen an existing task plan one question at a time'"* ]]
   [[ "$output" == *"'to-issues:draft tracer-bullet issue slices or publish reviewed drafts'"* ]]
+  [[ "$output" == *"'task-migrate:copy legacy .agent tasks into the central task store'"* ]]
+  [[ "$output" == *"'gui:start, stop, or foreground the local PAW task dashboard'"* ]]
   [[ "$output" == *"'pr-address-comments:create a plan for addressing PR review comments'"* ]]
   [[ "$output" == *"'implement:resume or complete an approved task'"* ]]
+}
+
+@test "paw model: includes review and prototype as AI-backed commands" {
+  run "$PAW" model
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"review:"* ]]
+  [[ "$output" == *"prototype:"* ]]
+  [[ "$output" != *"browse:"* ]]
+}
+
+@test "paw browse: validates usage without invoking AI backend" {
+  run "$PAW" browse
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"usage: paw browse <task-name>"* ]]
+
+  run "$PAW" browse some-task extra
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"paw browse accepts only one task name"* ]]
+
+  run "$PAW" browse bad/name
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"invalid task name"* ]]
+
+  run "$PAW" browse missing-task
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"task 'missing-task' not found"* ]]
+  [ ! -f "$BATS_TEST_TMPDIR/claude.args" ]
+}
+
+@test "paw browse: renders central task docs without invoking AI backend" {
+  init_git_repo
+  run "$PAW" plan browse-central "seed central task"
+  [ "$status" -eq 0 ]
+  local task_dir
+  task_dir=$(find "$PAW_TASK_HOME" -path "*/browse-central" -type d -print -quit)
+  printf '# Contract\n\nCentral contract body.\n' > "$task_dir/contract.md"
+  printf '# Plan\n\nCentral plan body.\n' > "$task_dir/plan.md"
+  rm -f "$BATS_TEST_TMPDIR/claude.args"
+
+  PAW_BROWSE_PAGER=cat run "$PAW" browse browse-central
+
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" | grep -qF "# paw browse: browse-central"
+  printf '%s\n' "$output" | grep -qF "## contract.md"
+  printf '%s\n' "$output" | grep -qF "Central contract body."
+  printf '%s\n' "$output" | grep -qF "## plan.md"
+  printf '%s\n' "$output" | grep -qF "Central plan body."
+  ! printf '%s\n' "$output" | grep -qF "## pr.md"
+  ! printf '%s\n' "$output" | grep -qF "task browse-central ->"
+  [ ! -f "$BATS_TEST_TMPDIR/claude.args" ]
+}
+
+@test "paw browse: sends aggregated docs to explicit pager override" {
+  init_git_repo
+  run "$PAW" plan browse-pager "seed pager task"
+  [ "$status" -eq 0 ]
+  local task_dir pager_script
+  task_dir=$(find "$PAW_TASK_HOME" -path "*/browse-pager" -type d -print -quit)
+  printf '# Plan\n\nPager receives this body.\n' > "$task_dir/plan.md"
+  pager_script="$BATS_TEST_TMPDIR/capture-pager"
+  cat > "$pager_script" <<'SH'
+#!/usr/bin/env bash
+cat > "$BATS_TEST_TMPDIR/pager.stdin"
+printf '%s\n' "$@" > "$BATS_TEST_TMPDIR/pager.args"
+SH
+  chmod +x "$pager_script"
+  rm -f "$BATS_TEST_TMPDIR/claude.args"
+
+  PAW_BROWSE_PAGER="$pager_script --flag" run "$PAW" browse browse-pager
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "" ]
+  grep -qF "# paw browse: browse-pager" "$BATS_TEST_TMPDIR/pager.stdin"
+  grep -qF "Pager receives this body." "$BATS_TEST_TMPDIR/pager.stdin"
+  grep -qF -- "--flag" "$BATS_TEST_TMPDIR/pager.args"
+  [ ! -f "$BATS_TEST_TMPDIR/claude.args" ]
+}
+
+@test "paw browse: falls back to legacy task packages and prefers central when present" {
+  mkdir -p "$REPO/.agent/browse-legacy"
+  printf '# Plan\n\nLegacy-only body.\n' > "$REPO/.agent/browse-legacy/plan.md"
+
+  PAW_BROWSE_PAGER=cat run "$PAW" browse browse-legacy
+
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" | grep -qF "Legacy-only body."
+
+  init_git_repo
+  run "$PAW" plan browse-priority "seed central priority task"
+  [ "$status" -eq 0 ]
+  local central_dir
+  central_dir=$(find "$PAW_TASK_HOME" -path "*/browse-priority" -type d -print -quit)
+  printf '# Plan\n\nCentral body wins.\n' > "$central_dir/plan.md"
+  mkdir -p "$REPO/.agent/browse-priority"
+  printf '# Plan\n\nLegacy body loses.\n' > "$REPO/.agent/browse-priority/plan.md"
+  rm -f "$BATS_TEST_TMPDIR/claude.args"
+
+  PAW_BROWSE_PAGER=cat run "$PAW" browse browse-priority
+
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" | grep -qF "Central body wins."
+  ! printf '%s\n' "$output" | grep -qF "Legacy body loses."
+  [ ! -f "$BATS_TEST_TMPDIR/claude.args" ]
+}
+
+@test "paw review: no longer emits deprecated PR-address-comments message" {
+  make_task review-task
+
+  run "$PAW" review review-task
+
+  [ "$status" -eq 1 ] # Stub leaves review incomplete.
+  [[ "$output" != *"has been replaced by paw pr-address-comments"* ]]
+  wait_for_run_metadata review-task
+}
+
+@test "paw review archive and prototype reject missing task names" {
+  run "$PAW" review
+  assert_exits_2
+  run "$PAW" archive
+  assert_exits_2
+  run "$PAW" prototype
+  assert_exits_2
+}
+
+@test "paw archive: moves a central task package out of active listings without AI backend" {
+  init_git_repo
+  run "$PAW" plan archive-me "create a disposable plan"
+  [ "$status" -eq 0 ]
+  local central archived
+  central=$(find "$PAW_TASK_HOME" -path "*/archive-me" -type d -print -quit)
+  rm -f "$BATS_TEST_TMPDIR/claude.args"
+
+  run "$PAW" archive archive-me
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"archived task archive-me"* ]]
+  archived=$(find "$PAW_TASK_HOME" -path "*/.archive/archive-me" -type d -print -quit)
+  [ -n "$archived" ]
+  [ ! -d "$central" ]
+  [ ! -f "$BATS_TEST_TMPDIR/claude.args" ]
+
+  run "$PAW" list "$REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"archive-me (central)"* ]]
 }
 
 @test "paw completion: rejects unsupported shells" {
@@ -152,6 +356,55 @@ assignment_file() {
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"no task directories"* ]]
+}
+
+@test "paw implement-batch: rejects any ineligible task before launching" {
+  make_task batch-ready
+  make_task batch-blocked
+  cat >> "$REPO/.agent/batch-blocked/plan.md" <<'MD'
+
+## Open Questions / Follow-Ups
+
+- Which thing?
+  - USER ANSWER (UNRESOLVED):
+MD
+
+  run "$PAW" implement-batch batch-ready batch-blocked
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"batch-blocked"* ]]
+  [[ "$output" == *"pending user-answer placeholders"* ]]
+  [[ "$output" == *"no tasks launched"* ]]
+  [ ! -d "$REPO/.agent/batch-ready/runs" ]
+}
+
+@test "paw implement-batch: starts one implement subprocess per eligible task" {
+  make_task batch-a
+  make_task batch-b
+
+  run "$PAW" implement-batch batch-a batch-b
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"started: batch-a"* ]]
+  [[ "$output" == *"started: batch-b"* ]]
+  [[ "$output" == *"implement-batch: started 2 task(s)."* ]]
+  wait_for_run_metadata batch-a
+  wait_for_run_metadata batch-b
+  local task_name meta ready attempt
+  for task_name in batch-a batch-b; do
+    ready=0
+    for attempt in {1..100}; do
+      meta=$(find "$REPO/.agent/$task_name/runs" -name '*.gitconfig' -print -quit)
+      if [[ "$(git config --file "$meta" --get paw.status 2>/dev/null)" == complete ]]; then
+        ready=1
+        break
+      fi
+      sleep 0.1
+    done
+    [ "$ready" -eq 1 ]
+  done
+  args_contain "bounded self-check"
+  args_contain "Acceptance Evidence"
 }
 
 @test "paw lint: delegates to lint-task.sh on a valid fixture" {
@@ -241,8 +494,14 @@ assignment_file() {
   cd "$assigned_worktree"
   run "$PAW" plan worktree-task "record worktree assignment"
   [ "$status" -eq 0 ]
+  mkdir -p "$assigned_worktree/.agent/worktree-task"
   cp "$(dirname "$BATS_TEST_FILENAME")/fixtures/sample-task-valid/plan.md" \
      "$assigned_worktree/.agent/worktree-task/plan.md"
+  local matches=("$PAW_TASK_HOME"/*/worktree-task)
+  if [[ -d "${matches[0]}" ]]; then
+    cp "$(dirname "$BATS_TEST_FILENAME")/fixtures/sample-task-valid/plan.md" \
+       "${matches[0]}/plan.md"
+  fi
 
   cd "$REPO"
   run "$PAW" implement worktree-task
@@ -365,9 +624,27 @@ assignment_file() {
   PAW_GH_COMMENTS_CMD=echo run "$PAW" pr-address-comments 42
 
   [ "$status" -eq 0 ]
-  [ -d "$REPO/.agent/42-review" ]
-  [ -f "$REPO/.agent/42-review/comments.md" ]
+  local matches=("$PAW_TASK_HOME"/*/42-review/comments.md)
+  [ -f "${matches[0]}" ]
   args_contain "PAW:PLAN"
+}
+
+@test "paw task-migrate: migrates legacy task package to central store" {
+  make_task migrate-me
+
+  run "$PAW" task-migrate "$REPO"
+
+  [ "$status" -eq 0 ]
+  local matches=("$PAW_TASK_HOME"/*/migrate-me/plan.md)
+  [ -f "${matches[0]}" ]
+  [[ "$output" == *"migrated:"* ]]
+}
+
+@test "paw gui: rejects non-local hosts" {
+  run "$PAW" gui --host 0.0.0.0
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"local-only"* ]]
 }
 
 @test "paw implement: exits 2 when no task name given" {
@@ -415,20 +692,14 @@ assignment_file() {
   [[ "$output" == *"paw issue-review accepts only <issue-number>"* ]]
 }
 
-@test "paw review: exits 2 and points callers to pr-address-comments" {
-  run "$PAW" review 42
-
-  [ "$status" -eq 2 ]
-  [ "$output" = "error: paw review has been replaced by paw pr-address-comments 42." ]
-}
-
-@test "paw model: exits 0 and prints eleven subcommand lines" {
+@test "paw model: exits 0 and prints twelve subcommand lines" {
   run "$PAW" model
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"plan:"* ]]
   [[ "$output" == *"architecture:"* ]]
   [[ "$output" == *"teach:"* ]]
+  [[ "$output" == *"review:"* ]]
   [[ "$output" == *"prototype:"* ]]
   [[ "$output" == *"edit:"* ]]
   [[ "$output" == *"implement:"* ]]
@@ -437,7 +708,7 @@ assignment_file() {
   [[ "$output" == *"to-issues:"* ]]
   [[ "$output" == *"issue-review:"* ]]
   [[ "$output" == *"pr-address-comments:"* ]]
-  [ "$(echo "$output" | wc -l | tr -d ' ')" -eq 11 ]
+  [ "$(echo "$output" | wc -l | tr -d ' ')" -eq 12 ]
 }
 
 @test "paw model: respects PAW_MODEL override for every subcommand" {
@@ -447,6 +718,7 @@ assignment_file() {
   [[ "$output" == *"plan:      opus"* ]]
   [[ "$output" == *"architecture: opus"* ]]
   [[ "$output" == *"teach:     opus"* ]]
+  [[ "$output" == *"review:    opus"* ]]
   [[ "$output" == *"prototype: opus"* ]]
   [[ "$output" == *"edit:      opus"* ]]
   [[ "$output" == *"implement: opus"* ]]
@@ -457,11 +729,11 @@ assignment_file() {
   [[ "$output" == *"pr-address-comments: opus"* ]]
 }
 
-@test "paw model --verbose: prints fourteen lines including backend, stream, max-turns" {
+@test "paw model --verbose: prints fifteen lines including backend, stream, max-turns" {
   PAW_BACKEND=stub PAW_STREAM=0 PAW_MAX_TURNS=50 run "$PAW" model --verbose
 
   [ "$status" -eq 0 ]
-  [ "$(echo "$output" | wc -l | tr -d ' ')" -eq 14 ]
+  [ "$(echo "$output" | wc -l | tr -d ' ')" -eq 15 ]
   [[ "$output" == *"backend:"* ]]
   [[ "$output" == *"stream:"* ]]
   [[ "$output" == *"max-turns:"* ]]
@@ -491,4 +763,29 @@ assignment_file() {
   [[ "$output" == *"to-issues: sonnet"* ]]
   [[ "$output" == *"issue-review: sonnet"* ]]
   [[ "$output" == *"pr-address-comments: sonnet"* ]]
+}
+
+@test "Markdown guidance: oversized tasks launch through model entrypoints" {
+  make_task budget
+  python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); p.write_text(p.read_text()+"\n"*151)' "$REPO/.agent/budget/plan.md"
+  for command in implement edit diagnose to-issues; do
+    run "$PAW" "$command" budget
+    [ "$status" -eq 0 ]
+    [ -e "$BATS_TEST_TMPDIR/claude.args" ]
+  done
+  run "$PAW" review budget
+  [[ "$output" == *"Incomplete review:"* ]]
+  [[ "$output" != *"physical lines"* ]]
+}
+
+@test "Markdown guidance: oversized successful producer stays successful" {
+  make_task budget
+  cat >> "$SHIM_DIR/claude" <<'SHIM'
+python3 -c 'from pathlib import Path; import os; Path(os.environ["REPO"] + "/.agent/budget/notes.md").write_bytes(b"\n" * 151)'
+SHIM
+  export REPO
+  run "$PAW" implement budget
+  [ "$status" -eq 0 ]
+  run python3 -c 'from pathlib import Path; import sys; rows=list(Path(sys.argv[1]).glob("*.gitconfig")); assert rows; assert all("status = failed" not in p.read_text() for p in rows)' "$REPO/.agent/budget/runs"
+  [ "$status" -eq 0 ]
 }

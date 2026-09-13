@@ -20,6 +20,7 @@ setup() {
   export PATH="$SHIM_DIR:$PATH"
   export PAW_HOME="$(cd "$SCRIPTS_DIR/.." && pwd)"
   export PAW_BACKEND=stub
+  export PAW_TASK_HOME="$BATS_TEST_TMPDIR/paw-state/tasks"
 
   cd "$REPO"
 }
@@ -35,22 +36,34 @@ init_git_repo() {
 
 seed_task_package() {
   local task_name="$1"
-  mkdir -p "$REPO/.agent/$task_name"
-  cat > "$REPO/.agent/$task_name/contract.md" <<'EOF'
+  local task_dir
+  task_dir="$(task_dir_for "$task_name")"
+  mkdir -p "$task_dir"
+  cat > "$task_dir/contract.md" <<'EOF'
 # Contract — `issue-workflow`
 
 ## Task Summary
 
 Add GitHub issue workflow support to paw.
 EOF
-  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$REPO/.agent/$task_name/plan.md"
-  cat > "$REPO/.agent/$task_name/issue.md" <<'EOF'
+  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$task_dir/plan.md"
+  cat > "$task_dir/issue.md" <<'EOF'
 # `Feature: Add GitHub issue workflow support to paw`
 
 ## Summary
 
 Issue body content.
 EOF
+}
+
+task_dir_for() {
+  local task_name="$1"
+  local matches=("$PAW_TASK_HOME"/*/"$task_name")
+  if [[ -d "${matches[0]}" ]]; then
+    printf '%s\n' "${matches[0]}"
+  else
+    printf '%s\n' "$REPO/.agent/$task_name"
+  fi
 }
 
 write_fake_gh() {
@@ -134,6 +147,8 @@ EOF
   [ "$status" -eq 0 ]
 
   seed_task_package issue-workflow
+  local task_dir
+  task_dir="$(task_dir_for issue-workflow)"
   write_fake_gh
 
   run "$PAW" issue-submit issue-workflow
@@ -144,10 +159,10 @@ EOF
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"create"* ]]
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"--title"* ]]
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"Feature: Add GitHub issue workflow support to paw"* ]]
-  grep -q "## Issue Tracking" "$REPO/.agent/issue-workflow/plan.md"
-  grep -q "Issue Number: #456" "$REPO/.agent/issue-workflow/plan.md"
-  grep -q "Issue URL: https://github.com/example/repo/issues/456" "$REPO/.agent/issue-workflow/plan.md"
-  grep -q "Issue Number: #456" "$REPO/.agent/issue-workflow/issue.md"
+  grep -q "## Issue Tracking" "$task_dir/plan.md"
+  grep -q "Issue Number: #456" "$task_dir/plan.md"
+  grep -q "Issue URL: https://github.com/example/repo/issues/456" "$task_dir/plan.md"
+  grep -q "Issue Number: #456" "$task_dir/issue.md"
 }
 
 @test "paw issue-submit: errors clearly when issue.md is missing" {
@@ -156,16 +171,18 @@ EOF
   run "$PAW" plan missing-issue "record assignment"
   [ "$status" -eq 0 ]
 
-  mkdir -p "$REPO/.agent/missing-issue"
-  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$REPO/.agent/missing-issue/plan.md"
-  cat > "$REPO/.agent/missing-issue/contract.md" <<'EOF'
+  local task_dir
+  task_dir="$(task_dir_for missing-issue)"
+  mkdir -p "$task_dir"
+  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$task_dir/plan.md"
+  cat > "$task_dir/contract.md" <<'EOF'
 # Contract — `missing-issue`
 EOF
 
   run "$PAW" issue-submit missing-issue
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *".agent/missing-issue/issue.md"* ]]
+  [[ "$output" == *"missing-issue/issue.md"* ]]
 }
 
 @test "paw issue-review: first run collects the issue body into a planning task package" {
@@ -176,11 +193,13 @@ EOF
   PAW_GH_ISSUE_VIEW_CMD="$issue_view_cmd" run "$PAW" issue-review 456
 
   [ "$status" -eq 0 ]
-  [ -f "$REPO/.agent/456-issue-review/issue.md" ]
-  grep -q "## Issue Metadata" "$REPO/.agent/456-issue-review/issue.md"
-  grep -q "Issue Number: #456" "$REPO/.agent/456-issue-review/issue.md"
-  grep -q "Issue URL: https://github.com/example/repo/issues/456" "$REPO/.agent/456-issue-review/issue.md"
-  grep -q "Issue body from GitHub." "$REPO/.agent/456-issue-review/issue.md"
+  local task_dir
+  task_dir="$(task_dir_for 456-issue-review)"
+  [ -f "$task_dir/issue.md" ]
+  grep -q "## Issue Metadata" "$task_dir/issue.md"
+  grep -q "Issue Number: #456" "$task_dir/issue.md"
+  grep -q "Issue URL: https://github.com/example/repo/issues/456" "$task_dir/issue.md"
+  grep -q "Issue body from GitHub." "$task_dir/issue.md"
 }
 
 @test "paw issue-review: rerun refreshes the saved issue body and reuses the task package" {
@@ -195,8 +214,10 @@ EOF
   PAW_GH_ISSUE_VIEW_CMD="$updated_issue_view_cmd" run "$PAW" issue-review 456
 
   [ "$status" -eq 0 ]
-  [ -d "$REPO/.agent/456-issue-review" ]
-  grep -q "Updated issue body from GitHub." "$REPO/.agent/456-issue-review/issue.md"
+  local task_dir
+  task_dir="$(task_dir_for 456-issue-review)"
+  [ -d "$task_dir" ]
+  grep -q "Updated issue body from GitHub." "$task_dir/issue.md"
 }
 
 @test "paw to-issues --publish: publishes pending drafts in dependency order and records tracking metadata" {
@@ -205,16 +226,18 @@ EOF
   run "$PAW" plan issue-slices "record assignment"
   [ "$status" -eq 0 ]
 
-  mkdir -p "$REPO/.agent/issue-slices/issues"
-  cat > "$REPO/.agent/issue-slices/contract.md" <<'EOF'
+  local task_dir
+  task_dir="$(task_dir_for issue-slices)"
+  mkdir -p "$task_dir/issues"
+  cat > "$task_dir/contract.md" <<'EOF'
 # Contract — `issue-slices`
 
 ## Task Summary
 
 Break the approved work into issue slices.
 EOF
-  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$REPO/.agent/issue-slices/plan.md"
-  cat > "$REPO/.agent/issue-slices/issues/01-foundation.md" <<'EOF'
+  cp "$FIXTURES_DIR/sample-task-valid/plan.md" "$task_dir/plan.md"
+  cat > "$task_dir/issues/01-foundation.md" <<'EOF'
 # Foundation slice
 
 ## Draft Metadata
@@ -241,7 +264,7 @@ Create the narrow first slice.
 
 Placeholder blocker text.
 EOF
-  cat > "$REPO/.agent/issue-slices/issues/02-follow-up.md" <<'EOF'
+  cat > "$task_dir/issues/02-follow-up.md" <<'EOF'
 # Follow-up slice
 
 ## Draft Metadata
@@ -274,12 +297,12 @@ EOF
 
   [ "$status" -eq 0 ]
   [[ "$(git -C "$REPO" branch --show-current)" == "feature/issue-slices" ]]
-  grep -q "Issue Number: #101" "$REPO/.agent/issue-slices/issues/01-foundation.md"
-  grep -q "Issue URL: https://github.com/example/repo/issues/101" "$REPO/.agent/issue-slices/issues/01-foundation.md"
-  grep -q "Issue Number: #102" "$REPO/.agent/issue-slices/issues/02-follow-up.md"
-  grep -q "Issue URL: https://github.com/example/repo/issues/102" "$REPO/.agent/issue-slices/issues/02-follow-up.md"
-  grep -q "foundation: #101" "$REPO/.agent/issue-slices/plan.md"
-  grep -q "follow-up: #102" "$REPO/.agent/issue-slices/plan.md"
+  grep -q "Issue Number: #101" "$task_dir/issues/01-foundation.md"
+  grep -q "Issue URL: https://github.com/example/repo/issues/101" "$task_dir/issues/01-foundation.md"
+  grep -q "Issue Number: #102" "$task_dir/issues/02-follow-up.md"
+  grep -q "Issue URL: https://github.com/example/repo/issues/102" "$task_dir/issues/02-follow-up.md"
+  grep -q "foundation: #101" "$task_dir/plan.md"
+  grep -q "follow-up: #102" "$task_dir/plan.md"
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"Foundation slice"* ]]
   [[ "$(cat "$BATS_TEST_TMPDIR/gh.args")" == *"Follow-up slice"* ]]
 }

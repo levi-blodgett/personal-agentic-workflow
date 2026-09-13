@@ -1,3 +1,4 @@
+<!-- Keep every Markdown file <=150 physical lines; shorten first, then link useful detail. -->
 # Plan — `<task-name>`
 
 ## Objective
@@ -20,6 +21,11 @@ user replies, then run `paw edit <task>` before `paw implement`. -->
 - [ ] <step>
   Progress: <one-line note added only when the item is complete>
 
+<!-- Independent grading and production sign-off belong in a post-implementation
+     Review requirement, outside implementation checkboxes. After approved work
+     and final full validation pass, record 100% and Next work: Review.
+     Preserve explicit task-specific gates; reconcile conflicts before proceeding. -->
+
 ## Acceptance Criteria
 
 - [ ] <testable / reviewable criterion>
@@ -35,9 +41,9 @@ user replies, then run `paw edit <task>` before `paw implement`. -->
 
 ## Current Status
 
-- Plan position:
-- Estimated completion:
-- Next work:
+- Plan position: <short progress summary>
+- Estimated completion: 0%
+- Next work: <next concrete step; use "Review." when Estimated completion is 100%>
 
 ## Approval Boundaries
 
@@ -57,7 +63,10 @@ Stop and ask before:
 
 <!-- `paw afk` replays runnable backticked commands from this section. Prefer
      one runnable command per bullet. -->
-- <reusable validation entrypoint(s) and commands>
+- Targeted validation: `<changed-area command>` — <why this covers the changed behavior>
+- Full local validation: `<repository full command>` — required after the final implementation change for every implement/diagnose completion, including batch, GUI and docs-only work; missing tools/failures block completion. Reuse a successful full run on final code.
+- Escalate to broader/full validation when: <shared/high-risk files, workflow/CI/security changes, targeted failures, unclear blast radius, explicit user/reviewer request, or PR-ready handoff>
+- Record the validation tier chosen and rationale in Validation Performed.
 - `git status` review before handoff.
 - `git diff` review before handoff.
 
@@ -71,7 +80,14 @@ Stop and ask before:
 
 ## Validation Performed
 
-- <command> — <result, including counts/output highlights>
+### Implementation results
+
+- <check-name>: <outcome>
+  Command: <command>
+  Tier: <targeted|broader|full>
+  Log: <result details or log path>
+<!-- Keep Context/Development history separate. Preserve original required checks;
+     only an explicit successful same-name rerun supersedes prior evidence. -->
 - Code best-practices checklist applied — see `prompts/prompt_instructions.md` "Code Best Practices".
 
 ## Remaining Work
@@ -81,3 +97,20 @@ Stop and ask before:
 ## Risks / Follow-Ups
 
 - <follow-up or risk worth noting, or "None">
+
+## Quality Contract
+
+Quality policy version: 1
+
+## Acceptance Evidence
+
+| Criterion | Observable behavior | Planned check | Evidence destination |
+|---|---|---|---|
+| <criterion / user constraint / inherited blocker> | <observable behavior> | <named behavioral check> | <log and code identity destination> |
+
+## Post-Implementation Review Requirement
+
+Independent Review: A- or higher with no production blockers. Preserve explicit
+older/inherited thresholds; record their source and retain A- as the improvement
+target when the authoritative threshold differs. Independent grading and
+production sign-off follow implementation completion.

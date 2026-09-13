@@ -1,13 +1,10 @@
-# `examples/`
+# Examples and guides
 
-Committed reference task packages showing what a real `.agent/<task-name>/` directory looks like after a task has actually been executed end-to-end.
+| Path | Use |
+|---|---|
+| [example-task](example-task/) | Hypothetical completed task: contract, checklist/Progress, validation, independent review and legacy PR body |
+| [backend-plugin](backend-plugin/README.md) | Copyable standalone installer; supply your own provider adapter |
+| [docs/workflow.md](docs/workflow.md) | Operator workflow; [full guide index](../README.md#documentation) |
 
-## Contents
-
-| Directory | Description |
-|-----------|-------------|
-| [`example-task/`](example-task/) | A hypothetical task (`add-version-flag`) demonstrating a completed task package: `contract.md`, `plan.md`, and `pr.md`. All implementation phases are marked `- [x]`, each completed checkbox has an inline `Progress:` note, and the `## Validation Performed` section shows the wrap-up result. |
-
-## Usage
-
-Read these files when the empty templates are not enough. `templates/` gives you the canonical blank skeleton; `examples/` shows the filled-in shape of a finished task, including realistic status updates, validation logging, and handoff notes. Actual `.agent/<task-name>/` directories in target repos remain local-only via `.git/info/exclude` and are never committed.
+[Templates](../templates/README.md) show empty skeletons; examples show filled shapes.
+Actual central/legacy task notes remain local and uncommitted.

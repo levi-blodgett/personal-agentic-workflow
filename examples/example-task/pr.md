@@ -28,3 +28,9 @@ Low — single-flag addition, no new dependencies, no behavior change to existin
 ## Release Notes
 
 - Added `--version` / `-v` flag to the `foo` CLI.
+
+## Illustrative Review
+
+The fictional [independent review](review.md) meets A- / no production blockers
+on `synthetic-example-code`. Version-source migration (I1) is deferred outside scope.
+All example checks and identities are synthetic, not PAW validation evidence.

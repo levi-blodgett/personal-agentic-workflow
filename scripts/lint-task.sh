@@ -12,6 +12,11 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/task_store.sh
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/task_store.sh"
+
 usage() {
   cat <<EOF
 Usage:
@@ -19,10 +24,7 @@ Usage:
   $(basename "$0") --repo [repo-path]  lint every .agent/<task>/ under a repo
   $(basename "$0") -h | --help         show this message
 
-Environment:
-  PAW_LINT_LENGTH  working-surface budget check; default: 1 (enabled).
-                   Set PAW_LINT_LENGTH=0 to disable.
-                   (blank lines and single-line HTML comment lines are excluded)
+Markdown length is an AI authoring responsibility; PAW_LINT_LENGTH is retired.
 
 Exits 0 when all checked tasks pass, 1 when any task has issues, 2 on usage error.
 EOF
@@ -143,31 +145,6 @@ check_completed_items_have_progress() {
   return 0
 }
 
-check_length_budget() {
-  local plan="$1"
-  local in_archive=0 working_lines=0
-  # _html_re must be a variable: bash [[ =~ ]] misparsed < and > when the pattern
-  # is written inline, treating them as redirects rather than regex metacharacters.
-  local _html_re='^[[:space:]]*<!--.*-->[[:space:]]*$'
-  while IFS= read -r line; do
-    if [[ "$line" =~ ^###[[:space:]]+Archived ]]; then
-      in_archive=1
-    elif [[ $in_archive -eq 1 && "$line" =~ ^#{1,2}[[:space:]] ]]; then
-      in_archive=0
-    fi
-    [[ $in_archive -eq 1 ]] && continue
-    # Exclude blank lines and single-line HTML comment lines from the count.
-    [[ -z "${line//[[:space:]]/}" ]] && continue
-    [[ "$line" =~ $_html_re ]] && continue
-    working_lines=$(( working_lines + 1 ))
-  done < "$plan"
-  if [[ $working_lines -gt 350 ]]; then
-    echo "  WARN: plan.md working surface is $working_lines lines (budget: 350); archive older content under '### Archived ...' to stay within budget"
-    return 1
-  fi
-  return 0
-}
-
 lint_one() {
   local task_dir="$1"
   local task_name
@@ -194,28 +171,13 @@ lint_one() {
         issues=$((issues + 1))
       fi
     done
+    python3 "$SCRIPT_DIR/lib/quality_plan.py" "$plan" || issues=$((issues + 1))
     check_unticked_when_done "$plan" || issues=$((issues + 1))
     check_completed_items_have_progress "$plan" || issues=$((issues + 1))
-    if [[ "${PAW_LINT_LENGTH:-1}" != "0" ]]; then
-      check_length_budget "$plan" || issues=$((issues + 1))
-    fi
   fi
 
   if [[ ! -f "$task_dir/contract.md" ]]; then
     echo "  INFO: contract.md missing (optional but recommended)"
-  fi
-
-  # Suppress pr.md INFO when the task's repo has no PR template; otherwise report as optional.
-  if [[ ! -f "$task_dir/pr.md" ]]; then
-    local repo_root="$task_dir"
-    # Walk up from task_dir to find the repo root (contains .git/).
-    while [[ "$repo_root" != "/" && ! -d "$repo_root/.git" ]]; do
-      repo_root="$(dirname "$repo_root")"
-    done
-    if [[ -f "$repo_root/.github/pull_request_template.md" || \
-          -f "$repo_root/.github/PULL_REQUEST_TEMPLATE.md" ]]; then
-      echo "  INFO: pr.md missing (optional but recommended)"
-    fi
   fi
 
   if [[ $issues -eq 0 ]]; then
@@ -239,21 +201,20 @@ main() {
 
   if [[ "$1" == "--repo" ]]; then
     local repo_path="${2:-$PWD}"
-    local agent_dir="$repo_path/.agent"
-    if [[ ! -d "$agent_dir" ]]; then
-      echo "no .agent/ directory found in $repo_path"
+    if [[ ! -d "$repo_path" ]]; then
+      echo "error: '$repo_path' is not a directory" >&2
+      exit 2
+    fi
+    local task_rows task_name _task_source task_dir
+    task_rows="$(paw_task_list "$repo_path")"
+    if [[ -z "$task_rows" ]]; then
+      echo "no task directories found for $(paw_repo_physical_path "$repo_path")"
       exit 0
     fi
-    shopt -s nullglob
-    local tasks=("$agent_dir"/*/)
-    shopt -u nullglob
-    if [[ ${#tasks[@]} -eq 0 ]]; then
-      echo "no task directories under $agent_dir/" >&2
-      exit 0
-    fi
-    for task_dir in "${tasks[@]}"; do
+    while IFS=$'\t' read -r task_name _task_source task_dir; do
+      [[ -n "$task_dir" ]] || continue
       lint_one "${task_dir%/}" || total_issues=$((total_issues + $?))
-    done
+    done <<< "$task_rows"
   else
     lint_one "${1%/}" || total_issues=$((total_issues + $?))
   fi

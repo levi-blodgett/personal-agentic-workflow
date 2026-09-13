@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # setup-repo.sh — prepare a target repo for the personal-agentic-workflow.
 #
-# Adds `.agent/` to the repo's local `.git/info/exclude` so AI working docs
-# stay untracked without committing a `.gitignore` change.
+# Adds `.agent/` to the repo's local `.git/info/exclude` so legacy/imported AI
+# working docs stay untracked without committing a `.gitignore` change. New task
+# packages use the central local task store by default.
 #
 # Usage:
 #   scripts/setup-repo.sh [repo-path]

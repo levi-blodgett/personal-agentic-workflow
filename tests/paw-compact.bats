@@ -45,10 +45,11 @@ MD
   [ "$status" -eq 0 ]
 
   local plan="$REPO/.agent/compact-tick/plan.md"
-  grep -q "^### Archived Phases" "$plan"
-  grep -q "Phase 1: done step one" "$plan"
-  grep -q "Finished the first vertical slice" "$plan"
-  grep -q "Phase 2: done step two" "$plan"
+  grep -q "^### Completed phase details" "$plan"
+  ! grep -q "Phase 1: done step one" "$plan"
+  grep -q "Phase 1: done step one" "$REPO/.agent/compact-tick"/completed-phase-*.md
+  grep -q "Finished the first vertical slice" "$REPO/.agent/compact-tick"/completed-phase-*.md
+  grep -q "Phase 2: done step two" "$REPO/.agent/compact-tick"/completed-phase-*.md
 }
 
 @test "paw compact: removes ticked items from active Implementation Phases section" {
@@ -105,4 +106,41 @@ MD
   run "$PAW" compact compact-noop
   [ "$status" -eq 0 ]
   [[ "$output" == *"nothing to archive"* ]]
+}
+
+@test "paw compact: interrupted writes and linked evidence preserve failures" {
+  run python3 -B "$SCRIPTS_DIR/../tests/markdown-documents.py"
+  [ "$status" -eq 0 ]
+}
+
+@test "paw compact: fenced examples remain exact beside archived real records" {
+  local task_dir="$REPO/.agent/fenced"
+  mkdir -p "$task_dir"
+  cat > "$task_dir/plan.md" <<'MD'
+## Implementation Phases
+~~~markdown
+- [x] Example
+## Fake boundary
+~~~
+- [x] Real completed
+  Progress: finished
+- [ ] Real pending
+MD
+  run "$PAW" compact fenced
+  [ "$status" -eq 0 ]
+  run python3 - "$task_dir" <<'PYTEST'
+from pathlib import Path
+import sys
+task = Path(sys.argv[1])
+plan = (task / 'plan.md').read_text()
+assert '~~~markdown\n- [x] Example\n## Fake boundary\n~~~\n' in plan
+assert '- [ ] Real pending\n' in plan
+assert '- [x] Real completed' not in plan
+assert 'Real completed' in next(task.glob('completed-phase-*.md')).read_text()
+PYTEST
+  [ "$status" -eq 0 ]
+  cp "$task_dir/plan.md" "$task_dir/before"
+  run "$PAW" compact fenced
+  [ "$status" -eq 0 ]
+  cmp "$task_dir/before" "$task_dir/plan.md"
 }

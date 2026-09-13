@@ -1,0 +1,401 @@
+#!/usr/bin/env bash
+# task_store.sh — central and legacy PAW task package resolution helpers.
+
+paw_task_home() {
+  if [[ -n "${PAW_TASK_HOME:-}" ]]; then
+    printf '%s\n' "$PAW_TASK_HOME"
+  elif [[ -n "${XDG_STATE_HOME:-}" ]]; then
+    printf '%s/paw/tasks\n' "$XDG_STATE_HOME"
+  else
+    printf '%s/.local/state/paw/tasks\n' "$HOME"
+  fi
+}
+
+paw_repo_physical_path() {
+  local repo_path="${1:-$PWD}"
+  cd "$repo_path" && pwd -P
+}
+
+paw_repo_common_dir() {
+  local repo_path="${1:-$PWD}" raw common_base
+  if raw=$(git -C "$repo_path" rev-parse --git-common-dir 2>/dev/null); then
+    if [[ "$raw" == /* ]]; then
+      common_base="$raw"
+    else
+      common_base="$(paw_repo_physical_path "$repo_path")/$raw"
+    fi
+    cd "$common_base" && pwd -P
+    return 0
+  fi
+  paw_repo_physical_path "$repo_path"
+}
+
+paw_repo_slug() {
+  local repo_path="${1:-$PWD}" physical base safe checksum
+  physical="$(paw_repo_common_dir "$repo_path")"
+  base="$(basename "$(paw_repo_physical_path "$repo_path")")"
+  safe="$(printf '%s\n' "$base" | tr -c '[:alnum:]._' '-' | sed -E 's/^-+//; s/-+$//')"
+  [[ -n "$safe" ]] || safe="repo"
+  checksum="$(printf '%s' "$physical" | cksum | awk '{print $1}')"
+  printf '%s-%s\n' "$safe" "$checksum"
+}
+
+paw_task_repo_store() {
+  local repo_path="${1:-$PWD}"
+  printf '%s/%s\n' "$(paw_task_home)" "$(paw_repo_slug "$repo_path")"
+}
+
+paw_task_create_dir() {
+  local repo_path="$1" task_name="$2"
+  printf '%s/%s\n' "$(paw_task_repo_store "$repo_path")" "$task_name"
+}
+
+paw_task_archive_root() {
+  local repo_path="$1"
+  printf '%s/.archive\n' "$(paw_task_repo_store "$repo_path")"
+}
+
+paw_task_archive_dir() {
+  local repo_path="$1" task_name="$2"
+  printf '%s/%s\n' "$(paw_task_archive_root "$repo_path")" "$task_name"
+}
+
+paw_branch_pr_safe_name() {
+  local branch_name="$1" safe
+  safe="$(printf '%s' "$branch_name" | tr -c '[:alnum:]._-' '-' | sed -E 's/^-+//; s/-+$//')"
+  [[ -n "$safe" ]] || safe="detached"
+  printf '%s\n' "$safe"
+}
+
+# Digest exact branch bytes; keep tooling replaceable at this boundary.
+paw_branch_pr_digest() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum -a 256 | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | awk '{print $1}'
+  else
+    echo "error: branch PR identity requires shasum or sha256sum." >&2
+    return 1
+  fi
+}
+
+paw_branch_pr_body_file() {
+  local repo_path="$1" branch_name="${2:-}" safe digest common store
+  if [[ -z "$branch_name" ]]; then
+    branch_name="$(git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null)" || {
+      echo "error: branch PR body requires a named branch in $repo_path." >&2
+      return 1
+    }
+  fi
+  git check-ref-format "refs/heads/$branch_name" >/dev/null 2>&1 || {
+    echo "error: invalid branch PR identity '$branch_name' in $repo_path." >&2
+    return 1
+  }
+  digest="$(paw_branch_pr_digest "$branch_name")" || return 1
+  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+  safe="$(LC_ALL=C printf '%s' "$branch_name" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -c 'a-z0-9._-' '-' | cut -c1-48)"
+  # Linked worktrees use the main checkout's existing store for branch bodies.
+  common="$(paw_repo_common_dir "$repo_path")" || return 1
+  if [[ "${common##*/}" == .git ]]; then repo_path="${common%/.git}"; fi
+  store="$(paw_task_repo_store "$repo_path")" || return 1
+  printf '%s/v2-%s-%s-pr.md\n' "$store" "$safe" "$digest"
+}
+
+# Never infer ownership from an old lossy filename, even for a singleton task.
+paw_branch_pr_resolve_file() {
+  local repo_path="$1" branch_name="${2:-}" canonical old directory
+  if [[ -z "$branch_name" ]]; then
+    branch_name="$(git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null)" || {
+      echo "error: branch PR body requires a named branch in $repo_path." >&2
+      return 1
+    }
+  fi
+  canonical="$(paw_branch_pr_body_file "$repo_path" "$branch_name")" || return 1
+  if [[ ! -f "$canonical" ]]; then
+    for directory in "${canonical%/*}" "$(paw_task_repo_store "$repo_path")"; do
+      old="$directory/$(paw_branch_pr_safe_name "$branch_name")-pr.md"
+      if [[ -e "$old" ]]; then
+        echo "error: ambiguous historical branch PR body $old for '$branch_name'. Verify the intended branch/content, copy without overwriting to $canonical, and retain $old." >&2
+        return 1
+      fi
+    done
+  fi
+  printf '%s\n' "$canonical"
+}
+
+paw_task_branch_pr_body_file() {
+  local repo_path="$1" task_dir="$2" branch_name state common metadata saved_common
+  common="$(paw_repo_common_dir "$repo_path")" || return 1
+  metadata="$(paw_task_metadata_file "$task_dir")"
+  if [[ ! -f "$metadata" ]]; then
+    metadata="$common/paw-task-assignments/${task_dir##*/}.gitconfig"
+  fi
+  if [[ -f "$metadata" ]]; then
+    branch_name="$(git config --file "$metadata" --get paw.branch-name || true)"
+    state="$(git config --file "$metadata" --get paw.head-state || true)"
+    saved_common="$(git config --file "$metadata" --get paw.git-common-dir || true)"
+    if [[ "$state" != branch || -z "$branch_name" || "$saved_common" != "$common" ]]; then
+      echo "error: invalid saved branch/repository assignment in $metadata; reconcile task ownership." >&2
+      return 1
+    fi
+    paw_branch_pr_resolve_file "$repo_path" "$branch_name"
+  else
+    paw_branch_pr_resolve_file "$repo_path"
+  fi
+}
+
+paw_task_legacy_dir() {
+  local repo_path="$1" task_name="$2"
+  printf '%s/.agent/%s\n' "$(paw_repo_physical_path "$repo_path")" "$task_name"
+}
+
+paw_task_resolve() {
+  local repo_path="$1" task_name="$2" central legacy
+  central="$(paw_task_create_dir "$repo_path" "$task_name")"
+  legacy="$(paw_task_legacy_dir "$repo_path" "$task_name")"
+  if [[ -d "$central" ]]; then
+    printf '%s\n' "$central"
+    return 0
+  fi
+  if [[ -d "$legacy" ]]; then
+    printf '%s\n' "$legacy"
+    return 0
+  fi
+  echo "error: task '$task_name' not found." >&2
+  echo "       Expected central task path: $central" >&2
+  echo "       Expected legacy task path:  $legacy" >&2
+  return 1
+}
+
+paw_task_metadata_file() {
+  printf '%s/metadata.gitconfig\n' "$1"
+}
+
+paw_task_write_metadata() {
+  local task_dir="$1" repo_path="$2" task_name="$3" status="${4:-created}" source_path="${5:-}"
+  local metadata_file now repo_root common_dir worktree_path branch head_state head_sha
+  metadata_file="$(paw_task_metadata_file "$task_dir")"
+  now="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  repo_root="$(paw_repo_physical_path "$repo_path")"
+  common_dir="$(paw_repo_common_dir "$repo_path")"
+  worktree_path="$(paw_repo_physical_path "$repo_path")"
+  branch="$(git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  head_sha="$(git -C "$repo_path" rev-parse HEAD 2>/dev/null || true)"
+  if [[ -n "$branch" ]]; then
+    if [[ -n "$head_sha" ]]; then
+      head_state="branch"
+    else
+      head_state="unborn"
+    fi
+  else
+    head_state="detached"
+  fi
+
+  mkdir -p "$task_dir"
+  : > "$metadata_file"
+  git config --file "$metadata_file" paw.task-name "$task_name"
+  git config --file "$metadata_file" paw.repo-root "$repo_root"
+  git config --file "$metadata_file" paw.git-common-dir "$common_dir"
+  git config --file "$metadata_file" paw.worktree-path "$worktree_path"
+  git config --file "$metadata_file" paw.head-state "$head_state"
+  git config --file "$metadata_file" paw.created-at "$now"
+  if [[ "$status" == "migrated" ]]; then
+    git config --file "$metadata_file" paw.migrated-at "$now"
+  fi
+  if [[ -n "$branch" ]]; then
+    git config --file "$metadata_file" paw.branch-name "$branch"
+  fi
+  if [[ -n "$head_sha" ]]; then
+    git config --file "$metadata_file" paw.head-sha "$head_sha"
+  fi
+  if [[ -n "$source_path" ]]; then
+    git config --file "$metadata_file" paw.source-path "$source_path"
+  fi
+}
+
+paw_task_metadata_get() {
+  local task_dir="$1" key="$2"
+  git config --file "$(paw_task_metadata_file "$task_dir")" --get "paw.$key" 2>/dev/null || true
+}
+
+paw_task_archive() {
+  local repo_path="$1" task_name="$2" central archived now
+  central="$(paw_task_create_dir "$repo_path" "$task_name")"
+  archived="$(paw_task_archive_dir "$repo_path" "$task_name")"
+
+  if [[ ! -d "$central" ]]; then
+    if [[ -d "$(paw_task_legacy_dir "$repo_path" "$task_name")" ]]; then
+      echo "error: task '$task_name' is a legacy .agent package; migrate it before archiving." >&2
+    else
+      echo "error: task '$task_name' not found at $central" >&2
+    fi
+    return 1
+  fi
+  if [[ -e "$archived" ]]; then
+    echo "error: archived task already exists: $archived" >&2
+    return 1
+  fi
+  if paw_task_has_active_run "$central"; then
+    echo "error: task '$task_name' has a running PAW subprocess and cannot be archived." >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$archived")"
+  mv "$central" "$archived"
+  now="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  if [[ -f "$(paw_task_metadata_file "$archived")" ]]; then
+    git config --file "$(paw_task_metadata_file "$archived")" paw.archived-at "$now"
+    git config --file "$(paw_task_metadata_file "$archived")" paw.archive-source "$central"
+  fi
+  printf '%s\n' "$archived"
+}
+
+paw_task_plan_field() {
+  local plan_file="$1" label="$2"
+  [[ -f "$plan_file" ]] || return 1
+  awk -v label="$label" '
+    /^## Current Status[[:space:]]*$/ { in_block = 1; next }
+    in_block && /^## / { in_block = 0 }
+    in_block {
+      pattern = "^- " label ":[[:space:]]*"
+      if ($0 ~ pattern) {
+        sub(pattern, "", $0)
+        print $0
+        exit
+      }
+    }
+  ' "$plan_file"
+}
+
+paw_task_has_pending_user_answers() {
+  local task_dir="$1" plan_file
+  plan_file="$task_dir/plan.md"
+  [[ -f "$plan_file" ]] || return 1
+  grep -Fq 'USER ANSWER (UNRESOLVED):' "$plan_file" || grep -Fq 'USER ANSWER (PROVIDED):' "$plan_file"
+}
+
+paw_task_running_metadata_is_active() {
+  local run_file="$1" base pid
+  [[ -f "$run_file" ]] || return 1
+  [[ "$(git config --file "$run_file" --get paw.status 2>/dev/null || true)" == "running" ]] || return 1
+  base="${run_file##*/}"
+  if [[ "$base" =~ -([0-9]+)\.gitconfig$ ]]; then
+    pid="${BASH_REMATCH[1]}"
+    kill -0 "$pid" 2>/dev/null
+    return $?
+  fi
+  return 0
+}
+
+paw_task_running_metadata_pid() {
+  local run_file="$1" base pid
+  [[ -f "$run_file" ]] || return 1
+  [[ "$(git config --file "$run_file" --get paw.status 2>/dev/null || true)" == "running" ]] || return 1
+  base="${run_file##*/}"
+  [[ "$base" =~ -([0-9]+)\.gitconfig$ ]] || return 1
+  pid="${BASH_REMATCH[1]}"
+  kill -0 "$pid" 2>/dev/null || return 1
+  printf '%s\n' "$pid"
+}
+
+paw_task_active_run_info() {
+  local task_dir="$1" run_file pid
+  shopt -s nullglob
+  for run_file in "$task_dir"/runs/*.gitconfig; do
+    if pid="$(paw_task_running_metadata_pid "$run_file")"; then
+      shopt -u nullglob
+      printf '%s\t%s\n' "$run_file" "$pid"
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+paw_task_has_active_run() {
+  local task_dir="$1" run_file
+  shopt -s nullglob
+  for run_file in "$task_dir"/runs/*.gitconfig; do
+    if paw_task_running_metadata_is_active "$run_file"; then
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+paw_task_is_finished() {
+  local task_dir="$1" plan_file completion next_work
+  plan_file="$task_dir/plan.md"
+  [[ -f "$plan_file" ]] || return 1
+  completion="$(paw_task_plan_field "$plan_file" "Estimated completion")"
+  next_work="$(paw_task_plan_field "$plan_file" "Next work")"
+  [[ "$completion" == "100%" && "$next_work" == Review.* ]]
+}
+
+paw_task_list() {
+  local repo_path="${1:-$PWD}" repo_root repo_store legacy_root task_dir task_name metadata_repo
+  repo_root="$(paw_repo_physical_path "$repo_path")"
+  repo_store="$(paw_task_repo_store "$repo_path")"
+  legacy_root="$repo_root/.agent"
+
+  shopt -s nullglob
+  if [[ -d "$repo_store" ]]; then
+    for task_dir in "$repo_store"/*/; do
+      [[ -d "$task_dir" ]] || continue
+      task_dir="${task_dir%/}"
+      [[ "$task_dir" == "$repo_store/.archive" ]] && continue
+      task_name="${task_dir##*/}"
+      metadata_repo="$(paw_task_metadata_get "$task_dir" repo-root)"
+      if [[ -n "$metadata_repo" && "$metadata_repo" != "$repo_root" ]]; then
+        continue
+      fi
+      printf '%s\tcentral\t%s\n' "$task_name" "$task_dir"
+    done
+  fi
+  if [[ -d "$legacy_root" ]]; then
+    for task_dir in "$legacy_root"/*/; do
+      [[ -d "$task_dir" ]] || continue
+      task_dir="${task_dir%/}"
+      task_name="${task_dir##*/}"
+      if [[ -d "$repo_store/$task_name" ]]; then
+        continue
+      fi
+      printf '%s\tlegacy\t%s\n' "$task_name" "$task_dir"
+    done
+  fi
+  shopt -u nullglob
+}
+
+paw_task_migrate_repo() {
+  local repo_path="${1:-$PWD}" legacy_root task_dir task_name central_dir
+  legacy_root="$(paw_repo_physical_path "$repo_path")/.agent"
+  if [[ ! -d "$legacy_root" ]]; then
+    echo "no legacy .agent/ directory found in $(paw_repo_physical_path "$repo_path")"
+    return 0
+  fi
+
+  local migrated=0
+  shopt -s nullglob
+  for task_dir in "$legacy_root"/*/; do
+    [[ -d "$task_dir" ]] || continue
+    task_dir="${task_dir%/}"
+    task_name="${task_dir##*/}"
+    central_dir="$(paw_task_create_dir "$repo_path" "$task_name")"
+    if [[ -e "$central_dir" ]]; then
+      echo "skip: central task already exists: $central_dir"
+      continue
+    fi
+    mkdir -p "$(dirname "$central_dir")"
+    cp -R "$task_dir" "$central_dir"
+    paw_task_write_metadata "$central_dir" "$repo_path" "$task_name" migrated "$task_dir"
+    echo "migrated: $task_dir -> $central_dir"
+    migrated=$((migrated + 1))
+  done
+  shopt -u nullglob
+
+  if [[ "$migrated" -eq 0 ]]; then
+    echo "no legacy task packages migrated from $legacy_root"
+  fi
+}

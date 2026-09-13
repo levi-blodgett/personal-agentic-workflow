@@ -1,5 +1,7 @@
 # PAW Test Suite
 
+Implement/diagnose completion requires full local validation after final changes, including batch, GUI and docs-only tasks. See [validation policy and recorded evidence](../examples/docs/testing.md).
+
 Bash tests for the PAW scripts, written with [bats-core](https://github.com/bats-core/bats-core).
 
 ## Install bats-core
@@ -31,31 +33,28 @@ bats tests/lint-task.bats
 | File | Covers |
 |---|---|
 | `setup-repo.bats` | `scripts/setup-repo.sh` |
-| `list-tasks.bats` | `scripts/list-tasks.sh` |
+| `list-tasks.bats` | `scripts/list-tasks.sh` status and running-state output |
 | `lint-task.bats` | `scripts/lint-task.sh` |
-| `makefile.bats` | `Makefile` targets (install, uninstall, help, -n dry-runs) |
-| `paw-dispatcher.bats` | `scripts/paw` subcommand dispatch, worktree resume, and launcher behavior |
-| `paw-completion-docs.bats` | Durable docs coverage for `paw completion zsh` and the narrowed `zsh`-only scope |
+| `task-store.bats` | central task-store resolution, archive moves/filtering, metadata, legacy fallback, eligibility/running-state predicates, and explicit multi-repo migration helpers |
+| `gui-server.bats` | GUI HTTP/actions, lifecycle, task/repo guards and imported Python journeys; browser checks below cover interaction/layout. |
+| `makefile.bats` | Make targets, conservative install ownership, spaces, launcher chains, source checks and relocation recovery |
+| `plugin-install.bats` | Real copied external-plugin Makefile; install lifecycle, conflicts, overrides, source resources, capture/stream, failures, optional hooks and executable discovery |
+| `paw-dispatcher.bats` | `scripts/paw` subcommand dispatch, review/prototype/archive command surfaces, `implement-batch`, worktree resume, and launcher behavior |
+| `paw-completion-docs.bats` | Each required completion setup/scope and command-authoring topic across maintained guides; missing topics fail independently. |
 | `paw-codex.bats` | Default codex backend wiring, auth banner, sandbox flags, and usage parsing |
 | `paw-crash.bats` | Crash classification, crash log writing, and prompt-size warnings |
-| `paw-prompt-body.bats` | Prompt body + launch banner for every subcommand (stub backend) |
-| `paw-pr-workflow.bats` | Shell-side `paw pr-submit` / `paw pr-review` workflow coverage |
+| `paw-prompt-body.bats` | Stub prompt/launcher contracts, review/prototype planning, immutable cleanup provenance, unusual paths, content/mode/index drift, retries and failure preservation. |
+| `paw-pr-workflow.bats` | Shell-side `paw pr-update` / `paw pr-submit` / `paw pr-review` and shared publication mode/token/retry policy coverage |
 | `paw-issue-workflow.bats` | Shell-side `paw issue-submit` / `paw issue-review` / `paw to-issues --publish` workflow coverage |
 | `paw-gh-actions-workflow.bats` | Shell-side `paw gh-actions-review` dispatch and flag-forwarding coverage |
 | `paw-compact.bats` | `paw compact` subcommand (archive-on-tick and idempotency) |
-| `templates.bats` | Template file structure and `prompts/prompt_instructions.md` anchor guarantees |
+| `templates.bats` | Template/example review structure and `prompts/prompt_instructions.md` anchor guarantees |
 | `gh-pr-comments.bats` | `scripts/gh-pr-comments.sh` (stub `gh` on PATH, reads JSON fixtures) |
 | `gh-actions-review.bats` | `scripts/gh-actions-review.sh` (stub `gh` on PATH, hermetic run/issue triage coverage) |
 
 ## Fixtures
 
-`tests/fixtures/` holds pre-built `.agent/<task>/` packages and JSON responses used as input:
-
-- `sample-task-valid/` — all required sections present; lint must pass
-- `sample-task-missing-sections/` — required sections intentionally absent; lint must warn
-- `sample-task-bloated/` — plan exceeds the 350-line working-surface budget; triggers PAW_LINT_LENGTH=1 warn
-- `backend-plugins/` — executable backend-plugin fixtures used by dispatcher tests
-- `gh-pr-comments/` — JSON GraphQL responses for `gh-pr-comments.bats` (`unresolved.json`, `resolved.json`)
+See [fixture catalog and extension rules](fixtures/README.md).
 
 ## Helpers
 
@@ -64,16 +63,53 @@ bats tests/lint-task.bats
 | File | Purpose |
 |------|---------|
 | `hermetic.bash` | Sets `LC_ALL=C`, `LANG=C`, `TZ=UTC` and unsets all `PAW_*` env vars so tests behave identically on macOS (BSD coreutils) and Linux (GNU coreutils) CI. |
-| `exit_code` | bats-core helper (loaded via `load`) for asserting specific exit codes. |
+| `exit_code.bash` | Loaded Bats helper for specific exit-code assertions. |
 
 ## Notes
 
 - `paw-dispatcher.bats` uses a PATH-shimmed `claude` fake for the dispatcher-focused tests that still exercise the Anthropic backend path.
 - `paw-prompt-body.bats` uses `PAW_BACKEND=stub`, so no real backend binary is required. The stub backend (`scripts/lib/backends/stub.sh`) writes
-  the full argv and resolved prompt body to `$BATS_TEST_TMPDIR/backend.{args,prompt,mode}`.
+  the full argv and resolved prompt body to `$BATS_TEST_TMPDIR/backend.{args,prompt,mode}`; tests may set `PAW_STUB_MUTATE_FILE` to simulate a backend-created tracked file change.
+- Task-store and GUI tests set `PAW_TASK_HOME` and, for lifecycle or repo-registry cases, `XDG_STATE_HOME` to `$BATS_TEST_TMPDIR` so central-store and GUI metadata behavior is hermetic and never writes to the operator's real local state.
 - New top-level `paw` commands should usually extend both files above: dispatcher coverage locks the public command/model surface, and prompt-body coverage locks the shared prompt/template helpers.
 - `paw-pr-workflow.bats`, `paw-issue-workflow.bats`, and `paw-gh-actions-workflow.bats` cover the shell-side GitHub workflow commands, including saved tracking metadata, issue-draft publication ordering, flag forwarding, and rerun behavior.
 - `paw-codex.bats` stubs the Codex CLI. External-plugin seam coverage stays in `paw-dispatcher.bats`; backend-specific compatibility checks for separately distributed plugins should live with those plugin repos.
 - `makefile.bats` requires `make` on `PATH` (pre-installed on `ubuntu-latest` and macOS).
 - Tests that need a real git repo create a temporary one in `$BATS_TEST_TMPDIR`
   and clean up on teardown.
+
+## Focused checks
+
+See [Focused regression checks](focused-testing.md).
+
+### Standalone suite routing
+
+`make check` runs all Bats files, repository task lint and ShellCheck. CI runs the
+same Bats directory and shell sources, plus sample-fixture lint. A Bats wrapper
+is one Bats case even when its Python child runs many cases; browser assertions
+are a separate supplemental gate. Do not report wrapper totals as total coverage.
+
+| Standalone suite | Automatic caller | Focused command |
+|---|---|---|
+| `gui-validation.py`, `gui-prototype.py`, `gui-performance.py` | `gui-server.bats` | `python3 tests/<file>` |
+| `review-record.py` | `task-store.bats` | `python3 tests/review-record.py` |
+| `pr-publication.py` | `paw-pr-workflow.bats` | `python3 tests/pr-publication.py` |
+| `markdown-budget.py` | `lint-task.bats` | `python3 tests/markdown-budget.py` |
+| `markdown-documents.py` | `paw-compact.bats` | `python3 tests/markdown-documents.py` |
+| `gui-validation-browser.mjs` | Separate required browser entrypoint when applicable | `node tests/gui-validation-browser.mjs` |
+| `gui-ux-browser.mjs`, `gui-pr-browser.mjs` | `gui-validation-browser.mjs` | `node tests/<file>` |
+
+Use `PYTHONDONTWRITEBYTECODE=1` and retain browser screenshots/version as described
+in [browser checks](browser-testing.md). Browser checks supplement `make check`.
+
+Counting boundaries and oversized-task success run through `lint-task.bats`.
+CLI, GUI and publication journeys verify that length never blocks workflows. Historical validation links retain named failures;
+`paw-compact.bats` covers fence-safe CLI compaction and retry idempotency.
+`markdown-documents.py` covers the exact reviewed fenced-example regression, fence
+type/length/indentation and false boundaries, complete oversized records, failed writes,
+collisions/symlinks, concurrent edits, retries and task-local evidence preservation.
+
+Documentation assertions normalize prose whitespace so reflow is harmless; machine-consumed
+anchors and markers remain literal. Required topics are checked individually, not with
+an OR expression that can pass on an unrelated topic. Prompt checks establish guidance
+presence and routing, not model compliance.

@@ -17,8 +17,8 @@ Every built-in backend module under `scripts/lib/backends/` must implement the f
 
 Run the AI model in non-streaming mode.
 
-- Write a JSON-ish result blob to `<out-json-path>` (must be parseable by
-  `backend_parse_tokens`).
+- Write a JSON object to `<out-json-path>` with a `.result` string for PAW
+  to display via `jq -r`. Include usage data readable by `backend_parse_tokens`.
 - Return the underlying tool's exit code (0 = success).
 
 ### `backend_run_stream <out-json-path> [tool args...]`
@@ -30,16 +30,20 @@ Run the AI model in streaming mode, printing text to stdout live.
 - Print each content block on its own line (newline at `content_block_stop`,
   blank line at `message_stop`).
 - Return the underlying tool's exit code (0 = success).
-- Requires `jq` on `PATH`.
+- PAW currently requires `jq` on `PATH` before invoking streaming, even if
+  the external adapter uses another parser.
 
-### `backend_parse_tokens <json-file>`
+### `backend_parse_tokens <json-file> [field]`
 
 Parse the approximate total token count from a capture result file.
 
 - Print the count as a plain integer string, or `unknown` on failure.
-- Must not error when the file is absent or malformed.
+- Must not error when the file is absent or malformed; print `unknown` and exit 0.
+- Optional field selectors: `total` (default), `input`, `output`, `cache_read`,
+  `cache_creation`. Return the requested integer or `unknown` if unavailable.
+  Do not write diagnostic prose to parser stdout.
 
-### `backend_parse_stream_tokens <json-file>`
+### `backend_parse_stream_tokens <json-file> [field]`
 
 Parse the approximate total token count from a stream result file.
 
@@ -50,7 +54,7 @@ Parse the approximate total token count from a stream result file.
 These functions are not required.  Callers must check with `declare -f` before
 invoking any optional function.
 
-### `backend_display_model`
+### `backend_display_model [fallback-model]`
 
 Echo the canonical model identifier that the backend will actually use,
 regardless of the `--model` flag passed by `scripts/paw`.
@@ -90,10 +94,26 @@ Optional subcommands:
 
 The runtime contract for each subcommand matches the built-in function with the same name:
 
-- `run-capture` and `run-stream` receive the same paw-generated tool args after the output path.
+- `run-capture` and `run-stream` receive the output path first, then PAW-generated
+  arguments: `--model <model> --add-dir <PAW_HOME> --permission-mode
+  bypassPermissions --max-turns <count>`, then the prompt (and any forwarded args).
+  The prompt is an argument, not stdin. Translate these arguments for your own
+  provider; preserve boundaries for paths/prompts containing spaces. Each plugin
+  invocation is a separate process, so do not rely on shell state between hooks.
+- Write to the supplied output path; do not replace it with a plugin-chosen path.
+  Capture displays `.result`; stream stdout is displayed live and the output file
+  retains raw provider events for the stream parser. Preserve the provider's exit
+  status through pipes (for Bash adapters, use `pipefail` or `PIPESTATUS`). PAW
+  propagates failures and also recognizes error responses in capture mode.
+- Missing required run arguments or unknown subcommands should produce a clear
+  stderr diagnostic and nonzero status; missing/malformed telemetry inputs return
+  `unknown` successfully. Required subcommands are not probed at discovery time.
 - `parse-tokens` and `parse-stream-tokens` must print a plain integer string or `unknown`.
 - `display-model` should print exactly one model id when it overrides the fallback.
-- `usage-banner` should stay fast and non-networked.
+  Missing, failing, or empty output falls back to the supplied resolved model;
+  stderr is suppressed.
+- `usage-banner` should stay fast and non-networked. Its stdout is redirected to
+  stderr; failure is ignored (unsupported-hook diagnostics may remain visible).
 
 ## Shipped built-ins
 
